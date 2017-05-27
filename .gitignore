@@ -1,0 +1,10 @@
+*.txt
+
+mesh/
+papers/
+
+diag/**
+!diag/*.cpp
+!diag/*.h
+!diag/*.pro
+
