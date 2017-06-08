@@ -1,0 +1,3 @@
+Modelli generati seguendo i passi descritti qui -> http://www.gcc.tu-darmstadt.de/home/proj/texrecon/
+
+achteck_turm : 36 foto, dataset originale http://www.gcc.tu-darmstadt.de/home/proj/mve/

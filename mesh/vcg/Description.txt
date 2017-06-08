@@ -1,0 +1,6 @@
+Capitello - 8 foto, proiezione MeshLab, modello grande
+Capitello_superfragmented - 8 foto, proiezione Photoscan, modello grande, superframmentato!
+Gargoyle - 11 foto, proiezione MeshLab
+Guy - modello fornito dall'esterno, non so bene cosa abbiano usato, vari troiai nella superficie
+Tutan - 9 foto, proiezione MeshLab
+Vase_Louvre - 6-7 foto, proiezione MeshLab

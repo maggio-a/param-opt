@@ -1,10 +1,15 @@
-*.txt
 
-mesh/
+mesh/**/*.ply
+mesh/**/*.obj
+mesh/**/*.mtl
+mesh/**/*.jpg
+mesh/**/*.png
+mesh/**/*.bmp
+
 papers/
 
-diag/**
-!diag/*.cpp
-!diag/*.h
-!diag/*.pro
+pinfo/**
+!pinfo/*.cpp
+!pinfo/*.h
+!pinfo/*.pro
 
