@@ -5,6 +5,7 @@ mesh/**/*.mtl
 mesh/**/*.jpg
 mesh/**/*.png
 mesh/**/*.bmp
+mesh/vcg/problematic/nabu/*
 
 papers/
 

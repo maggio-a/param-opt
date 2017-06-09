@@ -10,6 +10,7 @@
 #include <unordered_set>
 #include <iostream>
 #include <iomanip>
+#include <cmath>
 
 #include <unistd.h>
 
@@ -55,7 +56,7 @@ struct ChartData {
     void Accumulate(const Mesh::FacePointer fptr) {
         faceCount++;
         meshArea += tri::Distortion<Mesh,true>::Area3D(fptr);
-        chartArea += tri::Distortion<Mesh,true>::AreaUV(fptr);
+        chartArea +=std::abs(tri::Distortion<Mesh,true>::AreaUV(fptr));
     }
 };
 
