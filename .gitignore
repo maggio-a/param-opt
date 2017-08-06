@@ -14,3 +14,8 @@ pinfo/**
 !pinfo/*.h
 !pinfo/*.pro
 
+texdefrag/**
+!texdefrag/*.cpp
+!texdefrag/*.h
+!texdefrag/*.pro
+

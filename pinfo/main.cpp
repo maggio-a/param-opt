@@ -48,23 +48,28 @@ struct ChartData {
     int faceCount;
     float meshArea;
     float chartArea;
+    float chartBorder;
 
     std::unordered_set<std::shared_ptr<ChartData>> adj;
 
-    ChartData(std::size_t id_, Mesh::FacePointer fp_) : id{id_}, fp{fp_}, faceCount{0}, meshArea{0}, chartArea{0}, adj{} {}
+    ChartData(std::size_t id_, Mesh::FacePointer fp_) : id{id_}, fp{fp_}, faceCount{0}, meshArea{0},
+        chartArea{0}, chartBorder{0}, adj{} {}
 
     void Accumulate(const Mesh::FacePointer fptr) {
         faceCount++;
         meshArea += tri::Distortion<Mesh,true>::Area3D(fptr);
-        chartArea +=std::abs(tri::Distortion<Mesh,true>::AreaUV(fptr));
+        chartArea += std::abs(tri::Distortion<Mesh,true>::AreaUV(fptr));
+        if (face::IsBorder(*fptr, 0)) chartBorder += (fptr->cWT(1).P() - fptr->cWT(0).P()).Norm();
+        if (face::IsBorder(*fptr, 1)) chartBorder += (fptr->cWT(2).P() - fptr->cWT(1).P()).Norm();
+        if (face::IsBorder(*fptr, 2)) chartBorder += (fptr->cWT(2).P() - fptr->cWT(0).P()).Norm();
     }
 };
 
-struct PatameterizationData {
+struct ParameterizationData {
     std::vector<std::shared_ptr<ChartData>> charts;
     std::vector<std::shared_ptr<QImage>> textures;
 
-    PatameterizationData() : charts{}, textures{} {}
+    ParameterizationData() : charts{}, textures{} {}
 
     std::shared_ptr<ChartData> CreateChart(const Mesh::FacePointer fptr)
     {
@@ -122,7 +127,7 @@ int main(int argc, char *argv[])
         return -1;
     }
 
-    PatameterizationData paramData;
+    ParameterizationData paramData;
     std::vector<std::shared_ptr<QImage>> textures;
     for (const string& textureName : m.textures) {
         auto imgptr = std::make_shared<QImage>(textureName.c_str());
@@ -136,12 +141,16 @@ int main(int argc, char *argv[])
     tri::RequirePerFaceWedgeTexCoord<Mesh>(m);
     assert(loadmask & tri::io::Mask::IOM_WEDGTEXCOORD);
 
-    std::cout << "Model info" << std::endl;
-    std::cout << "==========" << std::endl;
-    std::cout << "Mesh file: " << fileName << " (VN " << m.VN() << ", FN " << m.FN() << ")" << std::endl;
-    std::cout << "Texture files:" << std::endl;
-    for(std::string &s : m.textures) std::cout << "  " + s << std::endl;
+    // Compute mesh border length
+    float meshBorderLength = 0.0f;
+    tri::UpdateTopology<Mesh>::FaceFace(m);
 
+    for (auto &f : m.face) {
+        if (face::IsBorder(f, 0)) meshBorderLength += (f.cWT(1).P() - f.cWT(0).P()).Norm();
+        if (face::IsBorder(f, 1)) meshBorderLength += (f.cWT(2).P() - f.cWT(1).P()).Norm();
+        if (face::IsBorder(f, 2)) meshBorderLength += (f.cWT(2).P() - f.cWT(0).P()).Norm();
+    }
+    
     // Identify each patch (store id as face attribute)
 
     Mesh::PerFaceAttributeHandle<std::size_t> chartId = tri::Allocator<Mesh>::GetPerFaceAttribute<std::size_t>(m, "ChartID");
@@ -189,8 +198,27 @@ int main(int argc, char *argv[])
         }
     }
 
+    float paramPerimeter = 0.0f;
+    for (auto &c : paramData.charts) paramPerimeter += c->chartBorder;
+    paramPerimeter -= meshBorderLength;
+
     float tot3D = paramData.GetArea3D();
     float totUV = paramData.GetAreaUV();
+
+#define PRINT_COMPACT__
+
+#ifdef PRINT_COMPACT__
+
+    std::cout << fileName << " " <<  m.VN() << " " << m.FN() << " " << paramData.charts.size() << " ";
+    std::cout << paramPerimeter << " " << totUV << " " << (paramPerimeter*paramPerimeter / totUV) << std::endl;
+
+#else
+
+    std::cout << "Model info" << std::endl;
+    std::cout << "==========" << std::endl;
+    std::cout << "Mesh file: " << fileName << " (VN " << m.VN() << ", FN " << m.FN() << ")" << std::endl;
+    std::cout << "Texture files:" << std::endl;
+    for(std::string &s : m.textures) std::cout << "  " + s << std::endl;
 
     std::cout << std::endl;
     std::cout << "Parameterization info" << std::endl;
@@ -217,6 +245,8 @@ int main(int argc, char *argv[])
 
         std::cout << " " << std::setw(8) << ((*ci)->adj).size() << std::endl;
     }
+#endif
 
     return 0;
 }
+
