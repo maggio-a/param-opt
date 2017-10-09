@@ -1,8 +1,6 @@
 #ifndef TEXTURE_RENDERING_H
 #define TEXTURE_RENDERING_H
 
-#include "mesh.h"
-
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 
@@ -10,12 +8,12 @@
 
 #include <QImage>
 
-using namespace std;
+#include "mesh.h"
+#include "pushpull.h"
 
-static void ErrorCallback(int error, const char *message)
-{
-    cout << "glfw error: " << message << " (code " << error << ")" << endl;
-}
+#include "gl_util.h"
+
+using namespace std;
 
 static const char *vs_text[] = {
     "#version 420 core                                           \n"
@@ -46,40 +44,7 @@ static const char *fs_text[] = {
     "}                                                           \n"
 };
 
-static void CheckGLError(bool silent = false)
-{
-    GLenum error = glGetError();
-    if (silent) return;
-    if (error != GL_NO_ERROR)
-    {
-        cout << "OpenGL error " << error  << " ";
-        if (error == GL_INVALID_VALUE) cout << "GL_INVALID_VALUE";
-        if (error == GL_INVALID_OPERATION) cout << "GL_INVALID_OPERATION";
-        cout << endl;
-        //assert(error == GL_NO_ERROR);
-    }
-}
-
-static void LoadTexture2D(const QImage& img, GLuint texture)
-{
-    GLenum format, channels, type;
-
-    switch(img.format()) {
-    case QImage::Format_RGB32:
-    case QImage::Format_ARGB32:
-        format = GL_RGBA8; channels = GL_BGRA; type = GL_UNSIGNED_BYTE; break;
-    default:
-        cout << "Unupported texture format" << endl; exit(-1);
-    }
-
-    glBindTexture(GL_TEXTURE_2D, texture);
-    glTexStorage2D(GL_TEXTURE_2D, 1, format, img.width(), img.height());
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, img.width(), img.height(), channels, type, img.constBits());
-
-    CheckGLError();
-}
-
-static std::shared_ptr<QImage> RenderTexture(Mesh &m, std::vector<std::shared_ptr<QImage>> imgVec)
+static std::shared_ptr<QImage> RenderTexture(Mesh &m, std::vector<std::shared_ptr<QImage>> imgVec, bool filter)
 {
     assert(imgVec.size() == 1); // FIXME multiple texture images support
     QImage &img = *imgVec[0];
@@ -114,7 +79,7 @@ static std::shared_ptr<QImage> RenderTexture(Mesh &m, std::vector<std::shared_pt
         cout << "glew init error " << glewGetErrorString(err) << endl;
     }
 
-    CheckGLError(true); // suppress possible error on glew init
+    glGetError(); // suppress possible error on glew init
 
     glfwSwapInterval(1);
 
@@ -243,28 +208,24 @@ static std::shared_ptr<QImage> RenderTexture(Mesh &m, std::vector<std::shared_pt
     GLuint texture;
     glGenTextures(1, &texture);
     glActiveTexture(GL_TEXTURE0);
-    LoadTexture2D(img.mirrored(), texture); // mirror qimage to match opengl format
+    LoadTexture2DFromQImage(img, texture); // mirror qimage to match opengl convention
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
     QImage textureImage(img.width(), img.height(), QImage::Format_ARGB32);
-    //while (!glfwWindowShouldClose(window))
-    {
-        glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
-        glClear(GL_COLOR_BUFFER_BIT);
 
-        glDrawArrays(GL_TRIANGLES, 0, m.FN()*3);
+    glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
 
-        CheckGLError();
+    glDrawArrays(GL_TRIANGLES, 0, m.FN()*3);
 
-        //glfwSwapBuffers(window);
-        //glReadBuffer(GL_FRONT);
-        glReadBuffer(GL_COLOR_ATTACHMENT0);
-        glReadPixels(0, 0, textureImage.width(), textureImage.height(), GL_BGRA, GL_UNSIGNED_BYTE, textureImage.bits());
+    CheckGLError();
 
-        glfwPollEvents();
-    }
+    glReadBuffer(GL_COLOR_ATTACHMENT0);
+    glReadPixels(0, 0, textureImage.width(), textureImage.height(), GL_BGRA, GL_UNSIGNED_BYTE, textureImage.bits());
+
+    glfwPollEvents();
 
 
     // cleanup TODO
@@ -273,6 +234,8 @@ static std::shared_ptr<QImage> RenderTexture(Mesh &m, std::vector<std::shared_pt
 
     glfwDestroyWindow(window);
     glfwTerminate();
+
+    if (filter) vcg::PullPush(textureImage, qRgba(0, 255, 0, 255));
 
     return std::make_shared<QImage>(textureImage.mirrored());
 }
