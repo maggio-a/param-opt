@@ -19,3 +19,5 @@ texdefrag/**
 !texdefrag/*.h
 !texdefrag/*.pro
 
+*.user
+build-*
