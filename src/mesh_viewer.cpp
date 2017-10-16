@@ -16,7 +16,7 @@
 #include "gl_util.h"
 
 const char *vs_text_3D[] = {
-    "#version 420 core                                                             \n"
+    "#version 410 core                                                             \n"
     "                                                                              \n"
     "uniform mat4 modelViewMatrix;                                                 \n"
     "uniform mat4 projectionMatrix;                                                \n"
@@ -33,7 +33,7 @@ const char *vs_text_3D[] = {
 };
 
 const char *vs_text_texture[] = {
-    "#version 420 core                                                             \n"
+    "#version 410 core                                                             \n"
     "                                                                              \n"
     "uniform mat4 projectionMatrix;                                                \n"
     "                                                                              \n"
@@ -48,9 +48,9 @@ const char *vs_text_texture[] = {
 };
 
 const char *fs_text_texture[] = {
-    "#version 420 core                            \n"
+    "#version 410 core                            \n"
     "                                             \n"
-    "layout (binding = 0) uniform sampler2D tex0; \n"
+    "uniform sampler2D tex0; \n"
     "                                             \n"
     "in vec2 uv;                                  \n"
     "out vec4 color;                              \n"
@@ -62,7 +62,7 @@ const char *fs_text_texture[] = {
 };
 
 const char *fs_text_selection[] = {
-    "#version 420 core                            \n"
+    "#version 410 core                            \n"
     "                                             \n"
     "in vec2 uv;                                  \n"
     "out vec4 color;                              \n"
@@ -673,7 +673,7 @@ void MeshViewer::Run()
     glfwSetErrorCallback(ErrorCallback);
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 

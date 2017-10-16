@@ -1,4 +1,7 @@
 VCGPATH = $(HOME)/include/vcglib
+exists( $(HOME)/devel/vcglib ) {
+     VCGPATH = $(HOME)/devel/vcglib
+}
 
 TARGET = viewer
 
@@ -14,10 +17,10 @@ INCLUDEPATH += ../src $$VCGPATH $$VCGPATH/eigenlib
 
 #unix {
     CONFIG += link_pkgconfig
-    PKGCONFIG += glfw3
+     PKGCONFIG += glfw3 glew
 #}
 
-LIBS += -lGL -lGLEW
+#LIBS += -lGL -lGLEW
 
 SOURCES += viewer.cpp
 
