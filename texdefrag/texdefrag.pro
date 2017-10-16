@@ -12,10 +12,10 @@ TEMPLATE = app
 
 INCLUDEPATH += ../src $$VCGPATH $$VCGPATH/eigenlib
 
-#unix {
+unix {
     CONFIG += link_pkgconfig
     PKGCONFIG += glfw3
-#}
+}
 
 LIBS += -lGL -lGLEW
 

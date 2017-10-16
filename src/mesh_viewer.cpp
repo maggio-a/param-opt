@@ -190,7 +190,7 @@ void MeshViewer::InitializeSelection(const RegionID id)
     SetupDetailView(id);
 }
 
-void MeshViewer::PerspectivePick()
+bool MeshViewer::IntersectionMouseRayModel(Mesh::ConstFacePointer *fp, float &u, float &v)
 {
     using vcg::Point3f;
     using vcg::Ray3f;
@@ -228,17 +228,27 @@ void MeshViewer::PerspectivePick()
 
     // Perform intersection tests
     const Mesh& m = meshParamData->mesh;
-    const MeshFace *fp = nullptr;
+    *fp = nullptr;
     float tMin = std::numeric_limits<float>::max();
     for (auto &f : m.face) {
-        float t, u, v;
-        if (vcg::IntersectionRayTriangle(selectionRay, f.cP(0), f.cP(1), f.cP(2), t, u, v) && t < tMin) {
-            fp = &f;
+        float t, uface, vface;
+        if (vcg::IntersectionRayTriangle(selectionRay, f.cP(0), f.cP(1), f.cP(2), t, uface, vface) && t < tMin) {
+            *fp = &f;
             tMin = t;
+            u = uface;
+            v = vface;
         }
     }
+    return tMin != std::numeric_limits<float>::max();
+}
 
-    if (fp != nullptr) {
+void MeshViewer::PerspectivePick()
+{
+    Mesh::ConstFacePointer fp;
+    float u, v;
+
+    //if (fp != nullptr) {
+    if (IntersectionMouseRayModel(&fp, u, v)) {
         auto CCIDh = tri::Allocator<Mesh>::GetPerFaceAttribute<RegionID>(meshParamData->mesh, "ConnectedComponentID");
         RegionID selectionID = CCIDh[fp];
         InitializeSelection(selectionID);
@@ -253,22 +263,45 @@ void MeshViewer::PickRegion()
     else if (InTextureView()) TexturePick();
 }
 
+void MeshViewer::CenterPerspectiveViewFromMouse()
+{
+    if (InPerspectiveView()) {
+        Mesh::ConstFacePointer fp;
+        float u;
+        float v;
+        if (IntersectionMouseRayModel(&fp, u, v)) {
+            Point3f centerPoint = fp->cP(0) * (1.0f - u - v) + fp->cP(1) * u + fp->cP(2) * v;
+            mat4x4_translate(_meshTransform.positionMatrix, -centerPoint.X(), -centerPoint.Y(), -centerPoint.Z());
+        }
+    }
+}
+
 void MeshViewer::MouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
 {
     MeshViewer *viewer = (MeshViewer *) glfwGetWindowUserPointer(window);
 
-    // Drag mode
-    if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-        if (viewer->InPerspectiveView()) viewer->_dragMode = DragMode::PERSPECTIVE;
-        else if (viewer->InTextureView()) viewer->_dragMode = DragMode::TEXTURE;
-        if (viewer->InDetailView()) viewer->_dragMode = DragMode::DETAIL;
-    } else {
-        viewer->_dragMode = DragMode::DISABLED;
-    }
+    if (mods & GLFW_MOD_SHIFT) {
 
-    // Pick mode, select region
-    if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
-        viewer->PickRegion();
+        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) { // Center view on the point
+            viewer->CenterPerspectiveViewFromMouse();
+        }
+
+    } else {
+
+        // Drag mode // TODO: viewer->enable/disable dragmode
+        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+            if (viewer->InPerspectiveView()) viewer->_dragMode = DragMode::PERSPECTIVE;
+            else if (viewer->InTextureView()) viewer->_dragMode = DragMode::TEXTURE;
+            if (viewer->InDetailView()) viewer->_dragMode = DragMode::DETAIL;
+        } else {
+            viewer->_dragMode = DragMode::DISABLED;
+        }
+
+        // Pick mode, select region
+        if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
+            viewer->PickRegion();
+        }
+
     }
 }
 
@@ -708,10 +741,24 @@ void MeshViewer::Run()
 
     glfwSwapInterval(1);
 
+    GLint loc_tex0;
     _perspectiveView.program = CompileShaders(vs_text_3D, fs_text_texture);
     _perspectiveView.selection.program = CompileShaders(vs_text_3D, fs_text_selection);
     _textureView.program = CompileShaders(vs_text_texture, fs_text_texture);
     _detailView.program = CompileShaders(vs_text_texture, fs_text_texture);
+
+    loc_tex0 = glGetUniformLocation(_perspectiveView.program, "tex0");
+    glUseProgram(_perspectiveView.program);
+    glUniform1i(loc_tex0, 0);
+    loc_tex0 = glGetUniformLocation(_textureView.program, "tex0");
+    glUseProgram(_textureView.program);
+    glUniform1i(loc_tex0, 0);
+    loc_tex0 = glGetUniformLocation(_detailView.program, "tex0");
+    glUseProgram(_detailView.program);
+    glUniform1i(loc_tex0, 0);
+
+    glUseProgram(0);
+
     InitBuffers();
     SetupViews();
 

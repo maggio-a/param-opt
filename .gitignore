@@ -19,5 +19,11 @@ texdefrag/**
 !texdefrag/*.h
 !texdefrag/*.pro
 
+viewer/**
+!viewer/*.cpp
+!viewer/*.h
+!viewer/*.pro
+
 *.user
 build-*
+

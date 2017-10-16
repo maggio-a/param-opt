@@ -138,8 +138,8 @@ private:
     Camera2D _detailCamera;
 
     struct {
-        mat4x4 orientationMatrix;
         mat4x4 positionMatrix;
+        mat4x4 orientationMatrix;
         mat4x4 scaleMatrix;
         mat4x4 viewMatrix;
         mat4x4 projectionMatrix;
@@ -173,6 +173,8 @@ public:
     bool InPerspectiveView();
     bool InTextureView();
     bool InDetailView();
+    bool IntersectionMouseRayModel(Mesh::ConstFacePointer *fp, float &u, float &v);
+    void CenterPerspectiveViewFromMouse();
     void PickRegion();
     void PerspectivePick();
     void TexturePick();
