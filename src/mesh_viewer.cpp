@@ -329,6 +329,11 @@ void MeshViewer::CursorPositionCallback(GLFWwindow *window, double xpos, double 
 void MeshViewer::ScrollCallback(GLFWwindow* window, double xoffset, double yoffset)
 {
     MeshViewer *viewer = (MeshViewer *) glfwGetWindowUserPointer(window);
+    if (viewer->InPerspectiveView()) {
+        float factor = (yoffset > 0.0f) ? 0.9f : 1.1f;
+        viewer->_perspectiveCamera.eye[2] *= factor;
+        viewer->_perspectiveCamera.near *= factor;
+    }
     if (viewer->InTextureView()) yoffset > 0.0f ? viewer->_textureCamera.ZoomIn() : viewer->_textureCamera.ZoomOut();
     if (viewer->InDetailView()) yoffset > 0.0f ? viewer->_detailCamera.ZoomIn() : viewer->_detailCamera.ZoomOut();
 }
@@ -488,10 +493,8 @@ void MeshViewer::SetupViews()
     mat4x4_identity(_meshTransform.scaleMatrix);
     mat4x4_scale_aniso(_meshTransform.scaleMatrix, _meshTransform.scaleMatrix, scale, scale, scale);
 
-    // view matrix is static
-    mat4x4_look_at(_meshTransform.viewMatrix, _perspectiveCamera.eye, _perspectiveCamera.target, _perspectiveCamera.up);
-
-    // projection will be updated at each draw
+    // view and projection matrices will be updated at each draw
+    mat4x4_identity(_meshTransform.viewMatrix);
     mat4x4_identity(_meshTransform.projectionMatrix);
 
     _perspectiveView.uniforms.loc_modelView = glGetUniformLocation(_perspectiveView.program, "modelViewMatrix");
@@ -581,9 +584,12 @@ void MeshViewer::Draw3DView()
     mat4x4_mul(model, _meshTransform.orientationMatrix, model);
     mat4x4_mul(model, _meshTransform.scaleMatrix, model);
 
+    mat4x4_look_at(_meshTransform.viewMatrix, _perspectiveCamera.eye, _perspectiveCamera.target, _perspectiveCamera.up);
+
     mat4x4_mul(modelView, _meshTransform.viewMatrix, model);
 
-    mat4x4_perspective(_meshTransform.projectionMatrix, 60.0f * M_PI / 180.0f, info.perspectiveViewAspect, 0.1f, 2000.0f);
+    mat4x4_perspective(_meshTransform.projectionMatrix, 60.0f * M_PI / 180.0f, info.perspectiveViewAspect,
+                       _perspectiveCamera.near, _perspectiveCamera.far);
 
     glUniformMatrix4fv(_perspectiveView.uniforms.loc_modelView, 1, GL_FALSE, (const GLfloat *) modelView);
     glUniformMatrix4fv(_perspectiveView.uniforms.loc_projection, 1, GL_FALSE, (const GLfloat *)_meshTransform.projectionMatrix);

@@ -131,7 +131,7 @@ private:
         vec3 target = { 0.0f, 0.0f, 0.0f};
         vec3 up = {0.0f, 1.0f, 0.0f};
         float near = 0.1f;
-        float far = 1800.0f;
+        float far = 2000.0f;
     } _perspectiveCamera;
 
     Camera2D _textureCamera;
