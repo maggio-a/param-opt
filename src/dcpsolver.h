@@ -4,6 +4,7 @@
 #include <vector>
 #include <unordered_map>
 #include <iostream>
+#include <type_traits>
 
 #include <Eigen/Sparse>
 
@@ -14,11 +15,11 @@
  * Reference: Desburn, Meyer, Alliez - Intrinsic parameterizations of surface meshes
  * Parameterize a mesh by minimizing the Dirichlet's energy of the uv->3D map
  */
+template <typename MeshType>
 class DCPSolver
 {
 public:
 
-    using MeshType = Mesh; // TODO template
     using ScalarType = typename MeshType::ScalarType;
     using VertexType = typename MeshType::VertexType;
     using VertexPointer = typename MeshType::VertexPointer;
@@ -56,6 +57,12 @@ public:
         return constraints.insert(std::make_pair(vp, uv)).second;
     }
 
+    // Mock PoissonSolver interface
+    void Init() {}
+    void FixDefaultVertices() {}
+    bool IsFeasible() { return true; }
+    bool SolvePoisson() { return Solve(); }
+
     bool Solve()
     {
         // Mark border vertices
@@ -71,6 +78,10 @@ public:
         }
         assert(vmap.size() == mesh.vert.size());
 
+        // Workaround to avoid inifinities if an angle is too small
+        assert(std::is_floating_point<ScalarType>::value);
+        ScalarType eps = std::numeric_limits<ScalarType>::epsilon();
+
         // Compute matrix coefficients
         coeffList.reserve(mesh.VN() * 32);
         for (auto &f : mesh.face) {
@@ -79,10 +90,10 @@ public:
                 VertexPointer vj = f.V1(i);
                 VertexPointer vk = f.V2(i);
 
-                ScalarType alpha_ij = vcg::Angle(vi->P() - vk->P(), vj->P() - vk->P());
+                ScalarType alpha_ij = std::max(vcg::Angle(vi->P() - vk->P(), vj->P() - vk->P()), eps);
                 ScalarType weight_ij = ScalarType(1) / std::tan(alpha_ij);
 
-                ScalarType alpha_ik = vcg::Angle(vi->P() - vj->P(), vk->P() - vj->P());
+                ScalarType alpha_ik = std::max(vcg::Angle(vi->P() - vj->P(), vk->P() - vj->P()), eps);
                 ScalarType weight_ik = ScalarType(1) / std::tan(alpha_ik);
 
                 // Signs should inverted wrt to the partial derivatives, but are the same
@@ -152,6 +163,7 @@ public:
         A.setFromTriplets(coeffList.begin(), coeffList.end());
 
         //std::cout << Eigen::MatrixXd(A) << std::endl;
+        //std::cout << b << std::endl;
 
         // Solve TODO find out why the conjugate gradient fails with x = NaNs
         //Eigen::ConjugateGradient<Eigen::SparseMatrix<double>, Eigen::Lower|Eigen::Upper> cg;
@@ -174,7 +186,7 @@ public:
         }
 
         // Copy back the texture coordinates
-        vcg::Box2<CoordUV::ScalarType> uvBox;
+        vcg::Box2<typename CoordUV::ScalarType> uvBox;
         for (int i = 0; i < mesh.VN(); ++i) {
             uvBox.Add(CoordUV(ScalarType{x[U(i)]}, ScalarType{x[V(i)]}));
         }
@@ -186,6 +198,7 @@ public:
                 VertexPointer vi = f.V(i);
                 CoordUV uv{x[U(vi)], x[V(vi)]};
                 f.WT(i).P() = (uv - uvBox.min) * scale;
+                vi->T().P() = (uv - uvBox.min) * scale;
             }
         }
 

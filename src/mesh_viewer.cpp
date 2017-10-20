@@ -48,33 +48,119 @@ const char *vs_text_texture[] = {
 };
 
 const char *fs_text_texture[] = {
-    "#version 410 core                            \n"
-    "                                             \n"
-    "uniform sampler2D tex0; \n"
-    "                                             \n"
-    "in vec2 uv;                                  \n"
-    "out vec4 color;                              \n"
-    "                                             \n"
-    "void main(void)                              \n"
-    "{                                            \n"
-    "    color = texture(tex0, uv);               \n"
-    "}                                            \n"
+    "#version 410 core                                     \n"
+    "                                                      \n"
+    "uniform sampler2D tex0;                               \n"
+    "uniform vec4 weight = vec4(1.0f, 1.0f, 1.0f, 1.0f);          \n"
+    "                                                      \n"
+    "in vec2 uv;                                           \n"
+    "out vec4 color;                                       \n"
+    "                                                      \n"
+    "void main(void)                                       \n"
+    "{                                                     \n"
+    "    color = texture(tex0, uv)*weight;                 \n"
+    "}                                                     \n"
 };
 
-const char *fs_text_selection[] = {
-    "#version 410 core                            \n"
-    "                                             \n"
-    "in vec2 uv;                                  \n"
-    "out vec4 color;                              \n"
-    "                                             \n"
-    "void main(void)                              \n"
-    "{                                            \n"
-    "    color = vec4(1.0, 0.0, 0.0, 0.5);        \n"
-    "}                                            \n"
-};
+// GLFW callbacks
+
+void MeshViewer::MouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
+{
+    MeshViewer *viewer = (MeshViewer *) glfwGetWindowUserPointer(window);
+
+    if (mods & GLFW_MOD_SHIFT) {
+
+        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) { // Center view on the point
+            viewer->CenterPerspectiveViewFromMouse();
+        }
+
+    } else {
+
+        // Drag mode // TODO: viewer->enable/disable dragmode
+        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+            if (viewer->InPerspectiveView()) viewer->_dragMode = DragMode::PERSPECTIVE;
+            else if (viewer->InTextureView()) viewer->_dragMode = DragMode::TEXTURE;
+            if (viewer->InDetailView()) viewer->_dragMode = DragMode::DETAIL;
+        } else {
+            viewer->_dragMode = DragMode::DISABLED;
+        }
+
+        // Pick mode, select region
+        if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
+            viewer->PickRegion();
+        }
+
+    }
+}
+
+void MeshViewer::CursorPositionCallback(GLFWwindow *window, double xpos, double ypos)
+{
+    MeshViewer *viewer = (MeshViewer *) glfwGetWindowUserPointer(window);
+
+    int windowWidth, windowHeight, fbWidth, fbHeight;
+    glfwGetWindowSize(window, &windowWidth, &windowHeight);
+    glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
+
+    double scale = fbWidth / (double) windowWidth;
+
+    xpos *= scale, ypos *= scale;
+
+    if (viewer->_dragMode != DragMode::DISABLED) {
+        viewer->_dragX += (int) (xpos - viewer->_xpos);
+        viewer->_dragY += (int) (ypos - viewer->_ypos);
+    }
+
+    viewer->_xpos = xpos;
+    viewer->_ypos = ypos;
+}
+
+void MeshViewer::ScrollCallback(GLFWwindow* window, double xoffset, double yoffset)
+{
+    MeshViewer *viewer = (MeshViewer *) glfwGetWindowUserPointer(window);
+    if (viewer->InPerspectiveView()) {
+        float factor = (yoffset > 0.0f) ? 0.9f : 1.1f;
+        viewer->_perspectiveCamera.eye[2] *= factor;
+        viewer->_perspectiveCamera.near *= factor;
+    }
+    else if (viewer->InTextureView()) {
+        float mx = ((viewer->_xpos-viewer->info.xSplit) / (viewer->info.height/2.0f)) - 0.5f;
+        float my = 0.5f - (viewer->_ypos / (viewer->info.height/2.0f));
+        yoffset > 0.0f ? viewer->_textureCamera.ZoomIn(mx, my) : viewer->_textureCamera.ZoomOut(mx, my);
+    }
+    else if (viewer->InDetailView()) {
+        float mx = ((viewer->_xpos-viewer->info.xSplit) / (viewer->info.height/2.0f)) - 0.5f;
+        float my = 0.5f - ((viewer->_ypos - viewer->info.height/2.0f) / (viewer->info.height/2.0f));
+        yoffset > 0.0f ? viewer->_detailCamera.ZoomIn(mx, my) : viewer->_detailCamera.ZoomOut(mx, my);
+    }
+}
+
+void MeshViewer::KeyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
+{
+    MeshViewer *viewer = (MeshViewer *) glfwGetWindowUserPointer(window);
+
+    // w toggles wireframe mode in detail view
+    if (key == GLFW_KEY_W && action == GLFW_PRESS) {
+        viewer->_detailView.wireframe = !viewer->_detailView.wireframe;
+    }
+}
+
+void MeshViewer::FramebufferSizeCallback(GLFWwindow *window, int width, int height)
+{
+    MeshViewer *viewer = (MeshViewer *) glfwGetWindowUserPointer(window);
+    if (width <= 0) width = 1;
+    if (height <= 0) height = 1;
+    viewer->info.width = width;
+    viewer->info.height = height;
+    viewer->info.xSplit = width > (height/2) ? (width - (height/2)) : 1;
+    viewer->info.perspectiveViewAspect = viewer->info.xSplit / (float) height;
+}
+
+
+// Member functions
+
 
 MeshViewer::MeshViewer(std::shared_ptr<MeshGraph> meshParamData_)
-    : meshParamData{meshParamData_}, _textureCamera{}, _detailCamera{}
+    : meshParamData{meshParamData_}, _selected{nullptr}, _textureCamera{}, _detailCamera{}
 {
 }
 
@@ -102,13 +188,6 @@ void MeshViewer::TexturePick()
     float dy = 0.5f - (_ypos / (info.height/2.0f));
     dy *= _textureCamera.viewSize;
 
-    float x = (_xpos - info.xSplit) / (info.height/2.0f);
-    x += (_textureCamera.x - 0.5f);
-    x /= _textureCamera.viewSize;
-    float y = _ypos / (info.height/2.0f);
-    y += (_textureCamera.y - 0.5f);
-    y /= _textureCamera.viewSize;
-
     Point2f p{_textureCamera.x + dx, _textureCamera.y + dy};
 
     const Mesh& m = meshParamData->mesh;
@@ -132,38 +211,52 @@ void MeshViewer::TexturePick()
 
 void MeshViewer::ClearSelection()
 {
-    if (_selectionCount > 0) {
+    if (_selected) {
         glDeleteVertexArrays(1, &_perspectiveView.selection.vao);
         glDeleteVertexArrays(1, &_detailView.vao);
-        glDeleteBuffers(1, &_vertexBuffers.selectedRegion);
+        glDeleteBuffers(1, &_vertexBuffers.selection);
 
         CheckGLError();
 
-        _selectionCount = 0;
         _perspectiveView.selection.vao = 0;
         _detailView.vao = 0;
-        _vertexBuffers.selectedRegion = 0;
+        _vertexBuffers.selection = 0;
+
+        _selected = nullptr;
     }
 }
 
 void MeshViewer::InitializeSelection(const RegionID id)
 {
-    auto region = meshParamData->GetChart(id);
-
     ClearSelection();
-    _selectionCount = region->FN();
 
-    glGenBuffers(1, &_vertexBuffers.selectedRegion);
-    glBindBuffer(GL_ARRAY_BUFFER, _vertexBuffers.selectedRegion);
-    glBufferData(GL_ARRAY_BUFFER, region->FN()*15*sizeof(float), NULL, GL_STATIC_DRAW);
+    _selected = meshParamData->GetChart(id);
+    std::size_t mainCount = _selected->FN();
+    std::size_t adjCount = 0;
+    for (auto &adj : _selected->adj) adjCount += adj->FN();
+
+    glGenBuffers(1, &_vertexBuffers.selection);
+    glBindBuffer(GL_ARRAY_BUFFER, _vertexBuffers.selection);
+    glBufferData(GL_ARRAY_BUFFER, (mainCount+adjCount)*15*sizeof(float), NULL, GL_STATIC_DRAW);
     float *buffptr = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
-    for (auto fptr : region->fpVec) {
+    for (auto fptr : _selected->fpVec) {
         for (int i = 0; i < 3; ++i) {
             *buffptr++ = fptr->cV(i)->P().X();
             *buffptr++ = fptr->cV(i)->P().Y();
             *buffptr++ = fptr->cV(i)->P().Z();
             *buffptr++ = fptr->cWT(i).U();
             *buffptr++ = fptr->cWT(i).V();
+        }
+    }
+    for (auto adj : _selected->adj) {
+        for (auto fptr : adj->fpVec) {
+            for (int i = 0; i < 3; ++i) {
+                *buffptr++ = fptr->cV(i)->P().X();
+                *buffptr++ = fptr->cV(i)->P().Y();
+                *buffptr++ = fptr->cV(i)->P().Z();
+                *buffptr++ = fptr->cWT(i).U();
+                *buffptr++ = fptr->cWT(i).V();
+            }
         }
     }
     glUnmapBuffer(GL_ARRAY_BUFFER);
@@ -174,12 +267,16 @@ void MeshViewer::InitializeSelection(const RegionID id)
     _perspectiveView.selection.attributes.loc_position = glGetAttribLocation(_perspectiveView.selection.program, "position");
     glVertexAttribPointer(_perspectiveView.selection.attributes.loc_position, 3, GL_FLOAT, GL_FALSE, 5*sizeof(float), 0);
     glEnableVertexAttribArray(_perspectiveView.selection.attributes.loc_position);
+    _perspectiveView.selection.attributes.loc_texcoord = glGetAttribLocation(_perspectiveView.selection.program, "texcoord");
+    glVertexAttribPointer(_perspectiveView.selection.attributes.loc_texcoord, 2, GL_FLOAT, GL_FALSE, 5*sizeof(float),
+                          (const GLvoid *) (3*sizeof(float)));
+    glEnableVertexAttribArray(_perspectiveView.selection.attributes.loc_texcoord);
 
     glGenVertexArrays(1, &_detailView.vao);
     glBindVertexArray(_detailView.vao);
 
     _detailView.attributes.loc_texcoord = glGetAttribLocation(_detailView.program, "texcoord");
-    glVertexAttribPointer(_detailView.attributes.loc_texcoord, 2, GL_FLOAT, GL_FALSE, 5*sizeof(float), (void *) (3*sizeof(float)));
+    glVertexAttribPointer(_detailView.attributes.loc_texcoord, 2, GL_FLOAT, GL_FALSE, 5*sizeof(float), (const GLvoid *) (3*sizeof(float)));
     glEnableVertexAttribArray(_detailView.attributes.loc_texcoord);
 
     glBindVertexArray(0);
@@ -274,89 +371,6 @@ void MeshViewer::CenterPerspectiveViewFromMouse()
             mat4x4_translate(_meshTransform.positionMatrix, -centerPoint.X(), -centerPoint.Y(), -centerPoint.Z());
         }
     }
-}
-
-void MeshViewer::MouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
-{
-    MeshViewer *viewer = (MeshViewer *) glfwGetWindowUserPointer(window);
-
-    if (mods & GLFW_MOD_SHIFT) {
-
-        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) { // Center view on the point
-            viewer->CenterPerspectiveViewFromMouse();
-        }
-
-    } else {
-
-        // Drag mode // TODO: viewer->enable/disable dragmode
-        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-            if (viewer->InPerspectiveView()) viewer->_dragMode = DragMode::PERSPECTIVE;
-            else if (viewer->InTextureView()) viewer->_dragMode = DragMode::TEXTURE;
-            if (viewer->InDetailView()) viewer->_dragMode = DragMode::DETAIL;
-        } else {
-            viewer->_dragMode = DragMode::DISABLED;
-        }
-
-        // Pick mode, select region
-        if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
-            viewer->PickRegion();
-        }
-
-    }
-}
-
-void MeshViewer::CursorPositionCallback(GLFWwindow *window, double xpos, double ypos)
-{
-    MeshViewer *viewer = (MeshViewer *) glfwGetWindowUserPointer(window);
-
-    int windowWidth, windowHeight, fbWidth, fbHeight;
-    glfwGetWindowSize(window, &windowWidth, &windowHeight);
-    glfwGetFramebufferSize(window, &fbWidth, &fbHeight);
-
-    double scale = fbWidth / (double) windowWidth;
-
-    xpos *= scale, ypos *= scale;
-
-    if (viewer->_dragMode != DragMode::DISABLED) {
-        viewer->_dragX += (int) (xpos - viewer->_xpos);
-        viewer->_dragY += (int) (ypos - viewer->_ypos);
-    }
-
-    viewer->_xpos = xpos;
-    viewer->_ypos = ypos;
-}
-
-void MeshViewer::ScrollCallback(GLFWwindow* window, double xoffset, double yoffset)
-{
-    MeshViewer *viewer = (MeshViewer *) glfwGetWindowUserPointer(window);
-    if (viewer->InPerspectiveView()) {
-        float factor = (yoffset > 0.0f) ? 0.9f : 1.1f;
-        viewer->_perspectiveCamera.eye[2] *= factor;
-        viewer->_perspectiveCamera.near *= factor;
-    }
-    if (viewer->InTextureView()) yoffset > 0.0f ? viewer->_textureCamera.ZoomIn() : viewer->_textureCamera.ZoomOut();
-    if (viewer->InDetailView()) yoffset > 0.0f ? viewer->_detailCamera.ZoomIn() : viewer->_detailCamera.ZoomOut();
-}
-
-void MeshViewer::KeyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
-{
-    MeshViewer *viewer = (MeshViewer *) glfwGetWindowUserPointer(window);
-
-    // w toggles wireframe mode in detail view
-    if (key == GLFW_KEY_W && action == GLFW_PRESS) {
-        viewer->_detailView.wireframe = !viewer->_detailView.wireframe;
-    }
-}
-
-void MeshViewer::FramebufferSizeCallback(GLFWwindow *window, int width, int height)
-{
-    MeshViewer *viewer = (MeshViewer *) glfwGetWindowUserPointer(window);
-    if (width <= 0) width = 1;
-    if (height <= 0) height = 1;
-    viewer->info.width = width;
-    viewer->info.height = height;
-    viewer->info.xSplit = width > (height/2) ? (width - (height/2)) : 1;
-    viewer->info.perspectiveViewAspect = viewer->info.xSplit / (float) height;
 }
 
 GLuint MeshViewer::CompileShaders(const GLchar **vs_text, const GLchar **fs_text)
@@ -499,9 +513,11 @@ void MeshViewer::SetupViews()
 
     _perspectiveView.uniforms.loc_modelView = glGetUniformLocation(_perspectiveView.program, "modelViewMatrix");
     _perspectiveView.uniforms.loc_projection = glGetUniformLocation(_perspectiveView.program, "projectionMatrix");
+    _perspectiveView.uniforms.loc_weight = glGetUniformLocation(_perspectiveView.program, "weight");
 
     _perspectiveView.selection.uniforms.loc_modelView = glGetUniformLocation(_perspectiveView.selection.program, "modelViewMatrix");
     _perspectiveView.selection.uniforms.loc_projection = glGetUniformLocation(_perspectiveView.selection.program, "projectionMatrix");
+    _perspectiveView.selection.uniforms.loc_weight = glGetUniformLocation(_perspectiveView.selection.program, "weight");
 
     // Setup texture view
 
@@ -570,12 +586,6 @@ void MeshViewer::UpdateTransforms()
 
 void MeshViewer::Draw3DView()
 {
-    glBindVertexArray(_perspectiveView.vao);
-    glUseProgram(_perspectiveView.program);
-
-    glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, _texture);
-
     mat4x4 model;
     mat4x4 modelView;
 
@@ -591,9 +601,6 @@ void MeshViewer::Draw3DView()
     mat4x4_perspective(_meshTransform.projectionMatrix, 60.0f * M_PI / 180.0f, info.perspectiveViewAspect,
                        _perspectiveCamera.near, _perspectiveCamera.far);
 
-    glUniformMatrix4fv(_perspectiveView.uniforms.loc_modelView, 1, GL_FALSE, (const GLfloat *) modelView);
-    glUniformMatrix4fv(_perspectiveView.uniforms.loc_projection, 1, GL_FALSE, (const GLfloat *)_meshTransform.projectionMatrix);
-
     glViewport(0, 0, info.xSplit, info.height);
     glScissor(0, 0, info.xSplit, info.height);
 
@@ -602,21 +609,50 @@ void MeshViewer::Draw3DView()
     glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, _texture);
+
+    if (_selected) {
+        glBindVertexArray(_perspectiveView.selection.vao);
+        glUseProgram(_perspectiveView.selection.program);
+
+        glUniformMatrix4fv(_perspectiveView.selection.uniforms.loc_modelView, 1, GL_FALSE, (const GLfloat *) modelView);
+        glUniformMatrix4fv(_perspectiveView.selection.uniforms.loc_projection, 1, GL_FALSE, (const GLfloat *)_meshTransform.projectionMatrix);
+
+        glUniform4f(_perspectiveView.selection.uniforms.loc_weight, 1.0f, 1.0f, 1.0f, 1.0f);
+
+        glDrawArrays(GL_TRIANGLES, 0, _selected->FN() * 3);
+        std::size_t drawn = _selected->FN()*3;
+
+        //glUniform4f(_perspectiveView.selection.uniforms.loc_weight, 0.6f, 1.0f, 0.6f, 1.0f);
+        for (auto &adj : _selected->adj) {
+            float c = adj->id / (float) meshParamData->charts.size();
+            glUniform4f(_perspectiveView.selection.uniforms.loc_weight, c*0.6f, 1.0f*0.6f, (1.0f-c)*0.6f, 1.0f);
+            glDrawArrays(GL_TRIANGLES, drawn, adj->FN() * 3);
+            drawn += adj->FN()*3;
+        }
+
+        glBindVertexArray(0);
+    }
+
+    glBindVertexArray(_perspectiveView.vao);
+    glUseProgram(_perspectiveView.program);
+
+    glUniformMatrix4fv(_perspectiveView.uniforms.loc_modelView, 1, GL_FALSE, (const GLfloat *) modelView);
+    glUniformMatrix4fv(_perspectiveView.uniforms.loc_projection, 1, GL_FALSE, (const GLfloat *)_meshTransform.projectionMatrix);
+
+    if (_selected) {
+        glUniform4f(_perspectiveView.uniforms.loc_weight, 0.4f, 0.4f, 0.4f, 0.2f);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    } else {
+        glUniform4f(_perspectiveView.uniforms.loc_weight, 1.0f, 1.0f, 1.0f, 1.0f);
+    }
+
     glDrawArrays(GL_TRIANGLES, 0, meshParamData->mesh.FN() * 3);
     glBindVertexArray(0);
 
-    if (_selectionCount > 0) {
-        glBindVertexArray(_perspectiveView.selection.vao);
-        glUseProgram(_perspectiveView.selection.program);
-        glUniformMatrix4fv(_perspectiveView.selection.uniforms.loc_modelView, 1, GL_FALSE, (const GLfloat *) modelView);
-        glUniformMatrix4fv(_perspectiveView.selection.uniforms.loc_projection, 1, GL_FALSE, (const GLfloat *)_meshTransform.projectionMatrix);
-        glDisable(GL_DEPTH_TEST);
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glDrawArrays(GL_TRIANGLES, 0, _selectionCount * 3);
-        glBindVertexArray(0);
-        glDisable(GL_BLEND);
-    }
+    glDisable(GL_BLEND);
 
     CheckGLError();
 }
@@ -686,7 +722,7 @@ void MeshViewer::DrawDetailView()
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     }
 
-    glDrawArrays(GL_TRIANGLES, 0, _selectionCount * 3);
+    glDrawArrays(GL_TRIANGLES, 0, _selected->FN() * 3);
     glBindVertexArray(0);
 
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -698,7 +734,7 @@ void MeshViewer::DrawViews()
 {
     Draw3DView();
     DrawTextureView();
-    if (_selectionCount > 0) DrawDetailView();
+    if (_selected) DrawDetailView();
 }
 
 
@@ -749,7 +785,7 @@ void MeshViewer::Run()
 
     GLint loc_tex0;
     _perspectiveView.program = CompileShaders(vs_text_3D, fs_text_texture);
-    _perspectiveView.selection.program = CompileShaders(vs_text_3D, fs_text_selection);
+    _perspectiveView.selection.program = CompileShaders(vs_text_3D, fs_text_texture);
     _textureView.program = CompileShaders(vs_text_texture, fs_text_texture);
     _detailView.program = CompileShaders(vs_text_texture, fs_text_texture);
 

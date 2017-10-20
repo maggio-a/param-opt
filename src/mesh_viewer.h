@@ -42,11 +42,18 @@ public:
             y -= std::max((y + viewSize/2.0f) - 1.0f, 0.0f);
         }
 
-        void ZoomIn() {
+        void ZoomIn(float mouse_offset_x, float mouse_offset_y) {
+            float delta = (viewSize - 0.9f*viewSize)/2.0f;
+            x += delta*2*mouse_offset_x;
+            y += delta*2*mouse_offset_y;
             viewSize *= 0.9f;
+            //ClipView();
         }
 
-        void ZoomOut() {
+        void ZoomOut(float mouse_offset_x, float mouse_offset_y) {
+            float delta = (viewSize - viewSize*1.1f)/2.0f;
+            x += delta*2*mouse_offset_x;
+            y += delta*2*mouse_offset_y;
             viewSize = std::min(viewSize*1.1f, 1.0f);
             ClipView();
         }
@@ -67,13 +74,14 @@ private:
     GLFWwindow *_window = nullptr;
     double _xpos = 0, _ypos = 0;
     DragMode _dragMode = DISABLED;
-    GLsizei _selectionCount = 0;
+
+    std::shared_ptr<FaceGroup> _selected;
 
     float _dragX = 0.0f, _dragY = 0.0f;
 
     struct {
         GLuint mesh = 0;
-        GLuint selectedRegion = 0;
+        GLuint selection = 0;
     } _vertexBuffers;
 
     GLuint _texture = 0;
@@ -88,6 +96,7 @@ private:
         struct {
             GLint loc_modelView;
             GLint loc_projection;
+            GLint loc_weight;
         } uniforms;
 
         struct {
@@ -95,10 +104,12 @@ private:
             GLuint vao = 0;
             struct {
                 GLint loc_position;
+                GLint loc_texcoord;
             } attributes;
             struct {
                 GLint loc_modelView;
                 GLint loc_projection;
+                GLint loc_weight;
             } uniforms;
         } selection;
     } _perspectiveView;
