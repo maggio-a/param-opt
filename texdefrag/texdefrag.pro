@@ -36,4 +36,5 @@ HEADERS += \
     ../src/timer.h \
     ../src/uv.h \
     ../src/mesh_graph.h \
+    ../src/dcpsolver.h \
 

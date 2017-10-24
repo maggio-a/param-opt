@@ -11,7 +11,6 @@
 #include <QString>
 
 #include "mesh.h"
-#include "mesh_viewer.h"
 #include "uv.h"
 #include "optimizer.h"
 #include "texture_rendering.h"
@@ -63,7 +62,11 @@ int main(int argc, char *argv[])
 
     Timer t;
 
+#ifdef OLD_OPTIMIZER
     ReduceTextureFragmentation(m, *graph, minFaceCount);
+#else
+    ReduceTextureFragmentation(m, graph, minFaceCount);
+#endif
 
     std::cout << "Processing took " << t.TimeElapsed() << " seconds" << std::endl;
 

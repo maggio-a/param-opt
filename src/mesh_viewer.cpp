@@ -605,12 +605,13 @@ void MeshViewer::Draw3DView()
     glScissor(0, 0, info.xSplit, info.height);
 
     glDrawBuffer(GL_BACK);
-    glEnable(GL_DEPTH_TEST);
     glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, _texture);
+
+    glEnable(GL_DEPTH_TEST);
 
     if (_selected) {
         glBindVertexArray(_perspectiveView.selection.vao);
@@ -620,6 +621,13 @@ void MeshViewer::Draw3DView()
         glUniformMatrix4fv(_perspectiveView.selection.uniforms.loc_projection, 1, GL_FALSE, (const GLfloat *)_meshTransform.projectionMatrix);
 
         glUniform4f(_perspectiveView.selection.uniforms.loc_weight, 1.0f, 1.0f, 1.0f, 1.0f);
+
+        glEnable(GL_STENCIL_TEST);
+        glStencilFuncSeparate(GL_FRONT, GL_ALWAYS, 1, 0xFF);
+        glStencilOpSeparate(GL_FRONT, GL_KEEP, GL_KEEP, GL_REPLACE);
+
+        glStencilFuncSeparate(GL_BACK, GL_ALWAYS, 0, 0xFF);
+        glStencilOpSeparate(GL_BACK, GL_KEEP, GL_KEEP, GL_REPLACE);
 
         glDrawArrays(GL_TRIANGLES, 0, _selected->FN() * 3);
         std::size_t drawn = _selected->FN()*3;
@@ -632,27 +640,40 @@ void MeshViewer::Draw3DView()
             drawn += adj->FN()*3;
         }
 
+        // Now draw transparent layer
+        glBindVertexArray(_perspectiveView.vao);
+        glUseProgram(_perspectiveView.program);
+
+        glUniformMatrix4fv(_perspectiveView.uniforms.loc_modelView, 1, GL_FALSE, (const GLfloat *) modelView);
+        glUniformMatrix4fv(_perspectiveView.uniforms.loc_projection, 1, GL_FALSE, (const GLfloat *)_meshTransform.projectionMatrix);
+
+        glUniform4f(_perspectiveView.uniforms.loc_weight, 0.4f, 0.4f, 0.4f, 0.2f);
+
+        // if stencil buffer == 1 the fragment must be discarded since the selection layer has already been drawn
+        glStencilFuncSeparate(GL_FRONT_AND_BACK, GL_EQUAL, 0, 0xFF);
+        glStencilOpSeparate(GL_FRONT_AND_BACK, GL_KEEP, GL_KEEP, GL_KEEP); // Never change the stencil buffer
+
+        glDisable(GL_DEPTH_TEST);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+        glDrawArrays(GL_TRIANGLES, 0, meshParamData->mesh.FN() * 3);
+        glBindVertexArray(0);
+
+        glDisable(GL_BLEND);
+        glEnable(GL_DEPTH_TEST);
+    }
+    else {
+        glBindVertexArray(_perspectiveView.vao);
+        glUseProgram(_perspectiveView.program);
+
+        glUniformMatrix4fv(_perspectiveView.uniforms.loc_modelView, 1, GL_FALSE, (const GLfloat *) modelView);
+        glUniformMatrix4fv(_perspectiveView.uniforms.loc_projection, 1, GL_FALSE, (const GLfloat *)_meshTransform.projectionMatrix);
+
+        glDrawArrays(GL_TRIANGLES, 0, meshParamData->mesh.FN() * 3);
         glBindVertexArray(0);
     }
 
-    glBindVertexArray(_perspectiveView.vao);
-    glUseProgram(_perspectiveView.program);
-
-    glUniformMatrix4fv(_perspectiveView.uniforms.loc_modelView, 1, GL_FALSE, (const GLfloat *) modelView);
-    glUniformMatrix4fv(_perspectiveView.uniforms.loc_projection, 1, GL_FALSE, (const GLfloat *)_meshTransform.projectionMatrix);
-
-    if (_selected) {
-        glUniform4f(_perspectiveView.uniforms.loc_weight, 0.4f, 0.4f, 0.4f, 0.2f);
-        glEnable(GL_BLEND);
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    } else {
-        glUniform4f(_perspectiveView.uniforms.loc_weight, 1.0f, 1.0f, 1.0f, 1.0f);
-    }
-
-    glDrawArrays(GL_TRIANGLES, 0, meshParamData->mesh.FN() * 3);
-    glBindVertexArray(0);
-
-    glDisable(GL_BLEND);
 
     CheckGLError();
 }

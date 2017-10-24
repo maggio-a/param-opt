@@ -33,4 +33,47 @@ using RegionID = std::size_t;
 
 bool LoadMesh(Mesh &m, const char *fileName, std::vector<std::shared_ptr<QImage>> &imgVec, int &loadMask, std::string &modelName);
 
+/// Builds a PMesh with face face topology and bounding box initialized, so that it can be
+/// passed to the poisson solver
+template <typename MeshType>
+static void BuildPMeshFromFacePointers(PMesh &pm, const std::vector<std::vector<typename MeshType::FacePointer>* >& vFpVecp)
+{
+    pm.Clear();
+
+    auto f = [&pm](typename MeshType::FacePointer fptr) {
+        tri::Allocator<PMesh>::AddFace(pm, fptr->P(0), fptr->P(1), fptr->P(2));
+    };
+
+    for (auto fpVecp : vFpVecp) std::for_each(fpVecp->begin(), fpVecp->end(), f);
+
+    tri::Clean<PMesh>::RemoveDuplicateVertex(pm);
+    tri::Allocator<PMesh>::CompactEveryVector(pm);
+
+    tri::UpdateTopology<PMesh>::FaceFace(pm);
+    tri::UpdateBounding<PMesh>::Box(pm);
+}
+
+/// Returns true if the mesh can be parameterized by the poisson solver
+template <typename MeshType>
+static bool Parameterizable(MeshType &m)
+{
+    if (tri::Clean<MeshType>::CountNonManifoldEdgeFF(m) > 0) {
+        return false;
+    }
+
+    if (tri::Clean<MeshType>::CountNonManifoldVertexFF(m) > 0) {
+        return false;
+    }
+
+    if (tri::Clean<MeshType>::IsWaterTight(m)) {
+        return false;
+    }
+
+    if (tri::Clean<MeshType>::MeshGenus(m) > 0) {
+        return false;
+    }
+
+    return true;
+}
+
 #endif // MESH_H

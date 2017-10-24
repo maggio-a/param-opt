@@ -121,6 +121,9 @@ public:
 
         // Fix at least two vertices (needed since the energy is invariant to rotations
         // and translations, fixing two vertices acts as an anchor to the parametric space)
+        
+        tri::UpdateBounding<MeshType>::Box(mesh);
+
         VertexPointer v0 = nullptr;
         VertexPointer v1 = nullptr;
         const int bestAxis = mesh.bbox.MaxDim();
