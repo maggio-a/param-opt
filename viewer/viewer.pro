@@ -39,3 +39,6 @@ HEADERS += \
     ../src/mesh_graph.h \
     ../src/mesh_viewer.h
 
+DISTFILES += \
+    readme.txt
+

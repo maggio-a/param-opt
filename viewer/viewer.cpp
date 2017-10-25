@@ -18,10 +18,13 @@ using namespace vcg;
 
 int main(int argc, char *argv[])
 {
-    if (argc < 2) {
-        std::cout << "Usage: " << argv[0] << " model" << std::endl;
+     if (argc < 3) {
+        std::cout << "Usage: " << argv[0] << " model minRegionSize(int) [--nofilter]" << std::endl;
         std::exit(-1);
     }
+
+    int minRegionSize = atoi(argv[2]);
+    assert(minRegionSize > 0);
 
     Mesh m;
     std::vector<std::shared_ptr<QImage>> imgVec;
@@ -43,7 +46,7 @@ int main(int argc, char *argv[])
     // Print original info
     PrintParameterizationInfo(graph);
 
-    MeshViewer viewer(graph);
+    MeshViewer viewer(graph, std::size_t(minRegionSize));
     viewer.Run();
 
     return 0;

@@ -21,7 +21,7 @@ using namespace vcg;
 int main(int argc, char *argv[])
 {
     if (argc < 3) {
-        std::cout << "Usage: " << argv[0] << " model minFaceCount(int) [--nofilter]" << std::endl;
+        std::cout << "Usage: " << argv[0] << " model minRegionSize(int) [--nofilter]" << std::endl;
         return -1;
     }
 
@@ -33,7 +33,7 @@ int main(int argc, char *argv[])
         std::cout << "Pull-Push filter enabled" << std::endl;
     }
 
-    int minFaceCount = atoi(argv[2]);
+    int minRegionSize = atoi(argv[2]);
 
     Mesh m;
     std::vector<std::shared_ptr<QImage>> imgVec;
@@ -47,7 +47,7 @@ int main(int argc, char *argv[])
 
     assert(loadMask & tri::io::Mask::IOM_WEDGTEXCOORD);
 
-    if (minFaceCount > m.FN()) {
+    if (minRegionSize > m.FN()) {
         std::cout << "Error: minFaceCount > m.FN()" << std::endl;
         std::exit(-1);
     }
@@ -63,9 +63,9 @@ int main(int argc, char *argv[])
     Timer t;
 
 #ifdef OLD_OPTIMIZER
-    ReduceTextureFragmentation(m, *graph, minFaceCount);
+    ReduceTextureFragmentation(m, *graph, minRegionSize);
 #else
-    ReduceTextureFragmentation(m, graph, minFaceCount);
+    ReduceTextureFragmentation(m, graph, minRegionSize);
 #endif
 
     std::cout << "Processing took " << t.TimeElapsed() << " seconds" << std::endl;

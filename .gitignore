@@ -23,6 +23,7 @@ viewer/**
 !viewer/*.cpp
 !viewer/*.h
 !viewer/*.pro
+!viewer/readme.txt
 
 *.user
 build-*

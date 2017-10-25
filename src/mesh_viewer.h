@@ -68,16 +68,31 @@ public:
     static void FramebufferSizeCallback(GLFWwindow *, int, int);
 
 private:
+
+    // TODO the mesh graph (meshParamData) should be encapsulated by the GraphManager object
+    // and queried through it
     std::shared_ptr<MeshGraph> meshParamData;
+    std::shared_ptr<GraphManager> gm;
+
+    // TODO move the optimizer parameters somewhere else
+    std::size_t minRegionSize;
 
     // GUI related variables///////////////////////////////////////// TODO move into info
     GLFWwindow *_window = nullptr;
     double _xpos = 0, _ypos = 0;
     DragMode _dragMode = DISABLED;
 
-    std::shared_ptr<FaceGroup> _selected;
+//    std::shared_ptr<FaceGroup> _selected;
 
     float _dragX = 0.0f, _dragY = 0.0f;
+
+    struct SelectedRegionInfo {
+        GLint first;
+        GLsizei count;
+        vcg::Color4f color;
+    };
+
+    std::vector<SelectedRegionInfo> selectionVector;
 
     struct {
         GLuint mesh = 0;
@@ -168,7 +183,7 @@ private:
     } info;
 
 public:
-    MeshViewer(std::shared_ptr<MeshGraph> meshParamData_);
+    MeshViewer(std::shared_ptr<MeshGraph> meshParamData_, std::size_t minRegionSize_);
     void Run();
     GLuint CompileShaders(const GLchar **vs_text, const GLchar **fs_text);
     void InitBuffers();
@@ -186,13 +201,22 @@ public:
     bool InDetailView();
     bool IntersectionMouseRayModel(Mesh::ConstFacePointer *fp, float &u, float &v);
     void CenterPerspectiveViewFromMouse();
+
     void PickRegion();
     void PerspectivePick();
     void TexturePick();
-    void InitializeSelection(const RegionID id);
     void ClearSelection();
+    void Select(const RegionID id);
+    void Select(const GraphManager::Edge& e);
+    void InitializeSelection(const std::vector<std::pair<RegionID,vcg::Color4f>>& vsel);
+
+    // GraphManager interface
+    void gmClose();
+    bool gmHasNextEdge();
+    const std::pair<GraphManager::Edge,double>& gmPeekNextEdge();
+    void gmRemoveNextEdge();
+    GraphManager::ChartHandle gmCollapse(const GraphManager::Edge& e);
+
 };
 
-
 #endif // MESH_VIEWER_H
-

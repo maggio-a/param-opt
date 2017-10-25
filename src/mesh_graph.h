@@ -87,6 +87,8 @@ struct MeshGraph {
 
 class GraphManager {
 
+public:
+
     struct Edge {
         std::shared_ptr<FaceGroup> a;
         std::shared_ptr<FaceGroup> b;
@@ -156,6 +158,8 @@ class GraphManager {
             return e1.second > e2.second;
         }
     };
+
+private:
 
     std::shared_ptr<MeshGraph> g;
 
@@ -239,7 +243,7 @@ public:
         return false;
     }
 
-    void Collapse(const Edge& e)
+    ChartHandle Collapse(const Edge& e)
     {
         ChartHandle c1, c2;
         if (e.a->FN() > e.b->FN()) {
@@ -250,9 +254,10 @@ public:
         }
 
         Merge(c1, c2);
+        return c1;
     }
 
-    // Merge c2 into c1
+    // Merges c2 into c1
     void Merge(ChartHandle c1, ChartHandle c2)
     {
         assert(edges.find(Edge{c1,c2}) != edges.end());

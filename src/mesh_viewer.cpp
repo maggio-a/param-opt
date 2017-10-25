@@ -1,6 +1,3 @@
-#ifndef MESHVIEWER_H
-#define MESHVIEWER_H
-
 #include <iostream>
 
 #include <QImage>
@@ -142,6 +139,42 @@ void MeshViewer::KeyCallback(GLFWwindow *window, int key, int scancode, int acti
     if (key == GLFW_KEY_W && action == GLFW_PRESS) {
         viewer->_detailView.wireframe = !viewer->_detailView.wireframe;
     }
+
+    // c calls GraphManager::CloseMacroRegions
+    if (key == GLFW_KEY_C && action == GLFW_PRESS) {
+        viewer->ClearSelection(); // TODO it would be nice to update the selection, rather than discard it
+        viewer->gmClose();
+    }
+
+    // SPACE highlights the next greedy step
+    if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
+        if (viewer->gmHasNextEdge()) {
+            const auto& next = viewer->gmPeekNextEdge();
+            viewer->Select(next.first);
+            std::cout << "Next edge has weight " << next.second << std::endl;
+        }
+        else
+            std::cout << "No next edge available" << std::endl;
+    }
+
+    // ENTER performs the next greedy step
+    if (key == GLFW_KEY_ENTER && action == GLFW_PRESS) {
+        if (viewer->gmHasNextEdge()) {
+            auto next = viewer->gmPeekNextEdge();
+            if (next.first.a->FN() > viewer->minRegionSize && next.first.b->FN() > viewer->minRegionSize) {
+                std::cout << "Next edge cannot be collapsed (charts are too large)" << std::endl;
+            }
+            else {
+                std::cout << "Merging " << next.first.a->id << " and " << next.first.b->id << " (weight=" << next.second << ")" << std::endl;
+                viewer->gmRemoveNextEdge();
+                auto chart = viewer->gmCollapse(next.first);
+                std::cout << "selecting " << chart->id << std::endl;
+                viewer->Select(chart->id);
+            }
+        }
+    }
+
+    // TODO p packs the parameterization chart
 }
 
 void MeshViewer::FramebufferSizeCallback(GLFWwindow *window, int width, int height)
@@ -159,8 +192,9 @@ void MeshViewer::FramebufferSizeCallback(GLFWwindow *window, int width, int heig
 // Member functions
 
 
-MeshViewer::MeshViewer(std::shared_ptr<MeshGraph> meshParamData_)
-    : meshParamData{meshParamData_}, _selected{nullptr}, _textureCamera{}, _detailCamera{}
+MeshViewer::MeshViewer(std::shared_ptr<MeshGraph> meshParamData_, std::size_t minRegionSize_)
+    : meshParamData{meshParamData_}, gm{std::make_shared<GraphManager>(meshParamData_)},
+      minRegionSize{minRegionSize_}, _textureCamera{}, _detailCamera{}
 {
 }
 
@@ -203,7 +237,7 @@ void MeshViewer::TexturePick()
     if (fp != nullptr) {
         auto CCIDh = tri::Allocator<Mesh>::GetPerFaceAttribute<RegionID>(meshParamData->mesh, "ConnectedComponentID");
         RegionID selectionID = CCIDh[fp];
-        InitializeSelection(selectionID);
+        Select(selectionID);
     } else {
         ClearSelection();
     }
@@ -211,7 +245,7 @@ void MeshViewer::TexturePick()
 
 void MeshViewer::ClearSelection()
 {
-    if (_selected) {
+    if (selectionVector.size() > 0) {
         glDeleteVertexArrays(1, &_perspectiveView.selection.vao);
         glDeleteVertexArrays(1, &_detailView.vao);
         glDeleteBuffers(1, &_vertexBuffers.selection);
@@ -222,34 +256,57 @@ void MeshViewer::ClearSelection()
         _detailView.vao = 0;
         _vertexBuffers.selection = 0;
 
-        _selected = nullptr;
+        selectionVector.clear();
     }
 }
 
-void MeshViewer::InitializeSelection(const RegionID id)
+void MeshViewer::Select(const RegionID id)
+{
+    auto region = meshParamData->GetChart(id);
+    std::vector<std::pair<RegionID,vcg::Color4f>> vsel;
+    vsel.reserve(1 + region->NumAdj());
+
+    vsel.emplace_back(std::make_pair(region->id, vcg::Color4f{1.0f, 1.0f, 1.0f, 1.0f}));
+
+    for (auto adj : region->adj) {
+        float c = adj->id / (float) meshParamData->charts.size();
+        vsel.emplace_back(std::make_pair(adj->id, vcg::Color4f{c*0.6f, 1.0f*0.6f, (1.0f-c)*0.6f, 1.0f}));
+    }
+
+    InitializeSelection(vsel);
+
+    std::cout << "Selected region " << id << std::endl;
+}
+
+void MeshViewer::Select(const GraphManager::Edge& e)
+{
+    InitializeSelection({
+        {e.a->id, vcg::Color4f{1.0f, 0.1f, 0.1f, 1.0f}},
+        {e.b->id, vcg::Color4f{0.1f, 0.1f, 1.0f, 1.0f}}
+    });
+
+    std::cout << "Selected edge (" << e.a->id << " , " << e.b->id << ")" << std::endl;
+}
+
+void MeshViewer::InitializeSelection(const std::vector<std::pair<RegionID,vcg::Color4f>>& vsel)
 {
     ClearSelection();
+    std::size_t selectionCount = 0;
+    for (const auto& p : vsel) {
+        selectionCount += meshParamData->GetChart(p.first)->FN();
+    }
 
-    _selected = meshParamData->GetChart(id);
-    std::size_t mainCount = _selected->FN();
-    std::size_t adjCount = 0;
-    for (auto &adj : _selected->adj) adjCount += adj->FN();
+    selectionVector.reserve(vsel.size());
+    GLint first = 0;
 
     glGenBuffers(1, &_vertexBuffers.selection);
     glBindBuffer(GL_ARRAY_BUFFER, _vertexBuffers.selection);
-    glBufferData(GL_ARRAY_BUFFER, (mainCount+adjCount)*15*sizeof(float), NULL, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, selectionCount*15*sizeof(float), NULL, GL_STATIC_DRAW);
     float *buffptr = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
-    for (auto fptr : _selected->fpVec) {
-        for (int i = 0; i < 3; ++i) {
-            *buffptr++ = fptr->cV(i)->P().X();
-            *buffptr++ = fptr->cV(i)->P().Y();
-            *buffptr++ = fptr->cV(i)->P().Z();
-            *buffptr++ = fptr->cWT(i).U();
-            *buffptr++ = fptr->cWT(i).V();
-        }
-    }
-    for (auto adj : _selected->adj) {
-        for (auto fptr : adj->fpVec) {
+    for (const auto& p : vsel) {
+        const auto& region = meshParamData->GetChart(p.first);
+        selectionVector.emplace_back(SelectedRegionInfo{first, region->FN() * 3, p.second});
+        for (auto &fptr : region->fpVec) {
             for (int i = 0; i < 3; ++i) {
                 *buffptr++ = fptr->cV(i)->P().X();
                 *buffptr++ = fptr->cV(i)->P().Y();
@@ -258,6 +315,7 @@ void MeshViewer::InitializeSelection(const RegionID id)
                 *buffptr++ = fptr->cWT(i).V();
             }
         }
+        first += region->FN() * 3;
     }
     glUnmapBuffer(GL_ARRAY_BUFFER);
 
@@ -284,7 +342,7 @@ void MeshViewer::InitializeSelection(const RegionID id)
 
     CheckGLError();
 
-    SetupDetailView(id);
+    SetupDetailView(vsel[0].first);
 }
 
 bool MeshViewer::IntersectionMouseRayModel(Mesh::ConstFacePointer *fp, float &u, float &v)
@@ -348,7 +406,7 @@ void MeshViewer::PerspectivePick()
     if (IntersectionMouseRayModel(&fp, u, v)) {
         auto CCIDh = tri::Allocator<Mesh>::GetPerFaceAttribute<RegionID>(meshParamData->mesh, "ConnectedComponentID");
         RegionID selectionID = CCIDh[fp];
-        InitializeSelection(selectionID);
+        Select(selectionID);
     } else {
         ClearSelection();
     }
@@ -613,14 +671,12 @@ void MeshViewer::Draw3DView()
 
     glEnable(GL_DEPTH_TEST);
 
-    if (_selected) {
+    if (selectionVector.size() > 0) {
         glBindVertexArray(_perspectiveView.selection.vao);
         glUseProgram(_perspectiveView.selection.program);
 
         glUniformMatrix4fv(_perspectiveView.selection.uniforms.loc_modelView, 1, GL_FALSE, (const GLfloat *) modelView);
         glUniformMatrix4fv(_perspectiveView.selection.uniforms.loc_projection, 1, GL_FALSE, (const GLfloat *)_meshTransform.projectionMatrix);
-
-        glUniform4f(_perspectiveView.selection.uniforms.loc_weight, 1.0f, 1.0f, 1.0f, 1.0f);
 
         glEnable(GL_STENCIL_TEST);
         glStencilFuncSeparate(GL_FRONT, GL_ALWAYS, 1, 0xFF);
@@ -629,15 +685,10 @@ void MeshViewer::Draw3DView()
         glStencilFuncSeparate(GL_BACK, GL_ALWAYS, 0, 0xFF);
         glStencilOpSeparate(GL_BACK, GL_KEEP, GL_KEEP, GL_REPLACE);
 
-        glDrawArrays(GL_TRIANGLES, 0, _selected->FN() * 3);
-        std::size_t drawn = _selected->FN()*3;
+        for (const SelectedRegionInfo& sri : selectionVector) {
+            glUniform4fv(_perspectiveView.selection.uniforms.loc_weight, 1, sri.color.V());
+            glDrawArrays(GL_TRIANGLES, sri.first, sri.count);
 
-        //glUniform4f(_perspectiveView.selection.uniforms.loc_weight, 0.6f, 1.0f, 0.6f, 1.0f);
-        for (auto &adj : _selected->adj) {
-            float c = adj->id / (float) meshParamData->charts.size();
-            glUniform4f(_perspectiveView.selection.uniforms.loc_weight, c*0.6f, 1.0f*0.6f, (1.0f-c)*0.6f, 1.0f);
-            glDrawArrays(GL_TRIANGLES, drawn, adj->FN() * 3);
-            drawn += adj->FN()*3;
         }
 
         // Now draw transparent layer
@@ -661,6 +712,7 @@ void MeshViewer::Draw3DView()
         glBindVertexArray(0);
 
         glDisable(GL_BLEND);
+        glDisable(GL_STENCIL_TEST);
         glEnable(GL_DEPTH_TEST);
     }
     else {
@@ -669,6 +721,8 @@ void MeshViewer::Draw3DView()
 
         glUniformMatrix4fv(_perspectiveView.uniforms.loc_modelView, 1, GL_FALSE, (const GLfloat *) modelView);
         glUniformMatrix4fv(_perspectiveView.uniforms.loc_projection, 1, GL_FALSE, (const GLfloat *)_meshTransform.projectionMatrix);
+
+        glUniform4f(_perspectiveView.uniforms.loc_weight, 1.0f, 1.0f, 1.0f, 1.0f);
 
         glDrawArrays(GL_TRIANGLES, 0, meshParamData->mesh.FN() * 3);
         glBindVertexArray(0);
@@ -743,7 +797,7 @@ void MeshViewer::DrawDetailView()
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     }
 
-    glDrawArrays(GL_TRIANGLES, 0, _selected->FN() * 3);
+    glDrawArrays(GL_TRIANGLES, selectionVector[0].first, selectionVector[0].count);
     glBindVertexArray(0);
 
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -755,7 +809,7 @@ void MeshViewer::DrawViews()
 {
     Draw3DView();
     DrawTextureView();
-    if (_selected) DrawDetailView();
+    if (selectionVector.size() > 0) DrawDetailView();
 }
 
 
@@ -845,4 +899,31 @@ void MeshViewer::Run()
 
 }
 
-#endif // MESHVIEWER_H
+
+// GraphManager proxy interface
+
+void MeshViewer::gmClose()
+{
+    int count = gm->CloseMacroRegions(minRegionSize);
+    if (count > 0) std::cout << "Close operation merged " << count << " regions" << std::endl;
+}
+
+bool MeshViewer::gmHasNextEdge()
+{
+    return gm->HasNextEdge();
+}
+
+const std::pair<GraphManager::Edge,double>& MeshViewer::gmPeekNextEdge()
+{
+    return gm->PeekNextEdge();
+}
+
+void MeshViewer::gmRemoveNextEdge()
+{
+    gm->RemoveNextEdge();
+}
+
+GraphManager::ChartHandle MeshViewer::gmCollapse(const GraphManager::Edge& e)
+{
+    return gm->Collapse(e);
+}
