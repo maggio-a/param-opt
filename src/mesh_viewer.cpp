@@ -305,7 +305,7 @@ void MeshViewer::InitializeSelection(const std::vector<std::pair<RegionID,vcg::C
     float *buffptr = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
     for (const auto& p : vsel) {
         const auto& region = meshParamData->GetChart(p.first);
-        selectionVector.emplace_back(SelectedRegionInfo{first, region->FN() * 3, p.second});
+        selectionVector.emplace_back(SelectedRegionInfo{first, static_cast<GLsizei>(region->FN() * 3), p.second});
         for (auto &fptr : region->fpVec) {
             for (int i = 0; i < 3; ++i) {
                 *buffptr++ = fptr->cV(i)->P().X();
