@@ -79,6 +79,9 @@ std::shared_ptr<MeshGraph> ComputeParameterizationGraph(
     paramData->charts.reserve(numRegions);
     auto CCIDh = tri::Allocator<MeshType>::template GetPerFaceAttribute<std::size_t>(m, "ConnectedComponentID");
 
+    auto ICCIDh = tri::Allocator<MeshType>::template GetPerFaceAttribute<std::size_t>(m, "InitialConnectedComponentID");
+    ICCIDh._handle->data.assign(CCIDh._handle->data.begin(), CCIDh._handle->data.end());
+
     // build parameterization graph
     tri::UpdateTopology<Mesh>::FaceFace(m);
     for (auto &f : m.face) {

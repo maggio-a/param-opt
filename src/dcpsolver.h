@@ -18,6 +18,8 @@
 template <typename MeshType>
 class DCPSolver
 {
+    enum BorderManagement { skip, compute };
+
 public:
 
     using ScalarType = typename MeshType::ScalarType;
@@ -27,6 +29,8 @@ public:
     using FacePointer = typename MeshType::FacePointer;
     using Coord3D = typename MeshType::CoordType;
     using CoordUV = typename FaceType::TexCoordType::PointType;
+
+    static const BorderManagement __trust_vertex_border_flags = skip;
 
 private:
 
@@ -38,23 +42,56 @@ private:
     std::vector<Td> coeffList;
 
     std::unordered_map<VertexPointer,int> vmap;
-    std::unordered_map<int,VertexPointer> imap;
+
+    int vn;
+
+    // support for DeclareUnique
+    std::unordered_map<VertexPointer,VertexPointer> crossReferences;
 
     //int U(int i) { return 2*i; }
     //int V(int i) { return 2*i + 1; }
     int U(int i) { return i; }
-    int V(int i) { return mesh.VN() + i; }
+    int V(int i) { return vn + i; }
 
 public:
 
-    DCPSolver(MeshType &m) : mesh{m} {}
+    DCPSolver(MeshType &m) : mesh{m}, vn{0} {}
    
-    int U(VertexPointer v) { return U(vmap[v]); }
-    int V(VertexPointer v) { return V(vmap[v]); }
+    int U(VertexPointer v) { auto vi = crossReferences.find(v); return vi == crossReferences.end() ? U(vmap[v]) : U(vmap[vi->second]); }
+    int V(VertexPointer v) { auto vi = crossReferences.find(v); return vi == crossReferences.end() ? V(vmap[v]) : V(vmap[vi->second]); }
 
     bool AddConstraint(VertexPointer vp, CoordUV uv)
     {
         return constraints.insert(std::make_pair(vp, uv)).second;
+    }
+
+    // function to map multiple vertices to the same index
+    // no checks on duplicate entries, multiple declarations, etc...
+    void DeclareUnique(const std::vector<VertexPointer>& vertices)
+    {
+        if (vertices.size() > 1) {
+            for (auto vp : vertices) {
+                crossReferences[vp] = vertices[0];
+            }
+        }
+    }
+
+    void BuildIndex()
+    {
+        for (auto& v : mesh.vert) {
+            auto vi = crossReferences.find(&v);
+            if (vi != crossReferences.end()) {
+                VertexPointer rep = vi->second;
+                if (vmap.count(rep) == 1) {
+                    vmap[&v] = vmap[rep];
+                }
+                else {
+                    vmap[&v] = vmap[rep] = vn++;
+                }
+            } else {
+                vmap[&v] = vn++;
+            }
+        }
     }
 
     // Mock PoissonSolver interface
@@ -63,27 +100,29 @@ public:
     bool IsFeasible() { return true; }
     bool SolvePoisson() { return Solve(); }
 
-    bool Solve()
+    bool Solve(BorderManagement mode = compute)
     {
         // Mark border vertices
-        tri::UpdateTopology<MeshType>::FaceFace(mesh);
-        tri::UpdateFlags<MeshType>::VertexBorderFromFaceAdj(mesh);
-
-        // Init index
-        int index = 0;
-        for (auto &v : mesh.vert) {
-            vmap.insert(std::make_pair(&v, index));
-            imap.insert(std::make_pair(index, &v));
-            index++;
+        if (mode != __trust_vertex_border_flags) {
+            tri::UpdateTopology<MeshType>::FaceFace(mesh);
+            tri::UpdateFlags<MeshType>::VertexBorderFromFaceAdj(mesh);
         }
-        assert(vmap.size() == mesh.vert.size());
+        // Init index
+        BuildIndex();
+
+        /*
+        std::cout << "Border indices" << std::endl;
+        for (auto p : vmap) {
+            if (p.first->IsB()) std::cout << p.second << std::endl;
+        }
+        */
 
         // Workaround to avoid inifinities if an angle is too small
         assert(std::is_floating_point<ScalarType>::value);
         ScalarType eps = std::numeric_limits<ScalarType>::epsilon();
 
         // Compute matrix coefficients
-        coeffList.reserve(mesh.VN() * 32);
+        coeffList.reserve(vn * 32);
         for (auto &f : mesh.face) {
             for (int i = 0; i < 3; ++i) {
                 VertexPointer vi = f.V0(i);
@@ -108,6 +147,7 @@ public:
                 coeffList.push_back(Td(V(vi), V(vi), -(weight_ij + weight_ik)));
 
                 if (vi->IsB()) {
+
                     // following from above, I invert the signs from eq (7) here too...
                     // These may be actually redundant
                     coeffList.push_back(Td(U(vi), V(vk), -1)); // pi/2 rot: (x,y) -> (-y,x), hence V() as column index
@@ -137,14 +177,14 @@ public:
         AddConstraint(v1, CoordUV{1,1});
 
         // Prepare to solve
-        int n{(vmap.size() + constraints.size())*2};
+        int n = (vn + constraints.size()) * 2;
 
         // Allocate matrix and constants vector
         Eigen::SparseMatrix<double> A(n, n);
         Eigen::VectorXd b(Eigen::VectorXd::Zero(n));
 
         // Add constraints to the system
-        int h = mesh.VN()*2; // first constraint index
+        int h = vn * 2; // first constraint index
         for (auto &c : constraints) {
             VertexPointer vp = c.first;
             CoordUV uv = c.second;
@@ -190,8 +230,8 @@ public:
 
         // Copy back the texture coordinates
         vcg::Box2<typename CoordUV::ScalarType> uvBox;
-        for (int i = 0; i < mesh.VN(); ++i) {
-            uvBox.Add(CoordUV(ScalarType{x[U(i)]}, ScalarType{x[V(i)]}));
+        for (int i = 0; i < vn; ++i) {
+            uvBox.Add(CoordUV(ScalarType(x[U(i)]), ScalarType(x[V(i)])));
         }
 
         float scale = 1.0f / std::max(uvBox.Dim().X(), uvBox.Dim().Y());
@@ -199,7 +239,7 @@ public:
         for (auto &f : mesh.face) {
             for (int i = 0; i < 3; ++i) {
                 VertexPointer vi = f.V(i);
-                CoordUV uv{x[U(vi)], x[V(vi)]};
+                CoordUV uv(x[U(vi)], x[V(vi)]);
                 f.WT(i).P() = (uv - uvBox.min) * scale;
                 vi->T().P() = (uv - uvBox.min) * scale;
             }

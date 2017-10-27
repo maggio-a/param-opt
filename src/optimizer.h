@@ -14,6 +14,100 @@
 #include "timer.h"
 #include "dcpsolver.h"
 
+void ParameterizeChartFromInitialTexCoord(Mesh &m, GraphManager::ChartHandle ch)
+{
+    auto CCIDh  = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(m, "ConnectedComponentID");
+    assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(m, CCIDh));
+
+    auto ICCh  = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(m, "InitialConnectedComponentID");
+    assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(m, ICCh));
+
+    PMesh pm;
+    // Count the required vertices, split those at a seam in the initial parameterization
+    std::unordered_map<Mesh::VertexPointer,std::unordered_map<RegionID,PMesh::VertexPointer>> mv_to_pmv{ch->FN() * 3};
+
+    std::size_t vn = 0;
+    for (auto fptr : ch->fpVec) {
+        for (int i = 0; i < 3; ++i) {
+            if (mv_to_pmv.count(fptr->V(i)) == 0 || mv_to_pmv[fptr->V(i)].count(ICCh[fptr]) == 0) {
+                vn++;
+                mv_to_pmv[fptr->V(i)].insert(std::make_pair(ICCh[fptr], nullptr));
+            }
+        }
+    }
+
+    auto pmvi = tri::Allocator<PMesh>::AddVertices(pm, vn);
+    auto pmfi = tri::Allocator<PMesh>::AddFaces(pm, ch->FN());
+
+    for (auto fptr : ch->fpVec) {
+        PMesh::FacePointer pmf = &*pmfi++;
+        for (int i = 0; i < 3; ++i) {
+            Mesh::VertexPointer mv = fptr->V(i);
+            PMesh::VertexPointer& pmv = mv_to_pmv[mv][ICCh[fptr]];
+            if (pmv == nullptr) pmv = &*pmvi++;
+            pmf->V(i) = pmv;
+
+            // TODO maybe add a parameter to choose the parameterization source (mesh geometry or old parameterization)
+            pmv->P() = PMesh::VertexType::CoordType{fptr->cWT(i).U(), fptr->cWT(i).V(), 0};
+            //pmv->P() = fptr->V(i)->P();
+        }
+    }
+
+    for (std::size_t k = 0; k < ch->fpVec.size(); ++k) {
+        auto fptr = ch->fpVec[k];
+        for (int i = 0; i < 3; ++i) {
+            if (face::IsBorder(*fptr, i) || CCIDh[fptr] != CCIDh[fptr->FFp(i)]) { // Border in texture space
+                for (auto& idVertPair : mv_to_pmv[fptr->V0(i)]) idVertPair.second->SetB();
+                for (auto& idVertPair : mv_to_pmv[fptr->V1(i)]) idVertPair.second->SetB();
+            }
+        }
+    }
+
+    DCPSolver<PMesh> solver(pm);
+    for (auto& entry : mv_to_pmv) {
+        if (entry.second.size() > 1) {
+            std::vector<PMesh::VertexPointer> vertGroup;
+            for (auto& idVertPair : entry.second) {
+                vertGroup.push_back(idVertPair.second);
+            }
+            solver.DeclareUnique(vertGroup);
+        }
+    }
+
+    // TEST CODE
+    bool solved = solver.Solve(DCPSolver<PMesh>::__trust_vertex_border_flags);
+    //bool solved = solver.Solve();
+
+#ifndef NDEBUG
+
+    if (!solved) std::cout << "Not solved" << std::endl;
+
+    int n1 = 0;
+    int n2 = 0;
+    int n3 = 0;
+
+    for (auto &f : pm.face) {
+        Triangle3<float> tri {
+            Point3f { f.WT(0).P().X(), f.WT(0).P().Y(), 0.0f },
+            Point3f { f.WT(1).P().X(), f.WT(1).P().Y(), 0.0f },
+            Point3f { f.WT(2).P().X(), f.WT(2).P().Y(), 0.0f }
+        };
+        float area = vcg::DoubleArea(tri);
+        if (area < 0.0f) n1++;
+        else if (area > 0.0f) n2++;
+        else n3++;
+    }
+
+    std::cout << "Negative area " << n1 << std::endl;
+    std::cout << "Positive area " << n2 << std::endl;
+    std::cout << "Zero area     " << n3 << std::endl;
+
+    tri::io::ExporterOBJ<PMesh>::Save(pm, "test_mesh.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
+
+#endif
+
+}
+
 static void ReduceTextureFragmentation(Mesh &m, std::shared_ptr<MeshGraph> graph, std::size_t minRegionSize)
 {
     if (minRegionSize == 0) return;
@@ -74,19 +168,21 @@ static void ReduceTextureFragmentation(Mesh &m, std::shared_ptr<MeshGraph> graph
         if (oldUvArea == 0) continue;
 
         // Build the mesh to parameterize
+        Timer t_;
         PMesh pm;
         for (auto fptr : chart->fpVec) {
             tri::Allocator<PMesh>::AddFace(pm, fptr->P(0), fptr->P(1), fptr->P(2));
         }
         tri::Clean<PMesh>::RemoveDuplicateVertex(pm);
         tri::Allocator<PMesh>::CompactEveryVector(pm);
+        std::cout << "Per face mesh alloc took " << t_.TimeElapsed() << std::endl;
         //tri::UpdateTopology<PMesh>::FaceFace(pm);
         tri::UpdateSelection<PMesh>::Clear(pm);
 
         //tri::io::ExporterOBJ<PMesh>::Save(pm, "submesh_iteration.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
 
         tri::PoissonSolver<PMesh> solver(pm);
-        //DCPSolver<PMesh> solver(pm);//  assert scale < 0
+        //DCPSolver<PMesh> solver(pm);
         tri::UpdateBounding<PMesh>::Box(pm);
         if (!solver.IsFeasible()) {
 

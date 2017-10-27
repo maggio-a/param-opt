@@ -48,14 +48,30 @@ int main(int argc, char *argv[])
     assert(loadMask & tri::io::Mask::IOM_WEDGTEXCOORD);
 
     if (minRegionSize > m.FN()) {
-        std::cout << "Error: minFaceCount > m.FN()" << std::endl;
-        std::exit(-1);
+        std::cout << "WARNING: minFaceCount > m.FN()" << std::endl;
     }
 
     StoreWedgeTexCoordAsAttribute(m);
 
     float uvMeshBorder;
     auto graph = ComputeParameterizationGraph(m, imgVec, &uvMeshBorder);
+
+    /*
+    GraphManager gm{graph};
+    while (gm.HasNextEdge()) {
+        auto we = gm.PeekNextEdge();
+        if (we.first.a->FN() > minRegionSize && we.first.b->FN() > minRegionSize)
+            break;
+        else {
+            gm.RemoveNextEdge();
+            auto ch = gm.Collapse(we.first);
+            ParameterizeChartFromInitialTexCoord(m, ch);
+            std::cout << we.first.a->id << " + " << we.first.b->id << std::endl;
+            int a = 0;
+        }
+    }
+    return 0;
+    */
 
     // Print original info
     PrintParameterizationInfo(graph);
