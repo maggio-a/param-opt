@@ -290,7 +290,7 @@ public:
             }
         }
 
-        c1->numMerges++;
+        c1->numMerges += c2->numMerges + 1;
 
         g->charts.erase(c2->id);
     }

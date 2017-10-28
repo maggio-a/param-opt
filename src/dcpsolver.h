@@ -135,7 +135,7 @@ public:
                 ScalarType alpha_ik = std::max(vcg::Angle(vi->P() - vj->P(), vk->P() - vj->P()), eps);
                 ScalarType weight_ik = ScalarType(1) / std::tan(alpha_ik);
 
-                // Signs should inverted wrt to the partial derivatives, but are the same
+                // Signs should be inverted wrt to the partial derivatives of the energy, but are the same
                 // as the matrix expression on the paper
                 // As long as the signs are consistent this should not change anything
                 // since we solve for grad(f)(x) = 0, so its equivalent to multiply the system by -1
@@ -149,8 +149,7 @@ public:
                 if (vi->IsB()) {
 
                     // following from above, I invert the signs from eq (7) here too...
-                    // These may be actually redundant
-                    coeffList.push_back(Td(U(vi), V(vk), -1)); // pi/2 rot: (x,y) -> (-y,x), hence V() as column index
+                    coeffList.push_back(Td(U(vi), V(vk), -1)); // pi/2 rotation: (x,y) -> (-y,x), hence V() as column index
                     coeffList.push_back(Td(U(vi), V(vj), 1));
 
                     coeffList.push_back(Td(V(vi), U(vk), -1));

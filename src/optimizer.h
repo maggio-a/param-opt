@@ -14,7 +14,7 @@
 #include "timer.h"
 #include "dcpsolver.h"
 
-void ParameterizeChartFromInitialTexCoord(Mesh &m, GraphManager::ChartHandle ch)
+bool ParameterizeChartFromInitialTexCoord(Mesh &m, GraphManager::ChartHandle ch)
 {
     auto CCIDh  = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(m, "ConnectedComponentID");
     assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(m, CCIDh));
@@ -78,6 +78,18 @@ void ParameterizeChartFromInitialTexCoord(Mesh &m, GraphManager::ChartHandle ch)
     bool solved = solver.Solve(DCPSolver<PMesh>::__trust_vertex_border_flags);
     //bool solved = solver.Solve();
 
+    if (solved) { // Copy texture coords back
+        for (auto& fptr : ch->fpVec) {
+            for (int i = 0; i < 3; ++i) {
+                auto vi = fptr->V(i);
+                assert(mv_to_pmv[vi].size() > 0);
+                auto pmv = mv_to_pmv[vi].begin()->second;
+                fptr->WT(i).P() = pmv->T().P();
+            }
+
+        }
+    }
+
 #ifndef NDEBUG
 
     if (!solved) std::cout << "Not solved" << std::endl;
@@ -106,9 +118,214 @@ void ParameterizeChartFromInitialTexCoord(Mesh &m, GraphManager::ChartHandle ch)
 
 #endif
 
+    return solved;
+}
+
+// Computes the texture outlines of a given chart
+void ChartOutlinesUV(Mesh& m, GraphManager::ChartHandle chart, std::vector<std::vector<Point2f>> &outline2Vec)
+{
+    struct FaceAdjacency {
+        bool changed[3] = {false, false, false};
+        Mesh::FacePointer FFp[3];
+        char FFi[3];
+    };
+
+    auto CCIDh = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(m, "ConnectedComponentID");
+    assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(m, CCIDh));
+
+    std::unordered_map<Mesh::FacePointer,FaceAdjacency> savedAdj;
+    for (auto fptr : chart->fpVec) {
+        fptr->ClearV();
+        for (int i = 0; i < 3; ++i) {
+            if (CCIDh[fptr] != CCIDh[fptr->FFp(i)]) {
+                savedAdj[fptr].changed[i] = true;
+                savedAdj[fptr].FFp[i] = fptr->FFp(i);
+                savedAdj[fptr].FFi[i] = fptr->FFi(i);
+                fptr->FFp(i) = fptr;
+                fptr->FFi(i) = i;
+            }
+        }
+    }
+
+    outline2Vec.clear();
+    std::vector<Point2f> outline;
+
+    for (auto fptr : chart->fpVec) {
+        for (int i = 0; i < 3; ++i) {
+            if (!fptr->IsV() && face::IsBorder(*fptr, i)) {
+                face::Pos<Mesh::FaceType> p(fptr, i);
+                face::Pos<Mesh::FaceType> startPos = p;
+                assert(p.IsBorder());
+                do {
+                    assert(p.IsManifold());
+                    p.F()->SetV();
+                    //outline.push_back(Point2<ScalarType>(p.V()->P()));
+                    outline.push_back(p.F()->WT(p.VInd()).P());
+                    p.NextB();
+                }
+                while (p != startPos);
+                outline2Vec.push_back(outline);
+                outline.clear();
+            }
+        }
+    }
+
+    for (auto& entry : savedAdj) {
+        for (int i = 0; i < 3; ++i) {
+            if (entry.second.changed[i]) {
+                entry.first->FFp(i) = entry.second.FFp[i];
+                entry.first->FFi(i) = entry.second.FFi[i];
+            }
+        }
+    }
+}
+
+vcg::Box2f UVBox(GraphManager::ChartHandle chart) {
+    vcg::Box2f bbox;
+    for (auto fptr : chart->fpVec) {
+        for (int i = 0; i < 3; ++i) {
+            bbox.Add(fptr->cWT(i).P());
+        }
+    }
+    return bbox;
 }
 
 static void ReduceTextureFragmentation(Mesh &m, std::shared_ptr<MeshGraph> graph, std::size_t minRegionSize)
+{
+    if (minRegionSize == 0) return;
+
+    assert(minRegionSize < m.FN());
+
+    tri::UpdateTopology<Mesh>::FaceFace(m);
+
+    GraphManager gm{graph};
+
+    std::cout << "Initialized graph manager" << std::endl;
+
+    Timer timer;
+    int mergeCount;
+    int numIter = 0;
+
+    do {
+        mergeCount = gm.CloseMacroRegions(minRegionSize);
+
+        while (gm.HasNextEdge()) {
+            auto we = gm.PeekNextEdge();
+            if (we.first.a->FN() > minRegionSize && we.first.b->FN() > minRegionSize)
+                break;
+            else {
+                gm.RemoveNextEdge();
+                gm.Collapse(we.first);
+                mergeCount++;
+                if (mergeCount%50 == 0) {
+                    std::cout << "Merged " << mergeCount << " regions..." << std::endl;
+                }
+            }
+        }
+
+        std::cout << "Iteration "  << numIter << " took " << timer.TimeSinceLastCheck() << " seconds ("
+                  << mergeCount << " merges took place)" << std::endl;
+
+        numIter++;
+
+    } while (mergeCount > 0);
+
+    std::cout << "Stopping after " << numIter << " passes and " << timer.TimeElapsed() << " seconds" << std::endl;
+
+    timer.Reset();
+
+    std::cout << "Parameterizing " << graph->charts.size() << " regions..." << std::endl;
+    int iter = 0;
+
+    std::vector<std::vector<Point2f>> texOutlines;
+    std::unordered_map<std::size_t, std::size_t> outlineMap;
+    for (auto entry : graph->charts) {
+        std::shared_ptr<FaceGroup> chart = entry.second;
+
+        std::cout << "Chart " << chart->id << " - FN=" << chart->FN() << ", FI=" << tri::Index(m, chart->Fp()) << std::endl;
+
+        // If the old chart has no valid parameterization, skip it
+        float oldUvArea = chart->AreaUV();
+        if (oldUvArea == 0) continue;
+
+        if (chart->numMerges == 0) {
+            // The chart was not merged, therefore there is nothing to do -- the original parameterization is preserved
+
+            // !!! this does not happen to work as there are issues with selecting the outline2 from such regions
+            // Example: closed surfaces parameterized without cuts (like two sides projected to a plane)
+
+            // TODO a possible workaround would be to use the bounding box as the outline
+        }
+        else {
+            bool parameterized = ParameterizeChartFromInitialTexCoord(m, chart);
+
+            if (parameterized) {
+                // Normalize area: the region gets scaled by sqrt(oldUVArea)/sqrt(newUVArea) to keep the original proportions
+                // between the regions of the atlas in an attempt to not lose too much texture data when the new texture is rendered
+                float newUvArea = chart->AreaUV();
+                float scale = std::sqrt(oldUvArea / newUvArea);
+                assert(scale > 0);
+                vcg::Box2f uvBox = UVBox(chart);
+                for (auto fptr : chart->fpVec) {
+                    for (int i = 0; i < 3; ++i) {
+                        fptr->WT(i).P() = (fptr->WT(i).P() - uvBox.min) * scale;
+                    }
+                }
+            }
+            else {
+                std::cout << "Parameterization failed" << std::endl;
+            }
+        }
+        // Save the outline of the parameterization for this portion of the mesh
+
+        std::vector<std::vector<Point2f>> uvOutlines;
+        ChartOutlinesUV(m, chart, uvOutlines);
+        int i = tri::OutlineUtil<float>::LargestOutline2(uvOutlines);
+        if (tri::OutlineUtil<float>::Outline2Area(uvOutlines[i]) < 0)
+            tri::OutlineUtil<float>::ReverseOutline2(uvOutlines[i]);
+
+        outlineMap[chart->id] = texOutlines.size();
+        texOutlines.push_back(uvOutlines[i]);
+
+        std::cout << "Iteration " << iter++ << " took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
+   }
+
+    std::cout << "Parameterization took " << timer.TimeElapsed() << " seconds" << std::endl;
+
+    std::cout << "Packing the atlas..." << std::endl;
+
+    // pack the atlas
+    RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Parameters packingParam;
+    packingParam.costFunction  = RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Parameters::LowestHorizon;
+    packingParam.doubleHorizon = true;
+    packingParam.cellSize = 4;
+    packingParam.rotationNum = 16; //number of rasterizations in 90°
+
+    Point2i gridSize(1024, 1024);
+    std::vector<Similarity2f> transforms;
+
+    RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Pack(texOutlines, gridSize, transforms, packingParam);
+
+    Point2f cover;
+    //PolyPacker<float>::PackAsObjectOrientedRect(texOutlines, gridSize, transforms, cover);
+    //PolyPacker<float>::PackAsAxisAlignedRect(texOutlines, gridSize, transforms, cover);
+
+    std::cout << "Packing took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
+
+    //assert(transforms.size() == pdata.charts.size());
+
+    for (auto p : outlineMap) {
+        for (auto fptr : graph->charts[p.first]->fpVec) {
+            for (int j = 0; j < fptr->VN(); ++j) {
+                Point2f transformedTexCoordPos = transforms[p.second] * (fptr->WT(j).P());
+                fptr->WT(j).P() = transformedTexCoordPos / 1024.0f;
+            }
+        }
+    }
+
+}
+
+static void ReduceTextureFragmentation2(Mesh &m, std::shared_ptr<MeshGraph> graph, std::size_t minRegionSize)
 {
     if (minRegionSize == 0) return;
 
