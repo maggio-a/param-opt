@@ -1,5 +1,6 @@
 #include <vcg/complex/complex.h>
-#include <wrap/io_trimesh/export.h>
+#include <wrap/io_trimesh/io_mask.h>
+
 
 #include <string>
 #include <vector>
@@ -27,26 +28,28 @@ int main(int argc, char *argv[])
     assert(minRegionSize > 0);
 
     Mesh m;
-    std::vector<std::shared_ptr<QImage>> imgVec;
+    TextureObjectHandle textureObject;
     int loadMask;
-    std::string modelName;
+    std::string fileName;
 
-    if (LoadMesh(m, argv[1], imgVec, loadMask, modelName) == false) {
+    if (LoadMesh(m, argv[1], textureObject, loadMask, fileName) == false) {
         std::cout << "Failed to open mesh" << std::endl;
         std::exit(-1);
     }
+
+    assert(textureObject->ArraySize() == 1 && "Currently only single texture is supported");
 
     assert(loadMask & tri::io::Mask::IOM_WEDGTEXCOORD);
 
     StoreWedgeTexCoordAsAttribute(m);
 
     float uvMeshBorder;
-    auto graph = ComputeParameterizationGraph(m, imgVec, &uvMeshBorder);
+    auto graph = ComputeParameterizationGraph(m, textureObject, &uvMeshBorder);
 
     // Print original info
     PrintParameterizationInfo(graph);
 
-    MeshViewer viewer(graph, std::size_t(minRegionSize));
+    MeshViewer viewer(graph, std::size_t(minRegionSize), fileName);
     viewer.Run();
 
     return 0;

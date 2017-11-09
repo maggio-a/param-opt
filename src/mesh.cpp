@@ -1,18 +1,21 @@
-#include "mesh.h"
-
+#include <vcg/complex/complex.h>
 #include <wrap/io_trimesh/import.h>
+#include <wrap/io_trimesh/export.h>
 
 #include <iostream>
 #include <string>
 
 #include <QFileInfo>
 #include <QDir>
+#include <QString>
 
+#include "mesh.h"
+#include "gl_util.h"
 
-bool LoadMesh(Mesh &m, const char *fileName, std::vector<std::shared_ptr<QImage>> &imgVec, int &loadMask, std::string &modelName)
+bool LoadMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject, int &loadMask, std::string &modelName)
 {
     m.Clear();
-    imgVec.clear();
+    textureObject = std::make_shared<TextureObject>();
     loadMask = 0;
 
     QFileInfo fi(fileName);
@@ -24,7 +27,7 @@ bool LoadMesh(Mesh &m, const char *fileName, std::vector<std::shared_ptr<QImage>
 
     modelName = fi.fileName().toStdString();
 
-    std::string wd = QDir::currentPath().toStdString();
+    QString wd = QDir::currentPath();
     QDir::setCurrent(fi.absoluteDir().absolutePath());
 
     int r = tri::io::Importer<Mesh>::Open(m, fi.fileName().toStdString().c_str(), loadMask);
@@ -36,16 +39,40 @@ bool LoadMesh(Mesh &m, const char *fileName, std::vector<std::shared_ptr<QImage>
     std::cout << "Loaded mesh " << fileName << " (VN " <<  m.VN() << ", FN " << m.FN() << ")" << std::endl;
 
     for (const string& textureName : m.textures) {
-        auto imgptr = std::make_shared<QImage>(textureName.c_str());
-        if (imgptr->isNull()) {
+        QFileInfo textureFile(textureName.c_str());
+        textureFile.makeAbsolute();
+        auto imgptr = std::make_shared<QImage>(textureFile.absoluteFilePath());
+        if (!textureFile.exists() || !textureFile.isReadable() || imgptr->isNull()) {
             std::cout << "Unable to load texture file " << textureName.c_str() << std::endl;
             return false;
-        } else {
-            std::cout << "Loaded texture " << textureName << std::endl;
         }
-        imgVec.push_back(imgptr);
+        textureObject->AddImage(imgptr);
     }
 
-    QDir::setCurrent(QString(wd.c_str()));
+    QDir::setCurrent(wd);
+    return true;
+}
+
+bool SaveMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject)
+{
+    if (tri::io::Exporter<Mesh>::Save(m, fileName, tri::io::Mask::IOM_WEDGTEXCOORD)) {
+        std::cout << "Error saving mesh file " << fileName << std::endl;
+        return false;
+    }
+
+    QFileInfo fi(fileName);
+    assert (fi.exists());
+
+    QString wd = QDir::currentPath();
+    QDir::setCurrent(fi.absoluteDir().absolutePath());
+
+    for (std::size_t i = 0; i < textureObject->imgVec.size(); ++i) {
+        if(textureObject->imgVec[i]->save(m.textures[i].c_str(), 0, 100) == false) {
+            std::cout << "Error saving texture file " << m.textures[0] << std::endl;
+            return false;
+        }
+    }
+
+    QDir::setCurrent(wd);
     return true;
 }

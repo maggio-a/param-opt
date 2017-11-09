@@ -14,6 +14,8 @@
 #include "timer.h"
 #include "dcpsolver.h"
 
+#include "uv.h"
+
 bool ParameterizeChartFromInitialTexCoord(Mesh &m, GraphManager::ChartHandle ch)
 {
     auto CCIDh  = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(m, "ConnectedComponentID");
@@ -114,7 +116,7 @@ bool ParameterizeChartFromInitialTexCoord(Mesh &m, GraphManager::ChartHandle ch)
     std::cout << "Positive area " << n2 << std::endl;
     std::cout << "Zero area     " << n3 << std::endl;
 
-    tri::io::ExporterOBJ<PMesh>::Save(pm, "test_mesh.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
+    //tri::io::ExporterOBJ<PMesh>::Save(pm, "test_mesh.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
 
 #endif
 
@@ -190,11 +192,114 @@ vcg::Box2f UVBox(GraphManager::ChartHandle chart) {
     return bbox;
 }
 
+// returns the number of charts that could not be parameterized
+static int ParameterizeGraph(std::shared_ptr<MeshGraph> graph)
+{
+    Timer timer;
+    Mesh& m = graph->mesh;
+
+    std::cout << "Parameterizing " << graph->charts.size() << " regions..." << std::endl;
+
+    std::vector<std::vector<Point2f>> texOutlines;
+    std::unordered_map<RegionID,std::size_t> outlineMap; // map each region to the index of its outline in texOutlines
+    int iter = 0;
+    int numFailed = 0;
+    for (auto entry : graph->charts) {
+        std::shared_ptr<FaceGroup> chart = entry.second;
+
+        std::cout << "Chart " << chart->id << " - FN=" << chart->FN() << ", FI=" << tri::Index(m, chart->Fp()) << std::endl;
+
+        // If the old chart has no valid parameterization, skip it
+        float oldUvArea = chart->AreaUV();
+        if (oldUvArea == 0) continue;
+
+        if (chart->numMerges == 0) {
+            // The chart was not merged, therefore there is nothing to do -- the original parameterization is preserved
+
+            // !!! this does not happen to work as there are issues with selecting the outline2 from such regions
+            // Example: closed surfaces parameterized without cuts (like two sides projected to a plane)
+
+            // TODO a possible workaround would be to use the bounding box as the outline
+        }
+        else {
+            // TODO function parameter to choose the source of the mesh geometry (3D or old UV space)
+            bool parameterized = ParameterizeChartFromInitialTexCoord(m, chart);
+
+            if (parameterized) {
+                // Normalize area: the region gets scaled by sqrt(oldUVArea)/sqrt(newUVArea) to keep the original proportions
+                // between the regions of the atlas in an attempt to not lose too much texture data when the new texture is rendered
+                float newUvArea = chart->AreaUV();
+                float scale = std::sqrt(oldUvArea / newUvArea);
+                assert(scale > 0);
+                vcg::Box2f uvBox = UVBox(chart);
+                for (auto fptr : chart->fpVec) {
+                    for (int i = 0; i < 3; ++i) {
+                        fptr->WT(i).P() = (fptr->WT(i).P() - uvBox.min) * scale;
+                    }
+                }
+
+                chart->numMerges = 0;
+            }
+            else {
+                numFailed++;
+                std::cout << "Parameterization failed" << std::endl;
+            }
+        }
+        // Save the outline of the parameterization for this portion of the mesh
+
+        std::vector<std::vector<Point2f>> uvOutlines;
+        ChartOutlinesUV(m, chart, uvOutlines);
+        int i = tri::OutlineUtil<float>::LargestOutline2(uvOutlines);
+        if (tri::OutlineUtil<float>::Outline2Area(uvOutlines[i]) < 0)
+            tri::OutlineUtil<float>::ReverseOutline2(uvOutlines[i]);
+
+        outlineMap[chart->id] = texOutlines.size();
+        texOutlines.push_back(uvOutlines[i]);
+
+        std::cout << "Iteration " << iter++ << " took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
+    }
+
+    std::cout << "Parameterization took " << timer.TimeElapsed() << " seconds" << std::endl;
+
+    std::cout << "Packing the atlas..." << std::endl;
+
+    // pack the atlas TODO function parameter to choose the packing strategy
+    RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Parameters packingParam;
+    packingParam.costFunction  = RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Parameters::LowestHorizon;
+    packingParam.doubleHorizon = true;
+    packingParam.cellSize = 4;
+    packingParam.rotationNum = 16; //number of rasterizations in 90°
+
+    Point2i gridSize(1024, 1024);
+    std::vector<Similarity2f> transforms;
+
+    //RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Pack(texOutlines, gridSize, transforms, packingParam);
+
+    Point2f cover;
+    //PolyPacker<float>::PackAsObjectOrientedRect(texOutlines, gridSize, transforms, cover);
+    PolyPacker<float>::PackAsAxisAlignedRect(texOutlines, gridSize, transforms, cover);
+
+    std::cout << "Packing took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
+
+    //assert(transforms.size() == pdata.charts.size());
+
+    for (auto p : outlineMap) {
+        for (auto fptr : graph->charts[p.first]->fpVec) {
+            for (int j = 0; j < fptr->VN(); ++j) {
+                Point2f transformedTexCoordPos = transforms[p.second] * (fptr->WT(j).P());
+                fptr->WT(j).P() = transformedTexCoordPos / 1024.0f;
+            }
+        }
+    }
+
+    return numFailed;
+}
+
 static void ReduceTextureFragmentation(Mesh &m, std::shared_ptr<MeshGraph> graph, std::size_t minRegionSize)
 {
     if (minRegionSize == 0) return;
 
-    assert(minRegionSize < m.FN());
+    assert(minRegionSize < (std::size_t) m.FN());
 
     tri::UpdateTopology<Mesh>::FaceFace(m);
 
@@ -232,97 +337,9 @@ static void ReduceTextureFragmentation(Mesh &m, std::shared_ptr<MeshGraph> graph
 
     std::cout << "Stopping after " << numIter << " passes and " << timer.TimeElapsed() << " seconds" << std::endl;
 
-    timer.Reset();
+    int c = ParameterizeGraph(graph);
 
-    std::cout << "Parameterizing " << graph->charts.size() << " regions..." << std::endl;
-    int iter = 0;
-
-    std::vector<std::vector<Point2f>> texOutlines;
-    std::unordered_map<std::size_t, std::size_t> outlineMap;
-    for (auto entry : graph->charts) {
-        std::shared_ptr<FaceGroup> chart = entry.second;
-
-        std::cout << "Chart " << chart->id << " - FN=" << chart->FN() << ", FI=" << tri::Index(m, chart->Fp()) << std::endl;
-
-        // If the old chart has no valid parameterization, skip it
-        float oldUvArea = chart->AreaUV();
-        if (oldUvArea == 0) continue;
-
-        if (chart->numMerges == 0) {
-            // The chart was not merged, therefore there is nothing to do -- the original parameterization is preserved
-
-            // !!! this does not happen to work as there are issues with selecting the outline2 from such regions
-            // Example: closed surfaces parameterized without cuts (like two sides projected to a plane)
-
-            // TODO a possible workaround would be to use the bounding box as the outline
-        }
-        else {
-            bool parameterized = ParameterizeChartFromInitialTexCoord(m, chart);
-
-            if (parameterized) {
-                // Normalize area: the region gets scaled by sqrt(oldUVArea)/sqrt(newUVArea) to keep the original proportions
-                // between the regions of the atlas in an attempt to not lose too much texture data when the new texture is rendered
-                float newUvArea = chart->AreaUV();
-                float scale = std::sqrt(oldUvArea / newUvArea);
-                assert(scale > 0);
-                vcg::Box2f uvBox = UVBox(chart);
-                for (auto fptr : chart->fpVec) {
-                    for (int i = 0; i < 3; ++i) {
-                        fptr->WT(i).P() = (fptr->WT(i).P() - uvBox.min) * scale;
-                    }
-                }
-            }
-            else {
-                std::cout << "Parameterization failed" << std::endl;
-            }
-        }
-        // Save the outline of the parameterization for this portion of the mesh
-
-        std::vector<std::vector<Point2f>> uvOutlines;
-        ChartOutlinesUV(m, chart, uvOutlines);
-        int i = tri::OutlineUtil<float>::LargestOutline2(uvOutlines);
-        if (tri::OutlineUtil<float>::Outline2Area(uvOutlines[i]) < 0)
-            tri::OutlineUtil<float>::ReverseOutline2(uvOutlines[i]);
-
-        outlineMap[chart->id] = texOutlines.size();
-        texOutlines.push_back(uvOutlines[i]);
-
-        std::cout << "Iteration " << iter++ << " took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
-   }
-
-    std::cout << "Parameterization took " << timer.TimeElapsed() << " seconds" << std::endl;
-
-    std::cout << "Packing the atlas..." << std::endl;
-
-    // pack the atlas
-    RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Parameters packingParam;
-    packingParam.costFunction  = RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Parameters::LowestHorizon;
-    packingParam.doubleHorizon = true;
-    packingParam.cellSize = 4;
-    packingParam.rotationNum = 16; //number of rasterizations in 90°
-
-    Point2i gridSize(1024, 1024);
-    std::vector<Similarity2f> transforms;
-
-    RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Pack(texOutlines, gridSize, transforms, packingParam);
-
-    Point2f cover;
-    //PolyPacker<float>::PackAsObjectOrientedRect(texOutlines, gridSize, transforms, cover);
-    //PolyPacker<float>::PackAsAxisAlignedRect(texOutlines, gridSize, transforms, cover);
-
-    std::cout << "Packing took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
-
-    //assert(transforms.size() == pdata.charts.size());
-
-    for (auto p : outlineMap) {
-        for (auto fptr : graph->charts[p.first]->fpVec) {
-            for (int j = 0; j < fptr->VN(); ++j) {
-                Point2f transformedTexCoordPos = transforms[p.second] * (fptr->WT(j).P());
-                fptr->WT(j).P() = transformedTexCoordPos / 1024.0f;
-            }
-        }
-    }
-
+    if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
 }
 
 static void ReduceTextureFragmentation2(Mesh &m, std::shared_ptr<MeshGraph> graph, std::size_t minRegionSize)

@@ -2,6 +2,9 @@
 #define MESH_VIEWER_H
 
 #include <memory>
+#include <vector>
+#include <string>
+
 #include <GL/glew.h>
 
 #include "mesh_graph.h"
@@ -74,6 +77,8 @@ private:
     std::shared_ptr<MeshGraph> meshParamData;
     std::shared_ptr<GraphManager> gm;
 
+    std::string fileName;
+
     // TODO move the optimizer parameters somewhere else
     std::size_t minRegionSize;
 
@@ -81,8 +86,6 @@ private:
     GLFWwindow *_window = nullptr;
     double _xpos = 0, _ypos = 0;
     DragMode _dragMode = DISABLED;
-
-//    std::shared_ptr<FaceGroup> _selected;
 
     float _dragX = 0.0f, _dragY = 0.0f;
 
@@ -99,9 +102,11 @@ private:
         GLuint selection = 0;
     } _vertexBuffers;
 
-    GLuint _texture = 0;
+    TextureObjectHandle _currentTexture;
+    //GLuint _texture = 0;
 
     struct {
+        bool checkboard = false;
         GLuint program = 0;
         GLuint vao = 0;
         struct {
@@ -111,6 +116,7 @@ private:
         struct {
             GLint loc_modelView;
             GLint loc_projection;
+            GLint loc_checkboard;
             GLint loc_weight;
         } uniforms;
 
@@ -183,7 +189,7 @@ private:
     } info;
 
 public:
-    MeshViewer(std::shared_ptr<MeshGraph> meshParamData_, std::size_t minRegionSize_);
+    MeshViewer(std::shared_ptr<MeshGraph> meshParamData_, std::size_t minRegionSize_, const std::string &fileName_);
     void Run();
     GLuint CompileShaders(const GLchar **vs_text, const GLchar **fs_text);
     void InitBuffers();
@@ -209,6 +215,8 @@ public:
     void Select(const RegionID id);
     void Select(const GraphManager::Edge& e);
     void InitializeSelection(const std::vector<std::pair<RegionID,vcg::Color4f>>& vsel);
+
+    void ManageImGuiState();
 
     // GraphManager interface
     void gmClose();

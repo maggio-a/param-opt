@@ -10,13 +10,14 @@
 
 #include "mesh.h"
 #include "pushpull.h"
+#include "uv.h"
 
 #include "gl_util.h"
 
 using namespace std;
 
 static const char *vs_text[] = {
-    "#version 420 core                                           \n"
+    "#version 410 core                                           \n"
     "                                                            \n"
     "in vec2 position;                                           \n"
     "in vec2 texcoord;                                           \n"
@@ -31,9 +32,9 @@ static const char *vs_text[] = {
 };
 
 static const char *fs_text[] = {
-    "#version 420 core                                           \n"
+    "#version 410 core                                           \n"
     "                                                            \n"
-    "layout (binding = 0) uniform sampler2D img0;                \n"
+    "uniform sampler2D img0;                                     \n"
     "in vec2 uv;                                                 \n"
     "                                                            \n"
     "out vec4 color;                                             \n"
@@ -44,27 +45,33 @@ static const char *fs_text[] = {
     "}                                                           \n"
 };
 
-static std::shared_ptr<QImage> RenderTexture(Mesh &m, std::vector<std::shared_ptr<QImage>> imgVec, bool filter)
+// if parent == nullptr this function creates an exclusive context, otherwise set
+// up a shared context so textures arent duplicated
+static TextureObjectHandle RenderTexture(Mesh &m, TextureObjectHandle textureObject, bool filter, GLFWwindow *parentWindow)
 {
-    assert(imgVec.size() == 1); // FIXME multiple texture images support
-    QImage &img = *imgVec[0];
+    assert(textureObject->ArraySize() == 1); // TODO multiple texture images support
 
-    if (!glfwInit())
-    {
-        cout << "Failed to initialize glfw" << endl;
-        exit(-1);
+    bool sharedContext = (parentWindow != nullptr);
+
+    QImage &img = *(textureObject->imgVec[0]);
+
+    if (sharedContext == false) {
+        if (!glfwInit())
+        {
+            cout << "Failed to initialize glfw" << endl;
+            exit(-1);
+        }
+        glfwSetErrorCallback(ErrorCallback);
     }
 
-    glfwSetErrorCallback(ErrorCallback);
-
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
 
-    GLFWwindow *window = glfwCreateWindow(512, 512, "Window", NULL, NULL);
+    GLFWwindow *window = glfwCreateWindow(512, 512, "Window", NULL, parentWindow);
     if (!window)
     {
         cout << "Failed to create window or context" << endl;
@@ -145,42 +152,35 @@ static std::shared_ptr<QImage> RenderTexture(Mesh &m, std::vector<std::shared_pt
 
     CheckGLError();
 
-    // Allocate buffers for vertex data, map it and copy tex coords
+    // Allocate vertex data
 
-    GLuint buffer[2];
-    glGenBuffers(2, buffer);
+    // Note that if the viewer is running texture coords are already in a gpu buffer so I could re-use those
+    // cleanup
+    auto WTCSh  = tri::Allocator<Mesh>::FindPerFaceAttribute<WedgeTexCoordStorage>(m, "WedgeTexCoordStorage");
+    assert(tri::Allocator<Mesh>::IsValidHandle<WedgeTexCoordStorage>(m, WTCSh));
 
-    // load vertex coordinates
-    glBindBuffer(GL_ARRAY_BUFFER, buffer[0]);
-    glBufferData(GL_ARRAY_BUFFER, m.FN()*6*sizeof(float), NULL, GL_STATIC_DRAW);
+    GLuint vertexbuf;
+    glGenBuffers(1, &vertexbuf);
+
+    glBindBuffer(GL_ARRAY_BUFFER, vertexbuf);
+    glBufferData(GL_ARRAY_BUFFER, m.FN()*12*sizeof(float), NULL, GL_STATIC_DRAW);
     float *p = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
     for (auto& f : m.face) {
         for (int i = 0; i < 3; ++i) {
             *p++ = f.cWT(i).U();
             *p++ = f.cWT(i).V();
-        }
-    }
-    glUnmapBuffer(GL_ARRAY_BUFFER);
-
-    GLint pos_location = glGetAttribLocation(program, "position");
-    glVertexAttribPointer(pos_location, 2, GL_FLOAT, GL_FALSE, 0, NULL);
-    glEnableVertexAttribArray(pos_location);
-
-    // load texture coordinates
-    glBindBuffer(GL_ARRAY_BUFFER, buffer[1]);
-    glBufferData(GL_ARRAY_BUFFER, m.FN()*6*sizeof(float), NULL, GL_STATIC_DRAW);
-    Mesh::PerFaceAttributeHandle<WedgeTexCoordStorage> WTCSh
-            = tri::Allocator<Mesh>::GetPerFaceAttribute<WedgeTexCoordStorage>(m, "WedgeTexCoordStorage");
-    p = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
-    for (auto& f : m.face) {
-        for (int i = 0; i < 3; ++i) {
             *p++ = WTCSh[&f].tc[i].U();
             *p++ = WTCSh[&f].tc[i].V();
         }
     }
     glUnmapBuffer(GL_ARRAY_BUFFER);
+
+    GLint pos_location = glGetAttribLocation(program, "position");
+    glVertexAttribPointer(pos_location, 2, GL_FLOAT, GL_FALSE, 4*sizeof(float), 0);
+    glEnableVertexAttribArray(pos_location);
+
     GLint tc_location = glGetAttribLocation(program, "texcoord");
-    glVertexAttribPointer(tc_location, 2, GL_FLOAT, GL_FALSE, 0, NULL);
+    glVertexAttribPointer(tc_location, 2, GL_FLOAT, GL_FALSE, 4*sizeof(float), (void *) (2*sizeof(float)));
     glEnableVertexAttribArray(tc_location);
 
     p = nullptr;
@@ -188,12 +188,14 @@ static std::shared_ptr<QImage> RenderTexture(Mesh &m, std::vector<std::shared_pt
 
     // Setup FBO
 
+    // cleanup
     GLuint fbo;
     glGenFramebuffers(1, &fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 
     glViewport(0, 0, img.width(), img.height());
 
+    // cleanup
     GLuint renderTarget;
     glGenTextures(1, &renderTarget);
     glBindTexture(GL_TEXTURE_2D, renderTarget);
@@ -204,16 +206,20 @@ static std::shared_ptr<QImage> RenderTexture(Mesh &m, std::vector<std::shared_pt
     glBindTexture(GL_TEXTURE_2D, 0);
 
     // Load texture image
-
-    GLuint texture;
-    glGenTextures(1, &texture);
     glActiveTexture(GL_TEXTURE0);
-    LoadTexture2DFromQImage(img, texture); // mirror qimage to match opengl convention
+    textureObject->Bind();
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
+    GLint loc_img0 = glGetUniformLocation(program, "img0");
+    glUniform1i(loc_img0, 0);
+
     QImage textureImage(img.width(), img.height(), QImage::Format_ARGB32);
+
+    // disable depth and stencil test (if they were enabled) as the render target does not have the buffers attached
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_STENCIL_TEST);
 
     glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
@@ -227,17 +233,32 @@ static std::shared_ptr<QImage> RenderTexture(Mesh &m, std::vector<std::shared_pt
 
     glfwPollEvents();
 
+    // clean up
+    glUseProgram(0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindVertexArray(0);
 
-    // cleanup TODO
-
+    if (sharedContext == false) textureObject->Release();
+    glDeleteTextures(1, &renderTarget);
+    glDeleteFramebuffers(1, &fbo);
+    glDeleteBuffers(1, &vertexbuf);
+    glDeleteProgram(program);
     glDeleteVertexArrays(1, &vao);
 
     glfwDestroyWindow(window);
-    glfwTerminate();
+    if (sharedContext) {
+        glfwMakeContextCurrent(parentWindow);
+    }
+    else {
+        glfwTerminate();
+    }
 
     if (filter) vcg::PullPush(textureImage, qRgba(0, 255, 0, 255));
 
-    return std::make_shared<QImage>(textureImage.mirrored());
+    TextureObjectHandle newTextureObject = std::make_shared<TextureObject>();
+    newTextureObject->AddImage(std::make_shared<QImage>(textureImage.mirrored()));
+
+    return newTextureObject;
 }
 
 

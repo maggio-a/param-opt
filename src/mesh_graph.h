@@ -9,6 +9,7 @@
 #include <QImage>
 
 #include "mesh.h"
+#include "gl_util.h"
 
 struct FaceGroup {
     const RegionID id;
@@ -49,9 +50,9 @@ struct MeshGraph {
     Mesh& mesh;
 
     std::unordered_map<std::size_t, std::shared_ptr<FaceGroup>> charts;
-    std::vector<std::shared_ptr<QImage>> textures;
+    TextureObjectHandle textureObject;
 
-    MeshGraph(Mesh& m) : mesh(m), charts{}, textures{} {}
+    MeshGraph(Mesh& m) : mesh{m} {}
 
     std::shared_ptr<FaceGroup> GetChart(std::size_t i)
     {
@@ -59,12 +60,21 @@ struct MeshGraph {
         return charts[i];
     }
 
-    std::size_t Count() {
+    std::size_t Count() const
+    {
         std::size_t sz = 0;
-        for (auto c : charts) {
+        for (const auto& c : charts) {
             sz += c.second->fpVec.size();
         }
         return sz;
+    }
+
+    int MergeCount() const
+    {
+        int n = 0;
+        for (const auto& c : charts) n += c.second->numMerges;
+        return n;
+
     }
 
     float Area3D()

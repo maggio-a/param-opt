@@ -1,4 +1,5 @@
 #include <iostream>
+#include <cstdio>
 
 #include <QImage>
 
@@ -9,8 +10,14 @@
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 
+#include <imgui.h>
+#include <imgui_glfw_gl3/imgui_impl_glfw_gl3.h>
+
+#include "mesh.h"
 #include "mesh_viewer.h"
 #include "gl_util.h"
+#include "optimizer.h"
+#include "texture_rendering.h"
 
 const char *vs_text_3D[] = {
     "#version 410 core                                                             \n"
@@ -45,48 +52,59 @@ const char *vs_text_texture[] = {
 };
 
 const char *fs_text_texture[] = {
-    "#version 410 core                                     \n"
-    "                                                      \n"
-    "uniform sampler2D tex0;                               \n"
-    "uniform vec4 weight = vec4(1.0f, 1.0f, 1.0f, 1.0f);          \n"
-    "                                                      \n"
-    "in vec2 uv;                                           \n"
-    "out vec4 color;                                       \n"
-    "                                                      \n"
-    "void main(void)                                       \n"
-    "{                                                     \n"
-    "    color = texture(tex0, uv)*weight;                 \n"
-    "}                                                     \n"
+    "#version 410 core                                              \n"
+    "                                                               \n"
+    "uniform sampler2D tex0;                                        \n"
+    "uniform float resolution = 64.0f;                              \n"
+    "uniform bool checkboard = false;                               \n"
+    "uniform vec4 weight = vec4(1.0f, 1.0f, 1.0f, 1.0f);            \n"
+    "                                                               \n"
+    "in vec2 uv;                                                    \n"
+    "out vec4 color;                                                \n"
+    "                                                               \n"
+    "void main(void)                                                \n"
+    "{                                                              \n"
+    "    if (checkboard) {                                          \n"
+    "        float u_mod = mod(floor(uv.s * resolution), 2.0f);     \n"
+    "        float v_mod = mod(floor(uv.t * resolution), 2.0f);     \n"
+    "        float c = abs(u_mod - v_mod);                          \n"
+    "        color = vec4(c, c, c, 1.0f);                           \n"
+    "    } else {                                                   \n"
+    "        color = texture(tex0, uv)*weight;                      \n"
+    "    }                                                          \n"
+    "}                                                              \n"
 };
 
 // GLFW callbacks
 
 void MeshViewer::MouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
 {
-    MeshViewer *viewer = (MeshViewer *) glfwGetWindowUserPointer(window);
+    if (action == GLFW_PRESS && button >= 0 && button < 3)
+        g_MouseJustPressed[button] = true;
 
-    if (mods & GLFW_MOD_SHIFT) {
+    ImGuiIO& io = ImGui::GetIO();
 
-        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) { // Center view on the point
-            viewer->CenterPerspectiveViewFromMouse();
-        }
-
-    } else {
-
-        // Drag mode // TODO: viewer->enable/disable dragmode
-        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-            if (viewer->InPerspectiveView()) viewer->_dragMode = DragMode::PERSPECTIVE;
-            else if (viewer->InTextureView()) viewer->_dragMode = DragMode::TEXTURE;
-            if (viewer->InDetailView()) viewer->_dragMode = DragMode::DETAIL;
+    // forward input to app logic only if gui is not involved or it is a release event
+    if (io.WantCaptureMouse == false || action == GLFW_RELEASE) {
+        MeshViewer *viewer = (MeshViewer *) glfwGetWindowUserPointer(window);
+        if (mods & GLFW_MOD_SHIFT) {
+            if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) { // Center view on the point
+                viewer->CenterPerspectiveViewFromMouse();
+            }
         } else {
-            viewer->_dragMode = DragMode::DISABLED;
+            // Drag mode // TODO: viewer->enable/disable dragmode
+            if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+                if (viewer->InPerspectiveView()) viewer->_dragMode = DragMode::PERSPECTIVE;
+                else if (viewer->InTextureView()) viewer->_dragMode = DragMode::TEXTURE;
+                if (viewer->InDetailView()) viewer->_dragMode = DragMode::DETAIL;
+            } else {
+                viewer->_dragMode = DragMode::DISABLED;
+            }
+            // Pick mode, select region
+            if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
+                viewer->PickRegion();
+            }
         }
-
-        // Pick mode, select region
-        if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
-            viewer->PickRegion();
-        }
-
     }
 }
 
@@ -111,70 +129,30 @@ void MeshViewer::CursorPositionCallback(GLFWwindow *window, double xpos, double 
     viewer->_ypos = ypos;
 }
 
-void MeshViewer::ScrollCallback(GLFWwindow* window, double xoffset, double yoffset)
+void MeshViewer::ScrollCallback(GLFWwindow* window, double /*xoffset*/, double yoffset)
 {
-    MeshViewer *viewer = (MeshViewer *) glfwGetWindowUserPointer(window);
-    if (viewer->InPerspectiveView()) {
-        float factor = (yoffset > 0.0f) ? 0.9f : 1.1f;
-        viewer->_perspectiveCamera.eye[2] *= factor;
-        viewer->_perspectiveCamera.near *= factor;
-    }
-    else if (viewer->InTextureView()) {
-        float mx = ((viewer->_xpos-viewer->info.xSplit) / (viewer->info.height/2.0f)) - 0.5f;
-        float my = 0.5f - (viewer->_ypos / (viewer->info.height/2.0f));
-        yoffset > 0.0f ? viewer->_textureCamera.ZoomIn(mx, my) : viewer->_textureCamera.ZoomOut(mx, my);
-    }
-    else if (viewer->InDetailView()) {
-        float mx = ((viewer->_xpos-viewer->info.xSplit) / (viewer->info.height/2.0f)) - 0.5f;
-        float my = 0.5f - ((viewer->_ypos - viewer->info.height/2.0f) / (viewer->info.height/2.0f));
-        yoffset > 0.0f ? viewer->_detailCamera.ZoomIn(mx, my) : viewer->_detailCamera.ZoomOut(mx, my);
-    }
-}
+    g_MouseWheel += (float)yoffset;
 
-void MeshViewer::KeyCallback(GLFWwindow *window, int key, int scancode, int action, int mods)
-{
-    MeshViewer *viewer = (MeshViewer *) glfwGetWindowUserPointer(window);
+    ImGuiIO& io = ImGui::GetIO();
 
-    // w toggles wireframe mode in detail view
-    if (key == GLFW_KEY_W && action == GLFW_PRESS) {
-        viewer->_detailView.wireframe = !viewer->_detailView.wireframe;
-    }
-
-    // c calls GraphManager::CloseMacroRegions
-    if (key == GLFW_KEY_C && action == GLFW_PRESS) {
-        viewer->ClearSelection(); // TODO it would be nice to update the selection, rather than discard it
-        viewer->gmClose();
-    }
-
-    // SPACE highlights the next greedy step
-    if (key == GLFW_KEY_SPACE && action == GLFW_PRESS) {
-        if (viewer->gmHasNextEdge()) {
-            const auto& next = viewer->gmPeekNextEdge();
-            viewer->Select(next.first);
-            std::cout << "Next edge has weight " << next.second << std::endl;
+    if (io.WantCaptureMouse == false) {
+        MeshViewer *viewer = (MeshViewer *) glfwGetWindowUserPointer(window);
+        if (viewer->InPerspectiveView()) {
+            float factor = (yoffset > 0.0f) ? 0.9f : 1.1f;
+            viewer->_perspectiveCamera.eye[2] *= factor;
+            viewer->_perspectiveCamera.near *= factor;
         }
-        else
-            std::cout << "No next edge available" << std::endl;
-    }
-
-    // ENTER performs the next greedy step
-    if (key == GLFW_KEY_ENTER && action == GLFW_PRESS) {
-        if (viewer->gmHasNextEdge()) {
-            auto next = viewer->gmPeekNextEdge();
-            if (next.first.a->FN() > viewer->minRegionSize && next.first.b->FN() > viewer->minRegionSize) {
-                std::cout << "Next edge cannot be collapsed (charts are too large)" << std::endl;
-            }
-            else {
-                std::cout << "Merging " << next.first.a->id << " and " << next.first.b->id << " (weight=" << next.second << ")" << std::endl;
-                viewer->gmRemoveNextEdge();
-                auto chart = viewer->gmCollapse(next.first);
-                std::cout << "selecting " << chart->id << std::endl;
-                viewer->Select(chart->id);
-            }
+        else if (viewer->InTextureView()) {
+            float mx = ((viewer->_xpos-viewer->info.xSplit) / (viewer->info.height/2.0f)) - 0.5f;
+            float my = 0.5f - (viewer->_ypos / (viewer->info.height/2.0f));
+            yoffset > 0.0f ? viewer->_textureCamera.ZoomIn(mx, my) : viewer->_textureCamera.ZoomOut(mx, my);
+        }
+        else if (viewer->InDetailView()) {
+            float mx = ((viewer->_xpos-viewer->info.xSplit) / (viewer->info.height/2.0f)) - 0.5f;
+            float my = 0.5f - ((viewer->_ypos - viewer->info.height/2.0f) / (viewer->info.height/2.0f));
+            yoffset > 0.0f ? viewer->_detailCamera.ZoomIn(mx, my) : viewer->_detailCamera.ZoomOut(mx, my);
         }
     }
-
-    // TODO p packs the parameterization chart
 }
 
 void MeshViewer::FramebufferSizeCallback(GLFWwindow *window, int width, int height)
@@ -192,9 +170,9 @@ void MeshViewer::FramebufferSizeCallback(GLFWwindow *window, int width, int heig
 // Member functions
 
 
-MeshViewer::MeshViewer(std::shared_ptr<MeshGraph> meshParamData_, std::size_t minRegionSize_)
+MeshViewer::MeshViewer(std::shared_ptr<MeshGraph> meshParamData_, std::size_t minRegionSize_, const std::string& fileName_)
     : meshParamData{meshParamData_}, gm{std::make_shared<GraphManager>(meshParamData_)},
-      minRegionSize{minRegionSize_}, _textureCamera{}, _detailCamera{}
+      minRegionSize{minRegionSize_}, _currentTexture{meshParamData_->textureObject}, fileName{fileName_}, _textureCamera{}, _detailCamera{}
 {
 }
 
@@ -275,7 +253,7 @@ void MeshViewer::Select(const RegionID id)
 
     InitializeSelection(vsel);
 
-    std::cout << "Selected region " << id << std::endl;
+    std::cout << "Selected region " << id << " (uv area = " << region->AreaUV() << ")" << std::endl;
 }
 
 void MeshViewer::Select(const GraphManager::Edge& e)
@@ -491,7 +469,7 @@ void MeshViewer::InitBuffers()
     // Load data, for each vertex position and texture coords
     glGenBuffers(1, &_vertexBuffers.mesh);
     glBindBuffer(GL_ARRAY_BUFFER, _vertexBuffers.mesh);
-    glBufferData(GL_ARRAY_BUFFER, m.FN()*15*sizeof(float), NULL, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, m.FN()*15*sizeof(float), NULL, GL_DYNAMIC_DRAW);
     float *buffptr = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
     for(auto &f : m.face) {
         for (int i = 0; i < 3; ++i) {
@@ -507,8 +485,7 @@ void MeshViewer::InitBuffers()
 
     // Load texture data
     glActiveTexture(GL_TEXTURE0);
-    glGenTextures(1, &_texture);
-    LoadTexture2DFromQImage(*(meshParamData->textures[0]), _texture); // leaves the texture bound
+    _currentTexture->Bind();
 
     CheckGLError();
 
@@ -571,6 +548,7 @@ void MeshViewer::SetupViews()
 
     _perspectiveView.uniforms.loc_modelView = glGetUniformLocation(_perspectiveView.program, "modelViewMatrix");
     _perspectiveView.uniforms.loc_projection = glGetUniformLocation(_perspectiveView.program, "projectionMatrix");
+    _perspectiveView.uniforms.loc_checkboard = glGetUniformLocation(_perspectiveView.program, "checkboard");
     _perspectiveView.uniforms.loc_weight = glGetUniformLocation(_perspectiveView.program, "weight");
 
     _perspectiveView.selection.uniforms.loc_modelView = glGetUniformLocation(_perspectiveView.selection.program, "modelViewMatrix");
@@ -667,7 +645,7 @@ void MeshViewer::Draw3DView()
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, _texture);
+    _currentTexture->Bind();
 
     glEnable(GL_DEPTH_TEST);
 
@@ -698,6 +676,7 @@ void MeshViewer::Draw3DView()
         glUniformMatrix4fv(_perspectiveView.uniforms.loc_modelView, 1, GL_FALSE, (const GLfloat *) modelView);
         glUniformMatrix4fv(_perspectiveView.uniforms.loc_projection, 1, GL_FALSE, (const GLfloat *)_meshTransform.projectionMatrix);
 
+        glUniform1i(_perspectiveView.uniforms.loc_checkboard, _perspectiveView.checkboard);
         glUniform4f(_perspectiveView.uniforms.loc_weight, 0.4f, 0.4f, 0.4f, 0.2f);
 
         // if stencil buffer == 1 the fragment must be discarded since the selection layer has already been drawn
@@ -722,6 +701,7 @@ void MeshViewer::Draw3DView()
         glUniformMatrix4fv(_perspectiveView.uniforms.loc_modelView, 1, GL_FALSE, (const GLfloat *) modelView);
         glUniformMatrix4fv(_perspectiveView.uniforms.loc_projection, 1, GL_FALSE, (const GLfloat *)_meshTransform.projectionMatrix);
 
+        glUniform1i(_perspectiveView.uniforms.loc_checkboard, _perspectiveView.checkboard);
         glUniform4f(_perspectiveView.uniforms.loc_weight, 1.0f, 1.0f, 1.0f, 1.0f);
 
         glDrawArrays(GL_TRIANGLES, 0, meshParamData->mesh.FN() * 3);
@@ -738,7 +718,7 @@ void MeshViewer::DrawTextureView()
     glUseProgram(_textureView.program);
 
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, _texture);
+    _currentTexture->Bind();
 
     mat4x4 projection;
     float l = _textureCamera.x - (_textureCamera.viewSize / 2.0f);
@@ -770,7 +750,7 @@ void MeshViewer::DrawDetailView()
     glUseProgram(_detailView.program);
 
     glActiveTexture(GL_TEXTURE0);
-    glBindTexture(GL_TEXTURE_2D, _texture);
+    _currentTexture->Bind();
 
     // mixing model and projection together...
     mat4x4 transform, projection;
@@ -790,7 +770,7 @@ void MeshViewer::DrawDetailView()
     glDrawBuffer(GL_BACK);
     glDisable(GL_DEPTH_TEST);
 
-    glClearColor(0.2f, 0.7f, 0.2f, 1.0f);
+    glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
     if (_detailView.wireframe) {
@@ -839,11 +819,13 @@ void MeshViewer::Run()
     int width, height;
     glfwGetFramebufferSize(_window, &width, &height);
 
+
     // Set callbacks
     glfwSetMouseButtonCallback(_window, MeshViewer::MouseButtonCallback);
     glfwSetCursorPosCallback(_window, MeshViewer::CursorPositionCallback);
     glfwSetScrollCallback(_window, MeshViewer::ScrollCallback);
-    glfwSetKeyCallback(_window, MeshViewer::KeyCallback);
+    glfwSetKeyCallback(_window, ImGui_ImplGlfwGL3_KeyCallback);
+    glfwSetCharCallback(_window, ImGui_ImplGlfwGL3_CharCallback);
     glfwSetFramebufferSizeCallback(_window, MeshViewer::FramebufferSizeCallback);
     FramebufferSizeCallback(_window, width, height);
 
@@ -857,6 +839,8 @@ void MeshViewer::Run()
     glGetError(); // suppress possible error on glew init
 
     glfwSwapInterval(1);
+
+    ImGui_ImplGlfwGL3_Init(_window);
 
     GLint loc_tex0;
     _perspectiveView.program = CompileShaders(vs_text_3D, fs_text_texture);
@@ -881,7 +865,14 @@ void MeshViewer::Run()
 
     glEnable(GL_SCISSOR_TEST);
 
+    bool show_test_window = true;
+
     while (!glfwWindowShouldClose(_window)) {
+
+        glfwPollEvents();
+        ImGui_ImplGlfwGL3_NewFrame();
+
+        ManageImGuiState();
 
         glScissor(0, 0, info.width, info.height);
         glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
@@ -889,13 +880,121 @@ void MeshViewer::Run()
 
         UpdateTransforms();
         DrawViews();
+
+        if (show_test_window) {
+            ImGui::SetNextWindowPosCenter(ImGuiCond_FirstUseEver);
+            ImGui::ShowTestWindow(&show_test_window);
+        }
+
+        ImGui::Render();
+
         glfwSwapBuffers(_window);
 
-        glfwPollEvents();
     }
+
+    ImGui_ImplGlfwGL3_Shutdown();
 
     glfwDestroyWindow(_window);
     glfwTerminate();
+
+}
+
+void MeshViewer::ManageImGuiState()
+{
+    // draw main controls
+    {
+        ImGui::SetNextWindowPos(ImVec2{0, 0});
+
+        ImGui::Begin("Controls", nullptr, 0);
+
+        ImGui::Checkbox("Checkboard", &_perspectiveView.checkboard);
+
+        if (ImGui::Button("Toggle wireframe")) {
+            _detailView.wireframe ^= true;
+        }
+
+        if (ImGui::Button("Highlight next merge")) {
+            if (gmHasNextEdge()) {
+                const auto& next = gmPeekNextEdge();
+                Select(next.first);
+                std::cout << "Next edge has weight " << next.second << std::endl;
+            }
+            else {
+                std::cout << "No next edge available" << std::endl;
+            }
+        }
+
+
+        if (ImGui::Button("Close islands")) {
+            ClearSelection();
+            gmClose();
+        }
+
+        if (ImGui::Button("Perform next merge")) {
+            if (gmHasNextEdge()) {
+                auto next = gmPeekNextEdge();
+                if (next.first.a->FN() > minRegionSize && next.first.b->FN() > minRegionSize) {
+                    std::cout << "Next edge cannot be collapsed (charts are too large)" << std::endl;
+                }
+                else {
+                    std::cout << "Merging " << next.first.a->id << " and " << next.first.b->id << " (weight=" << next.second << ")" << std::endl;
+                    gmRemoveNextEdge();
+                    auto chart = gmCollapse(next.first);
+                    Select(chart->id);
+                }
+            }
+        }
+
+        if (ImGui::Button("Pack the atlas")) {
+            ClearSelection();
+            if (meshParamData->MergeCount() > 0) {
+                int c = ParameterizeGraph(meshParamData);
+                if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
+
+                glBindBuffer(GL_ARRAY_BUFFER, _vertexBuffers.mesh);
+                float *buffptr = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+                for(auto &f : meshParamData->mesh.face) {
+                    for (int i = 0; i < 3; ++i) {
+                        *buffptr++ = f.cV(i)->P().X();
+                        *buffptr++ = f.cV(i)->P().Y();
+                        *buffptr++ = f.cV(i)->P().Z();
+                        *buffptr++ = f.cWT(i).U();
+                        *buffptr++ = f.cWT(i).V();
+                    }
+                }
+                glUnmapBuffer(GL_ARRAY_BUFFER);
+                glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+                _currentTexture->Release();
+                _currentTexture = RenderTexture(meshParamData->mesh, meshParamData->textureObject, true, _window);
+           } else {
+               std::cout << "No merges, nothing to do" << std::endl;
+           }
+        }
+
+        static char exportFileName[256] = "";
+        if (*exportFileName == 0) std::snprintf(exportFileName, 256, "%s", fileName.c_str());
+        if (ImGui::Button("Export mesh")) {
+            ImGui::OpenPopup("Export mesh...");
+        }
+        if (ImGui::BeginPopupModal("Export mesh...", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::InputText("file name", exportFileName, 256);
+            if (ImGui::Button("Export", ImVec2(120,0))) {
+                Mesh& m = meshParamData->mesh;
+                if(SaveMesh(m, exportFileName, _currentTexture) == false) {
+                    std::cout << "Model not saved correctly" << std::endl;
+                }
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120,0))) {
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
+
+        ImGui::End();
+    }
 
 }
 

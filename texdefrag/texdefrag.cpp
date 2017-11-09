@@ -36,14 +36,16 @@ int main(int argc, char *argv[])
     int minRegionSize = atoi(argv[2]);
 
     Mesh m;
-    std::vector<std::shared_ptr<QImage>> imgVec;
+    TextureObjectHandle textureObject;
     int loadMask;
     std::string modelName;
 
-    if (LoadMesh(m, argv[1], imgVec, loadMask, modelName) == false) {
+    if (LoadMesh(m, argv[1], textureObject, loadMask, modelName) == false) {
         std::cout << "Failed to open mesh" << std::endl;
         std::exit(-1);
     }
+
+    assert(textureObject->ArraySize() == 1 && "Currently only single texture is supported");
 
     assert(loadMask & tri::io::Mask::IOM_WEDGTEXCOORD);
 
@@ -54,7 +56,7 @@ int main(int argc, char *argv[])
     StoreWedgeTexCoordAsAttribute(m);
 
     float uvMeshBorder;
-    auto graph = ComputeParameterizationGraph(m, imgVec, &uvMeshBorder);
+    auto graph = ComputeParameterizationGraph(m, textureObject, &uvMeshBorder);
 
     /*
     GraphManager gm{graph};
@@ -84,15 +86,18 @@ int main(int argc, char *argv[])
     ReduceTextureFragmentation(m, graph, minRegionSize);
 #endif
 
+    std::cout << "Rendering texture..." << std::endl;
+    TextureObjectHandle newTexture = RenderTexture(m, textureObject, filter, nullptr);
+
     std::cout << "Processing took " << t.TimeElapsed() << " seconds" << std::endl;
 
-    std::shared_ptr<QImage> img = RenderTexture(m, imgVec, filter);
-    img->save(m.textures[0].c_str(), 0, 100);
+    if (SaveMesh(m, modelName.c_str(), newTexture) == false) {
+        std::cout << "Model not saved correctly" << std::endl;
+    }
 
-    auto graph2 = ComputeParameterizationGraph(m, imgVec, &uvMeshBorder);
+    auto graph2 = ComputeParameterizationGraph(m, textureObject, &uvMeshBorder);
     // Print optimized info
     PrintParameterizationInfo(graph2);
-    tri::io::Exporter<Mesh>::Save(m, modelName.c_str(), tri::io::Mask::IOM_WEDGTEXCOORD);
 
     return 0;
 }

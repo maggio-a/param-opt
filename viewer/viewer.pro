@@ -13,7 +13,7 @@ QT = core gui svg
 
 TEMPLATE = app
 
-INCLUDEPATH += ../src $$VCGPATH $$VCGPATH/eigenlib
+INCLUDEPATH += ../imgui ../src $$VCGPATH $$VCGPATH/eigenlib
 
 #unix {
     CONFIG += link_pkgconfig
@@ -22,7 +22,11 @@ INCLUDEPATH += ../src $$VCGPATH $$VCGPATH/eigenlib
 
 #LIBS += -lGL -lGLEW
 
-SOURCES += viewer.cpp
+SOURCES += viewer.cpp \
+    ../imgui/imgui_demo.cpp \
+    ../imgui/imgui_draw.cpp \
+    ../imgui/imgui.cpp \
+    ../imgui/imgui_glfw_gl3/imgui_impl_glfw_gl3.cpp
 
 SOURCES += \
     ../src/mesh_viewer.cpp \
@@ -37,7 +41,16 @@ HEADERS += \
     ../src/timer.h \
     ../src/uv.h \
     ../src/mesh_graph.h \
-    ../src/mesh_viewer.h
+    ../src/mesh_viewer.h \
+    ../src/optimizer.h \
+    ../src/texture_rendering.h \
+    ../imgui/imconfig.h \
+    ../imgui/imgui_internal.h \
+    ../imgui/imgui.h \
+    ../imgui/stb_rect_pack.h \
+    ../imgui/stb_textedit.h \
+    ../imgui/stb_truetype.h \
+    ../imgui/imgui_glfw_gl3/imgui_impl_glfw_gl3.h
 
 DISTFILES += \
     readme.txt

@@ -70,12 +70,12 @@ std::size_t ComputePerFaceConnectedComponentIdAttribute(MeshType &m)
 
 template <class MeshType>
 std::shared_ptr<MeshGraph> ComputeParameterizationGraph(
-        MeshType &m, std::vector<std::shared_ptr<QImage>> imgVec, float *uvMeshBorder = nullptr)
+        MeshType &m, TextureObjectHandle textureObject, float *uvMeshBorder = nullptr)
 {
     std::size_t numRegions = ComputePerFaceConnectedComponentIdAttribute<MeshType>(m);
 
     std::shared_ptr<MeshGraph> paramData = std::make_shared<MeshGraph>(m);
-    paramData->textures = imgVec;
+    paramData->textureObject = textureObject;
     paramData->charts.reserve(numRegions);
     auto CCIDh = tri::Allocator<MeshType>::template GetPerFaceAttribute<std::size_t>(m, "ConnectedComponentID");
 
@@ -148,7 +148,7 @@ static std::size_t ConvertTextureBoundaryToOutline2Vec(MeshType &m, std::vector<
     return outline2Vec.size();
 }
 
-void PrintParameterizationInfo(std::shared_ptr<MeshGraph> pdata)
+static void PrintParameterizationInfo(std::shared_ptr<MeshGraph> pdata)
 {
     std::cout << pdata->charts.size() << " " << pdata->Area3D() << " "
               << pdata->AreaUV() << " " << pdata->BorderUV() << std::endl;
