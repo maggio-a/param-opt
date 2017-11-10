@@ -865,7 +865,7 @@ void MeshViewer::Run()
 
     glEnable(GL_SCISSOR_TEST);
 
-    bool show_test_window = true;
+    bool show_test_window = false;
 
     while (!glfwWindowShouldClose(_window)) {
 
@@ -955,9 +955,7 @@ void MeshViewer::ManageImGuiState()
                 float *buffptr = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
                 for(auto &f : meshParamData->mesh.face) {
                     for (int i = 0; i < 3; ++i) {
-                        *buffptr++ = f.cV(i)->P().X();
-                        *buffptr++ = f.cV(i)->P().Y();
-                        *buffptr++ = f.cV(i)->P().Z();
+                        buffptr += 3;
                         *buffptr++ = f.cWT(i).U();
                         *buffptr++ = f.cWT(i).V();
                     }
