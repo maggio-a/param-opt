@@ -11,6 +11,11 @@
 #include "mesh.h"
 #include "gl_util.h"
 
+#include <vcg/complex/algorithms/parametrization/distortion.h>
+#include <vcg/math/histogram.h>
+#include <vcg/complex/algorithms/stat.h>
+#include <vcg/complex/algorithms/update/color.h>
+
 struct FaceGroup {
     const RegionID id;
     std::vector<Mesh::FacePointer> fpVec;
@@ -18,7 +23,13 @@ struct FaceGroup {
 
     int numMerges;
 
-    FaceGroup(const RegionID id_) : id{id_}, fpVec{}, adj{}, numMerges{0} {}
+    float minMappedFaceValue;
+    float maxMappedFaceValue;
+
+    FaceGroup(const RegionID id_) : id{id_}, fpVec{}, adj{}, numMerges{0},
+        minMappedFaceValue{-1}, maxMappedFaceValue{-1}
+    {
+    }
 
     void AddFace(const Mesh::FacePointer fptr, Mesh::PerFaceAttributeHandle<std::size_t>& CCIDh)
     {
@@ -43,16 +54,68 @@ struct FaceGroup {
 
     std::size_t FN() { return fpVec.size(); }
     std::size_t NumAdj() { return adj.size(); }
+
+    void MapDistortion(DistortionWedge::DistType distortionType, float areaScale, float edgeScale)
+    {
+        minMappedFaceValue = std::numeric_limits<float>::max();
+        maxMappedFaceValue = std::numeric_limits<float>::lowest();
+        for (auto fptr : fpVec) {
+            if (distortionType == DistortionWedge::AreaDist) {
+                fptr->Q() = DistortionWedge::AreaDistortion(fptr, areaScale);
+            }
+            else if (distortionType == DistortionWedge::AngleDist) {
+                fptr->Q() = DistortionWedge::AngleDistortion(fptr);
+            }
+            else if (distortionType == DistortionWedge::EdgeDist) {
+                fptr->Q() = (DistortionWedge::EdgeDistortion(fptr, 0, edgeScale) +
+                             DistortionWedge::EdgeDistortion(fptr, 1, edgeScale) +
+                             DistortionWedge::EdgeDistortion(fptr, 2, edgeScale)) / 3.0f;
+            }
+            else assert(0 && "FaceGroup::MapDistortion");
+            minMappedFaceValue = std::min(minMappedFaceValue, fptr->Q());
+            maxMappedFaceValue = std::max(maxMappedFaceValue, fptr->Q());
+        }
+    }
 };
 
 struct MeshGraph {
 
     Mesh& mesh;
 
+    // TODO the whole quality/color stuff should be decoupled from the graph instance itself and handled
+    // by the graph manager
+    float areaScale;
+    float edgeScale;
+
     std::unordered_map<std::size_t, std::shared_ptr<FaceGroup>> charts;
     TextureObjectHandle textureObject;
 
-    MeshGraph(Mesh& m) : mesh{m} {}
+    MeshGraph(Mesh& m) : mesh{m}, areaScale{-1}, edgeScale{-1} {}
+
+    void UpdateScaleValues()
+    {
+        DistortionWedge::MeshScalingFactor(mesh, areaScale, edgeScale);
+    }
+
+    void MapDistortion(DistortionWedge::DistType distortionType)
+    {
+        if (areaScale == -1) UpdateScaleValues();
+        for (auto& c : charts) c.second->MapDistortion(distortionType, areaScale, edgeScale);
+        Distribution<float> qd;
+        tri::Stat<Mesh>::ComputePerFaceQualityDistribution(mesh, qd);
+        std::pair<float, float> range = DistortionRange();
+        tri::UpdateColor<Mesh>::PerFaceQualityRamp(mesh, range.first, range.second);
+   }
+
+    std::pair<float,float> DistortionRange() const
+    {
+        std::pair<float,float> range = std::make_pair(std::numeric_limits<float>::max(), std::numeric_limits<float>::lowest());
+        for (const auto& c : charts) {
+            range.first = std::min(c.second->minMappedFaceValue, range.first);
+            range.second = std::max(c.second->maxMappedFaceValue, range.second);
+        }
+        return range;
+    }
 
     std::shared_ptr<FaceGroup> GetChart(std::size_t i)
     {
@@ -62,11 +125,7 @@ struct MeshGraph {
 
     std::size_t Count() const
     {
-        std::size_t sz = 0;
-        for (const auto& c : charts) {
-            sz += c.second->fpVec.size();
-        }
-        return sz;
+        return charts.size();
     }
 
     int MergeCount() const

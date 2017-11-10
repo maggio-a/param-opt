@@ -90,11 +90,15 @@ private:
     float _dragX = 0.0f, _dragY = 0.0f;
 
     struct SelectedRegionInfo {
+        std::shared_ptr<FaceGroup> chart;
         GLint first;
         GLsizei count;
         vcg::Color4f color;
     };
 
+    enum SelectionType { None, Chart, Edge };
+
+    SelectionType selectionType = None;
     std::vector<SelectedRegionInfo> selectionVector;
 
     struct {
@@ -103,20 +107,20 @@ private:
     } _vertexBuffers;
 
     TextureObjectHandle _currentTexture;
-    //GLuint _texture = 0;
 
     struct {
-        bool checkboard = false;
+        int colorSource = 0; // see shader code
         GLuint program = 0;
         GLuint vao = 0;
         struct {
             GLint loc_position;
             GLint loc_texcoord;
+            GLint loc_distcolor;
         } attributes;
         struct {
             GLint loc_modelView;
             GLint loc_projection;
-            GLint loc_checkboard;
+            GLint loc_colorSource;
             GLint loc_weight;
         } uniforms;
 
