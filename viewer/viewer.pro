@@ -26,7 +26,9 @@ SOURCES += viewer.cpp \
     ../imgui/imgui_demo.cpp \
     ../imgui/imgui_draw.cpp \
     ../imgui/imgui.cpp \
-    ../imgui/imgui_glfw_gl3/imgui_impl_glfw_gl3.cpp
+    ../imgui/imgui_glfw_gl3/imgui_impl_glfw_gl3.cpp \
+    ../../include/vcglib/wrap/gui/trackmode.cpp \
+    ../../include/vcglib/wrap/gui/trackball.cpp
 
 SOURCES += \
     ../src/mesh_viewer.cpp \

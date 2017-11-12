@@ -10,6 +10,8 @@
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 
+#include <wrap/gui/trackball.h>
+
 #include <imgui.h>
 #include <imgui_glfw_gl3/imgui_impl_glfw_gl3.h>
 
@@ -18,6 +20,8 @@
 #include "gl_util.h"
 #include "optimizer.h"
 #include "texture_rendering.h"
+
+static vcg::Trackball trackball;
 
 const char *vs_text_3D[] = {
     "#version 410 core                                                             \n"
@@ -110,10 +114,15 @@ void MeshViewer::MouseButtonCallback(GLFWwindow *window, int button, int action,
         } else {
             // Drag mode // TODO: viewer->enable/disable dragmode
             if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
-                if (viewer->InPerspectiveView()) viewer->_dragMode = DragMode::PERSPECTIVE;
+                if (viewer->InPerspectiveView()) {
+                    viewer->_dragMode = DragMode::PERSPECTIVE;
+                    trackball.MouseDown(viewer->_xpos, viewer->info.height - viewer->_ypos, vcg::Trackball::BUTTON_LEFT);
+                }
                 else if (viewer->InTextureView()) viewer->_dragMode = DragMode::TEXTURE;
                 if (viewer->InDetailView()) viewer->_dragMode = DragMode::DETAIL;
             } else {
+                if (viewer->_dragMode == DragMode::PERSPECTIVE)
+                    trackball.MouseUp(viewer->_xpos, viewer->info.height - viewer->_ypos, vcg::Trackball::BUTTON_LEFT);
                 viewer->_dragMode = DragMode::DISABLED;
             }
             // Pick mode, select region
@@ -139,6 +148,20 @@ void MeshViewer::CursorPositionCallback(GLFWwindow *window, double xpos, double 
     if (viewer->_dragMode != DragMode::DISABLED) {
         viewer->_dragX += (int) (xpos - viewer->_xpos);
         viewer->_dragY += (int) (ypos - viewer->_ypos);
+
+        if (viewer->_dragMode == DragMode::PERSPECTIVE) {
+            trackball.center = {0, 0, 0};
+            trackball.radius = 1;
+            Matrix44f proj;
+            memcpy(&proj, &viewer->_meshTransform.projectionMatrix, 16*sizeof(float));
+            proj.transposeInPlace();
+            Matrix44f mv;
+            mv.SetIdentity();
+            int viewport[4] = {0, 0, viewer->info.xSplit, viewer->info.height};
+
+            trackball.camera.SetView(proj.V(), mv.V(), viewport);
+            trackball.MouseMove((int) xpos, viewer->info.height - ((int) ypos));
+        }
     }
 
     viewer->_xpos = xpos;
@@ -619,9 +642,28 @@ void MeshViewer::UpdateTransforms()
     mat4x4 invO, rotation;
     vec4 x = {1.0f, 0.0f, 0.0f, 0.0f}, y = {0.0f, 1.0f, 0.0f, 0.0f}, orientedX, orientedY;
 
+
     switch (_dragMode) {
     case DragMode::PERSPECTIVE:
-        mat4x4_identity(rotation);
+        {/*
+            trackball.center = {0, 0, 0};
+            trackball.radius = 1;
+            Matrix44f proj;
+            memcpy(&proj, &_meshTransform.projectionMatrix, 16*sizeof(float));
+            proj.transposeInPlace();
+            Matrix44f mv;
+            mv.Identity();
+            int viewport[4] = {0, 0, info.xSplit, info.height};
+
+
+            trackball.camera.SetView(proj.V(), mv.V(), viewport);
+            trackball.MouseMove((int) _xpos, (int) _ypos);*/
+
+            Matrix44f rot = trackball.Matrix().transpose();
+            //rot.print();
+            memcpy(&_meshTransform.orientationMatrix, rot.V(), 16*sizeof(float));
+        }
+        /*mat4x4_identity(rotation);
         mat4x4_invert(invO, _meshTransform.orientationMatrix);
         mat4x4_mul_vec4(orientedX, invO, x);
         mat4x4_mul_vec4(orientedY, invO, y);
@@ -630,7 +672,7 @@ void MeshViewer::UpdateTransforms()
         mat4x4_mul(_meshTransform.orientationMatrix, _meshTransform.orientationMatrix, rotation);
         mat4x4_rotate(_meshTransform.orientationMatrix, _meshTransform.orientationMatrix,
                       orientedY[0], orientedY[1], orientedY[2],
-                      _dragX * M_PI / info.width);
+                      _dragX * M_PI / info.width);*/
         break;
     case DragMode::TEXTURE:
         _textureCamera.MoveX(-_dragX / (info.height/2.0f));
@@ -822,6 +864,8 @@ void MeshViewer::DrawViews()
 
 void MeshViewer::Run()
 {
+    trackball.SetIdentity();
+
     if (!glfwInit()) {
         std::cout << "Failed to initialize glfw" << std::endl;
         std::exit(-1);
@@ -1048,7 +1092,7 @@ void MeshViewer::ManageImGuiState()
             if (selectionType == SelectionType::Chart) {
                 // display info about the chart
                 auto chart = selectionVector[0].chart;
-                ImGui::Text("Chart %lu", chart->id);
+                ImGui::Text("Chart %lu (%lu faces)", chart->id, chart->FN());
                 ImGui::Text("Area 3D: %.4f", chart->Area3D());
                 ImGui::Text("Area UV: %.4f", chart->AreaUV());
                 ImGui::Text("Aggregate count: %d", chart->numMerges + 1);
