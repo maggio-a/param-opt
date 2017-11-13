@@ -315,6 +315,13 @@ public:
         }
     }
 
+
+    /// TODO replace with a proper interface to the graph instance
+    std::shared_ptr<MeshGraph> Graph()
+    {
+        return g;
+    }
+
     bool Valid(std::pair<Edge,double> weightedEdge)
     {
         auto e = edges.find(weightedEdge.first);

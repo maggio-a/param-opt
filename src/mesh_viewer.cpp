@@ -211,8 +211,8 @@ void MeshViewer::FramebufferSizeCallback(GLFWwindow *window, int width, int heig
 
 
 MeshViewer::MeshViewer(std::shared_ptr<MeshGraph> meshParamData_, std::size_t minRegionSize_, const std::string& fileName_)
-    : meshParamData{meshParamData_}, gm{std::make_shared<GraphManager>(meshParamData_)},
-      minRegionSize{minRegionSize_}, _currentTexture{meshParamData_->textureObject}, fileName{fileName_}, _textureCamera{}, _detailCamera{}
+    : meshParamData{meshParamData_}, _currentTexture{meshParamData_->textureObject}, gm{std::make_shared<GraphManager>(meshParamData_)},
+      fileName{fileName_}, minRegionSize{minRegionSize_}, _textureCamera{}, _detailCamera{}
 {
     std::size_t numRegions = meshParamData->Count();
     regionColors.reserve(numRegions);
@@ -681,40 +681,12 @@ void MeshViewer::SetupDetailView(const RegionID id)
 
 void MeshViewer::UpdateTransforms()
 {
-    mat4x4 invO, rotation;
-    vec4 x = {1.0f, 0.0f, 0.0f, 0.0f}, y = {0.0f, 1.0f, 0.0f, 0.0f}, orientedX, orientedY;
-
-
     switch (_dragMode) {
     case DragMode::PERSPECTIVE:
-        {/*
-            trackball.center = {0, 0, 0};
-            trackball.radius = 1;
-            Matrix44f proj;
-            memcpy(&proj, &_meshTransform.projectionMatrix, 16*sizeof(float));
-            proj.transposeInPlace();
-            Matrix44f mv;
-            mv.Identity();
-            int viewport[4] = {0, 0, info.xSplit, info.height};
-
-
-            trackball.camera.SetView(proj.V(), mv.V(), viewport);
-            trackball.MouseMove((int) _xpos, (int) _ypos);*/
-
+        {
             Matrix44f rot = trackball.Matrix().transpose();
-            //rot.print();
             memcpy(&_meshTransform.orientationMatrix, rot.V(), 16*sizeof(float));
         }
-        /*mat4x4_identity(rotation);
-        mat4x4_invert(invO, _meshTransform.orientationMatrix);
-        mat4x4_mul_vec4(orientedX, invO, x);
-        mat4x4_mul_vec4(orientedY, invO, y);
-        vec4_norm(orientedX, orientedX);
-        mat4x4_rotate(rotation, rotation, orientedX[0], orientedX[1], orientedX[2], _dragY * M_PI / info.height);
-        mat4x4_mul(_meshTransform.orientationMatrix, _meshTransform.orientationMatrix, rotation);
-        mat4x4_rotate(_meshTransform.orientationMatrix, _meshTransform.orientationMatrix,
-                      orientedY[0], orientedY[1], orientedY[2],
-                      _dragX * M_PI / info.width);*/
         break;
     case DragMode::TEXTURE:
         _textureCamera.MoveX(-_dragX / (info.height/2.0f));
@@ -1108,6 +1080,11 @@ void MeshViewer::ManageImGuiState()
                     Select(chart->id);
                 }
             }
+        }
+
+        if (ImGui::Button("Invoke greedy algorithm")) {
+            ClearSelection();
+            ReduceTextureFragmentation_NoPacking(*gm, minRegionSize);
         }
 
         if (ImGui::Button("Pack the atlas")) {

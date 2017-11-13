@@ -75,6 +75,7 @@ private:
     // TODO the mesh graph (meshParamData) should be encapsulated by the GraphManager object
     // and queried through it
     std::shared_ptr<MeshGraph> meshParamData;
+    TextureObjectHandle _currentTexture;
     std::shared_ptr<GraphManager> gm;
 
     std::unordered_map<RegionID, vcg::Color4f> regionColors;
@@ -95,7 +96,6 @@ private:
         std::shared_ptr<FaceGroup> chart;
         GLint first;
         GLsizei count;
-        GLint firstHighlight;
     };
 
     enum SelectionType { None, Chart, Edge };
@@ -108,8 +108,6 @@ private:
         GLuint selection = 0;
         GLuint highlight = 0;
     } _vertexBuffers;
-
-    TextureObjectHandle _currentTexture;
 
     struct {
         int colorSource = 0; // see shader code
