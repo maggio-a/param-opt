@@ -77,6 +77,8 @@ private:
     std::shared_ptr<MeshGraph> meshParamData;
     std::shared_ptr<GraphManager> gm;
 
+    std::unordered_map<RegionID, vcg::Color4f> regionColors;
+
     std::string fileName;
 
     // TODO move the optimizer parameters somewhere else
@@ -93,7 +95,7 @@ private:
         std::shared_ptr<FaceGroup> chart;
         GLint first;
         GLsizei count;
-        vcg::Color4f color;
+        GLint firstHighlight;
     };
 
     enum SelectionType { None, Chart, Edge };
@@ -104,6 +106,7 @@ private:
     struct {
         GLuint mesh = 0;
         GLuint selection = 0;
+        GLuint highlight = 0;
     } _vertexBuffers;
 
     TextureObjectHandle _currentTexture;
@@ -148,6 +151,19 @@ private:
         struct {
             GLint loc_projection;
         } uniforms;
+
+        struct {
+            GLuint program;
+            GLuint vao;
+            struct {
+                GLint loc_texcoord;
+            } attributes;
+            struct {
+                GLint loc_primitiveColor;
+                GLint loc_projection;
+            } uniforms;
+        } highlight;
+
     } _textureView;
 
     struct {

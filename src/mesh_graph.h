@@ -16,7 +16,9 @@
 #include <vcg/complex/algorithms/stat.h>
 #include <vcg/complex/algorithms/update/color.h>
 
+/// TODO cache border and area state
 struct FaceGroup {
+    Mesh& mesh;
     const RegionID id;
     std::vector<Mesh::FacePointer> fpVec;
     std::unordered_set<std::shared_ptr<FaceGroup>> adj;
@@ -26,34 +28,57 @@ struct FaceGroup {
     float minMappedFaceValue;
     float maxMappedFaceValue;
 
-    FaceGroup(const RegionID id_) : id{id_}, fpVec{}, adj{}, numMerges{0},
-        minMappedFaceValue{-1}, maxMappedFaceValue{-1}
+    float borderUV;
+    bool borderChanged;
+
+    FaceGroup(Mesh& m, const RegionID id_) : mesh{m}, id{id_}, fpVec{}, adj{}, numMerges{0},
+        minMappedFaceValue{-1}, maxMappedFaceValue{-1}, borderUV{0}, borderChanged{false}
     {
     }
 
-    void AddFace(const Mesh::FacePointer fptr, Mesh::PerFaceAttributeHandle<std::size_t>& CCIDh)
+    void AddFace(const Mesh::FacePointer fptr)
     {
         fpVec.push_back(fptr);
+        borderChanged = true;
     }
 
-    float AreaUV()
+    float AreaUV() const
     {
         float areaUV = 0;
         for (auto fptr : fpVec) areaUV += std::abs(tri::Distortion<Mesh,true>::AreaUV(fptr));
         return areaUV;
     }
 
-    float Area3D()
+    float Area3D() const
     {
         float area3D = 0;
         for (auto fptr : fpVec) area3D += tri::Distortion<Mesh,true>::Area3D(fptr);
         return area3D;
     }
 
+    float BorderUV()
+    {
+        if (borderChanged) UpdateBorder();
+        return borderUV;
+    }
+
+    vcg::Box2f UVBox() const
+    {
+        vcg::Box2f box;
+        for (auto fptr : fpVec) {
+            box.Add(fptr->WT(0).P());
+            box.Add(fptr->WT(1).P());
+            box.Add(fptr->WT(2).P());
+        }
+        return box;
+    }
+
+    void NotifyParameterizationChange() { borderChanged = true; }
+
     Mesh::FacePointer Fp() { assert(!fpVec.empty()); return fpVec[0]; }
 
-    std::size_t FN() { return fpVec.size(); }
-    std::size_t NumAdj() { return adj.size(); }
+    std::size_t FN() const { return fpVec.size(); }
+    std::size_t NumAdj() const { return adj.size(); }
 
     void MapDistortion(DistortionWedge::DistType distortionType, float areaScale, float edgeScale)
     {
@@ -76,6 +101,23 @@ struct FaceGroup {
             maxMappedFaceValue = std::max(maxMappedFaceValue, fptr->Q());
         }
     }
+
+    void UpdateBorder()
+    {
+        auto CCIDh = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(mesh, "ConnectedComponentID");
+        assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CCIDh));
+
+        borderUV = 0.0f;
+        for (auto fptr : fpVec) {
+            for (int i = 0; i < 3; ++i) {
+                if (face::IsBorder(*fptr, i) || CCIDh[fptr] != CCIDh[fptr->FFp(i)]) {
+                    borderUV += DistortionWedge::EdgeLenghtUV(fptr, i);
+                }
+            }
+        }
+        borderChanged = false;
+    }
+
 };
 
 struct MeshGraph {
@@ -119,7 +161,13 @@ struct MeshGraph {
 
     std::shared_ptr<FaceGroup> GetChart(std::size_t i)
     {
-        if (charts.find(i) == charts.end()) charts.insert(std::make_pair(i, std::make_shared<FaceGroup>(i)));
+        assert(charts.find(i) != charts.end() && "Chart does not exist");
+        return charts[i];
+    }
+
+    std::shared_ptr<FaceGroup> GetChart_Insert(std::size_t i)
+    {
+        if (charts.find(i) == charts.end()) charts.insert(std::make_pair(i, std::make_shared<FaceGroup>(mesh, i)));
         return charts[i];
     }
 
@@ -136,22 +184,27 @@ struct MeshGraph {
 
     }
 
-    float Area3D()
+    float Area3D() const
     {
         float area3D = 0.0f;
-        for (auto c : charts) area3D += c.second->Area3D();
+        for (const auto& c : charts) area3D += c.second->Area3D();
         return area3D;
     }
 
-    float AreaUV()
+    float AreaUV() const
     {
         float areaUV = 0.0f;
-        for (auto c : charts) areaUV += c.second->AreaUV();
+        for (const auto& c : charts) areaUV += c.second->AreaUV();
         return areaUV;
     }
 
+    /// TODO remove useless parameters
     float BorderUV(float *meshBorderLengthUV = nullptr, float *seamLengthUV = nullptr)
-    { std::cout << "WARNING: ParameterizationData::BorderUV() not implemented" << std::endl; return 0; }
+    {
+        float borderUV = 0.0f;
+        for (const auto& c : charts) borderUV += c.second->BorderUV();
+        return borderUV;
+    }
 };
 
 class GraphManager {
@@ -334,10 +387,10 @@ public:
         auto CHIDh  = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(g->mesh, "ConnectedComponentID");
         assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(g->mesh, CHIDh));
 
-        // Update ID attribute
+        // Update ID and add faces
         for (auto fp : c2->fpVec) {
             CHIDh[fp] = c1->id;
-            c1->AddFace(fp, CHIDh);
+            c1->AddFace(fp);
         }
 
         // Update adjacencies - Note that obsolete edges remain in the priority queue
@@ -352,7 +405,7 @@ public:
 
                 // Manage queue and edge map state
                 Edge e1{c1, cn};
-                edges.erase(e1); // delete the edge if it already exists as it
+                edges.erase(e1); // delete the edge if it already exists so it can be reweighted
                 auto weighted = std::make_pair(e1, wfct(e1));
                 edges.insert(weighted);
                 queue.push(weighted);

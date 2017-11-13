@@ -86,12 +86,12 @@ std::shared_ptr<MeshGraph> ComputeParameterizationGraph(
     tri::UpdateTopology<Mesh>::FaceFace(m);
     for (auto &f : m.face) {
         std::size_t regionId = CCIDh[&f];
-        paramData->GetChart(regionId)->AddFace(&f, CCIDh);
+        paramData->GetChart_Insert(regionId)->AddFace(&f);
         // TODO this may be refactored into AddFace
         for (int i = 0; i < f.VN(); ++i) {
             std::size_t adjId = CCIDh[f.FFp(i)];
             if (regionId != adjId) {
-                (paramData->GetChart(regionId)->adj).insert(paramData->GetChart(adjId));
+                (paramData->GetChart_Insert(regionId)->adj).insert(paramData->GetChart_Insert(adjId));
             }
         }
     }

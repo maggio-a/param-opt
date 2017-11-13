@@ -47,6 +47,7 @@ const char *vs_text_texture[] = {
     "#version 410 core                                                             \n"
     "                                                                              \n"
     "uniform mat4 projectionMatrix;                                                \n"
+    "uniform vec4 primitiveColor;                                                  \n"
     "                                                                              \n"
     "in vec2 texcoord;                                                             \n"
     "out vec2 uv;                                                                  \n"
@@ -55,7 +56,7 @@ const char *vs_text_texture[] = {
     "void main(void)                                                               \n"
     "{                                                                             \n"
     "    uv = texcoord;                                                            \n"
-    "    dcol = vec4(1.0f, 1.0f, 1.0f, 1.0f); // unused but required by the fs     \n"
+    "    dcol = primitiveColor;                                                    \n"
     "    gl_Position = projectionMatrix * vec4(texcoord, 0.5f, 1.0f);              \n"
     "}                                                                             \n"
 };
@@ -64,7 +65,7 @@ const char *fs_text_texture[] = {
     "#version 410 core                                              \n"
     "                                                               \n"
     "const int COLOR_SRC_TEXTURE    = 0;                            \n"
-    "const int COLOR_SRC_DISTORTION = 1;                            \n"
+    "const int COLOR_SRC_PRIMITIVE  = 1;                            \n"
     "const int COLOR_SRC_CHECKBOARD = 2;                            \n"
     "                                                               \n"
     "uniform sampler2D tex0;                                        \n"
@@ -81,7 +82,7 @@ const char *fs_text_texture[] = {
     "    if (colorSource == COLOR_SRC_TEXTURE) {                    \n"
     "        color = texture(tex0, uv)*weight;                      \n"
     "    }                                                          \n"
-    "    else if (colorSource == COLOR_SRC_DISTORTION) {            \n"
+    "    else if (colorSource == COLOR_SRC_PRIMITIVE) {             \n"
     "        color = dcol*weight;                                   \n"
     "    }                                                          \n"
     "    else if (colorSource == COLOR_SRC_CHECKBOARD) {            \n"
@@ -213,6 +214,13 @@ MeshViewer::MeshViewer(std::shared_ptr<MeshGraph> meshParamData_, std::size_t mi
     : meshParamData{meshParamData_}, gm{std::make_shared<GraphManager>(meshParamData_)},
       minRegionSize{minRegionSize_}, _currentTexture{meshParamData_->textureObject}, fileName{fileName_}, _textureCamera{}, _detailCamera{}
 {
+    std::size_t numRegions = meshParamData->Count();
+    regionColors.reserve(numRegions);
+    std::srand(0);
+    for (const auto& c : meshParamData->charts) {
+        vcg::Color4f color{std::rand()/(float)RAND_MAX, std::rand()/(float)RAND_MAX, std::rand()/(float)RAND_MAX, 1.0f};
+        regionColors.insert(std::make_pair(c.first, color));
+    }
 }
 
 bool MeshViewer::InPerspectiveView()
@@ -264,14 +272,18 @@ void MeshViewer::ClearSelection()
 {
     if (selectionVector.size() > 0) {
         glDeleteVertexArrays(1, &_perspectiveView.selection.vao);
+        glDeleteVertexArrays(1, &_textureView.highlight.vao);
         glDeleteVertexArrays(1, &_detailView.vao);
         glDeleteBuffers(1, &_vertexBuffers.selection);
+        glDeleteBuffers(1, &_vertexBuffers.highlight);
 
         CheckGLError();
 
         _perspectiveView.selection.vao = 0;
+        _textureView.highlight.vao = 0;
         _detailView.vao = 0;
         _vertexBuffers.selection = 0;
+        _vertexBuffers.highlight = 0;
 
         selectionType = SelectionType::None;
         selectionVector.clear();
@@ -312,8 +324,11 @@ void MeshViewer::InitializeSelection(const std::vector<std::pair<RegionID,vcg::C
 {
     ClearSelection();
     std::size_t selectionCount = 0;
+    std::vector<vcg::Box2f> uvBoxes;
     for (const auto& p : vsel) {
-        selectionCount += meshParamData->GetChart(p.first)->FN();
+        auto chart = meshParamData->GetChart(p.first);
+        selectionCount += chart->FN();
+        uvBoxes.push_back(chart->UVBox());
     }
 
     selectionVector.reserve(vsel.size());
@@ -325,7 +340,7 @@ void MeshViewer::InitializeSelection(const std::vector<std::pair<RegionID,vcg::C
     float *buffptr = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
     for (const auto& p : vsel) {
         const auto& region = meshParamData->GetChart(p.first);
-        selectionVector.emplace_back(SelectedRegionInfo{region, first, static_cast<GLsizei>(region->FN() * 3), p.second});
+        selectionVector.emplace_back(SelectedRegionInfo{region, first, static_cast<GLsizei>(region->FN() * 3)});
         for (auto &fptr : region->fpVec) {
             for (int i = 0; i < 3; ++i) {
                 *buffptr++ = fptr->cV(i)->P().X();
@@ -341,7 +356,6 @@ void MeshViewer::InitializeSelection(const std::vector<std::pair<RegionID,vcg::C
 
     glGenVertexArrays(1, &_perspectiveView.selection.vao);
     glBindVertexArray(_perspectiveView.selection.vao);
-
     _perspectiveView.selection.attributes.loc_position = glGetAttribLocation(_perspectiveView.selection.program, "position");
     glVertexAttribPointer(_perspectiveView.selection.attributes.loc_position, 3, GL_FLOAT, GL_FALSE, 5*sizeof(float), 0);
     glEnableVertexAttribArray(_perspectiveView.selection.attributes.loc_position);
@@ -352,10 +366,36 @@ void MeshViewer::InitializeSelection(const std::vector<std::pair<RegionID,vcg::C
 
     glGenVertexArrays(1, &_detailView.vao);
     glBindVertexArray(_detailView.vao);
-
     _detailView.attributes.loc_texcoord = glGetAttribLocation(_detailView.program, "texcoord");
     glVertexAttribPointer(_detailView.attributes.loc_texcoord, 2, GL_FLOAT, GL_FALSE, 5*sizeof(float), (const GLvoid *) (3*sizeof(float)));
     glEnableVertexAttribArray(_detailView.attributes.loc_texcoord);
+
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    CheckGLError();
+
+    glGenBuffers(1, &_vertexBuffers.highlight);
+    glBindBuffer(GL_ARRAY_BUFFER, _vertexBuffers.highlight);
+    glBufferData(GL_ARRAY_BUFFER, uvBoxes.size()*16*sizeof(float), NULL, GL_STATIC_DRAW);
+    buffptr = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+    for (auto& box : uvBoxes) {
+        *buffptr++ = box.min.X(); *buffptr++ = box.min.Y();
+        *buffptr++ = box.max.X(); *buffptr++ = box.min.Y();
+        *buffptr++ = box.max.X(); *buffptr++ = box.min.Y();
+        *buffptr++ = box.max.X(); *buffptr++ = box.max.Y();
+        *buffptr++ = box.max.X(); *buffptr++ = box.max.Y();
+        *buffptr++ = box.min.X(); *buffptr++ = box.max.Y();
+        *buffptr++ = box.min.X(); *buffptr++ = box.max.Y();
+        *buffptr++ = box.min.X(); *buffptr++ = box.min.Y();
+    }
+    glUnmapBuffer(GL_ARRAY_BUFFER);
+
+    glGenVertexArrays(1, &_textureView.highlight.vao);
+    glBindVertexArray(_textureView.highlight.vao);
+    _textureView.highlight.attributes.loc_texcoord = glGetAttribLocation(_textureView.program, "texcoord");
+    glVertexAttribPointer(_textureView.highlight.attributes.loc_texcoord, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(_textureView.highlight.attributes.loc_texcoord);
 
     glBindVertexArray(0);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -609,6 +649,8 @@ void MeshViewer::SetupViews()
 
     _textureCamera.Reset();
     _textureView.uniforms.loc_projection = glGetUniformLocation(_textureView.program, "projectionMatrix");
+    _textureView.highlight.uniforms.loc_projection = glGetUniformLocation(_textureView.highlight.program, "projectionMatrix");
+    _textureView.highlight.uniforms.loc_primitiveColor = glGetUniformLocation(_textureView.highlight.program, "primitiveColor");
 }
 
 void MeshViewer::SetupDetailView(const RegionID id)
@@ -733,7 +775,12 @@ void MeshViewer::Draw3DView()
         glStencilOpSeparate(GL_BACK, GL_KEEP, GL_KEEP, GL_REPLACE);
 
         for (const SelectedRegionInfo& sri : selectionVector) {
-            glUniform4fv(_perspectiveView.selection.uniforms.loc_weight, 1, sri.color.V());
+            if (selectionType == SelectionType::Chart && &sri == &selectionVector[0]) {
+                float one[] = {1.0f, 1.0f, 1.0f, 1.0f};
+                glUniform4fv(_perspectiveView.selection.uniforms.loc_weight, 1, one);
+            } else {
+                glUniform4fv(_perspectiveView.selection.uniforms.loc_weight, 1, regionColors[sri.chart->id].V());
+            }
             glDrawArrays(GL_TRIANGLES, sri.first, sri.count);
 
         }
@@ -808,6 +855,29 @@ void MeshViewer::DrawTextureView()
     glClear(GL_COLOR_BUFFER_BIT);
 
     glDrawArrays(GL_TRIANGLES, 0, meshParamData->mesh.FN() * 3);
+
+    if (selectionType == SelectionType::Chart) {
+        glBindVertexArray(_textureView.highlight.vao);
+        glUseProgram(_textureView.highlight.program);
+
+        glUniformMatrix4fv(_textureView.highlight.uniforms.loc_projection, 1, GL_FALSE, (const GLfloat *) projection);
+
+        GLint loc_colorSource = glGetUniformLocation(_textureView.highlight.program, "colorSource");
+        glUniform1i(loc_colorSource, 1); // set primitive color as color source
+
+        int drawn = 0;
+        for (const SelectedRegionInfo& sri : selectionVector) {
+            if (drawn == 0) {
+                float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+                glUniform4fv(_textureView.highlight.uniforms.loc_primitiveColor, 1, white);
+            } else {
+                glUniform4fv(_textureView.highlight.uniforms.loc_primitiveColor, 1, regionColors[sri.chart->id].V());
+            }
+            glDrawArrays(GL_LINES, drawn * 8, 8);
+            drawn++;
+        }
+    }
+
     glBindVertexArray(0);
 
     CheckGLError();
@@ -917,14 +987,25 @@ void MeshViewer::Run()
     _perspectiveView.program = CompileShaders(vs_text_3D, fs_text_texture);
     _perspectiveView.selection.program = CompileShaders(vs_text_3D, fs_text_texture);
     _textureView.program = CompileShaders(vs_text_texture, fs_text_texture);
+    _textureView.highlight.program = CompileShaders(vs_text_texture, fs_text_texture);
     _detailView.program = CompileShaders(vs_text_texture, fs_text_texture);
 
     loc_tex0 = glGetUniformLocation(_perspectiveView.program, "tex0");
     glUseProgram(_perspectiveView.program);
     glUniform1i(loc_tex0, 0);
+
+    loc_tex0 = glGetUniformLocation(_perspectiveView.selection.program, "tex0");
+    glUseProgram(_perspectiveView.selection.program);
+    glUniform1i(loc_tex0, 0);
+
     loc_tex0 = glGetUniformLocation(_textureView.program, "tex0");
     glUseProgram(_textureView.program);
     glUniform1i(loc_tex0, 0);
+
+    loc_tex0 = glGetUniformLocation(_textureView.highlight.program, "tex0");
+    glUseProgram(_perspectiveView.program);
+    glUniform1i(loc_tex0, 0);
+
     loc_tex0 = glGetUniformLocation(_detailView.program, "tex0");
     glUseProgram(_detailView.program);
     glUniform1i(loc_tex0, 0);
@@ -1092,15 +1173,17 @@ void MeshViewer::ManageImGuiState()
             if (selectionType == SelectionType::Chart) {
                 // display info about the chart
                 auto chart = selectionVector[0].chart;
-                ImGui::Text("Chart %lu (%lu faces)", chart->id, chart->FN());
-                ImGui::Text("Area 3D: %.4f", chart->Area3D());
-                ImGui::Text("Area UV: %.4f", chart->AreaUV());
+                ImGui::Text("Chart %lu (%lu faces, %lu adjacencies)", chart->id, chart->FN(), chart->NumAdj());
                 ImGui::Text("Aggregate count: %d", chart->numMerges + 1);
+                ImGui::Text("Area 3D: %.4f", chart->Area3D());
+                ImGui::Text("Area UV: %.4f Border UV: %.6f", chart->AreaUV(), chart->BorderUV());
                 ImGui::Text("Distortion range: %.4f , %.4f", chart->minMappedFaceValue, chart->maxMappedFaceValue);
             } else {
                 // display info about the whole graph
                 ImGui::Text("Filename: %s", fileName.c_str());
                 ImGui::Text("Parameterization charts: %lu", meshParamData->Count());
+                ImGui::Text("Area 3D: %.4f", meshParamData->Area3D());
+                ImGui::Text("Area UV: %.4f Border UV: %.6f", meshParamData->AreaUV(), meshParamData->BorderUV());
                 auto range = meshParamData->DistortionRange();
                 ImGui::Text("Distortion range: %.4f , %.4f", range.first, range.second);
             }
