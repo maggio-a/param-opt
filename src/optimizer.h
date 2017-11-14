@@ -55,8 +55,7 @@ bool ParameterizeChartFromInitialTexCoord(Mesh &m, GraphManager::ChartHandle ch)
         }
     }
 
-    for (std::size_t k = 0; k < ch->fpVec.size(); ++k) {
-        auto fptr = ch->fpVec[k];
+    for (auto fptr : ch->fpVec) {
         for (int i = 0; i < 3; ++i) {
             if (face::IsBorder(*fptr, i) || CCIDh[fptr] != CCIDh[fptr->FFp(i)]) { // Border in texture space
                 for (auto& idVertPair : mv_to_pmv[fptr->V0(i)]) idVertPair.second->SetB();
@@ -193,6 +192,7 @@ vcg::Box2f UVBox(GraphManager::ChartHandle chart) {
 }
 
 // returns the number of charts that could not be parameterized
+/// TODO update distortion info if needed (this should also be done through the graph manager)
 static int ParameterizeGraph(std::shared_ptr<MeshGraph> graph)
 {
     Timer timer;
@@ -206,6 +206,8 @@ static int ParameterizeGraph(std::shared_ptr<MeshGraph> graph)
     int numFailed = 0;
     for (auto entry : graph->charts) {
         std::shared_ptr<FaceGroup> chart = entry.second;
+
+        chart->NotifyParameterizationChange(); // always changes due to repacking, even if the original coordinates were preserved
 
         std::cout << "Chart " << chart->id << " - FN=" << chart->FN() << ", FI=" << tri::Index(m, chart->Fp()) << std::endl;
 
@@ -295,6 +297,9 @@ static int ParameterizeGraph(std::shared_ptr<MeshGraph> graph)
     return numFailed;
 }
 
+/// TODO refactoring
+static void ReduceTextureFragmentation_NoPacking(GraphManager &gm, std::size_t minRegionSize);
+
 static void ReduceTextureFragmentation(Mesh &m, std::shared_ptr<MeshGraph> graph, std::size_t minRegionSize)
 {
     if (minRegionSize == 0) return;
@@ -307,6 +312,14 @@ static void ReduceTextureFragmentation(Mesh &m, std::shared_ptr<MeshGraph> graph
 
     std::cout << "Initialized graph manager" << std::endl;
 
+    ReduceTextureFragmentation_NoPacking(gm, minRegionSize);
+
+    int c = ParameterizeGraph(gm.Graph());
+    if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
+}
+
+static void ReduceTextureFragmentation_NoPacking(GraphManager &gm, std::size_t minRegionSize)
+{
     Timer timer;
     int mergeCount;
     int numIter = 0;
@@ -336,17 +349,13 @@ static void ReduceTextureFragmentation(Mesh &m, std::shared_ptr<MeshGraph> graph
     } while (mergeCount > 0);
 
     std::cout << "Stopping after " << numIter << " passes and " << timer.TimeElapsed() << " seconds" << std::endl;
-
-    int c = ParameterizeGraph(graph);
-
-    if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
 }
 
 static void ReduceTextureFragmentation2(Mesh &m, std::shared_ptr<MeshGraph> graph, std::size_t minRegionSize)
 {
     if (minRegionSize == 0) return;
 
-    assert(minRegionSize < m.FN());
+    assert(minRegionSize < (std::size_t) m.FN());
 
     tri::UpdateTopology<Mesh>::FaceFace(m);
 
