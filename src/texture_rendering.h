@@ -47,7 +47,14 @@ static const char *fs_text[] = {
 
 // if parent == nullptr this function creates an exclusive context, otherwise set
 // up a shared context so textures arent duplicated
+static TextureObjectHandle RenderTexture(Mesh::FaceIterator fbegin, Mesh::FaceIterator fend, Mesh &m, TextureObjectHandle textureObject, bool filter, GLFWwindow *parentWindow);
+
 static TextureObjectHandle RenderTexture(Mesh &m, TextureObjectHandle textureObject, bool filter, GLFWwindow *parentWindow)
+{
+    return RenderTexture(m.face.begin(), m.face.end(), m, textureObject, filter, parentWindow);
+}
+
+static TextureObjectHandle RenderTexture(Mesh::FaceIterator fbegin, Mesh::FaceIterator fend, Mesh &m, TextureObjectHandle textureObject, bool filter, GLFWwindow *parentWindow)
 {
     assert(textureObject->ArraySize() == 1); // TODO multiple texture images support
 
@@ -156,7 +163,7 @@ static TextureObjectHandle RenderTexture(Mesh &m, TextureObjectHandle textureObj
 
     // Note that if the viewer is running texture coords are already in a gpu buffer so I could re-use those
     // cleanup
-    auto WTCSh  = tri::Allocator<Mesh>::FindPerFaceAttribute<WedgeTexCoordStorage>(m, "WedgeTexCoordStorage");
+    auto WTCSh = tri::Allocator<Mesh>::FindPerFaceAttribute<WedgeTexCoordStorage>(m, "WedgeTexCoordStorage");
     assert(tri::Allocator<Mesh>::IsValidHandle<WedgeTexCoordStorage>(m, WTCSh));
 
     GLuint vertexbuf;
@@ -165,12 +172,12 @@ static TextureObjectHandle RenderTexture(Mesh &m, TextureObjectHandle textureObj
     glBindBuffer(GL_ARRAY_BUFFER, vertexbuf);
     glBufferData(GL_ARRAY_BUFFER, m.FN()*12*sizeof(float), NULL, GL_STATIC_DRAW);
     float *p = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
-    for (auto& f : m.face) {
+    for (auto it = fbegin; it != fend; ++it) {
         for (int i = 0; i < 3; ++i) {
-            *p++ = f.cWT(i).U();
-            *p++ = f.cWT(i).V();
-            *p++ = WTCSh[&f].tc[i].U();
-            *p++ = WTCSh[&f].tc[i].V();
+            *p++ = it->cWT(i).U();
+            *p++ = it->cWT(i).V();
+            *p++ = WTCSh[&*it].tc[i].U();
+            *p++ = WTCSh[&*it].tc[i].V();
         }
     }
     glUnmapBuffer(GL_ARRAY_BUFFER);

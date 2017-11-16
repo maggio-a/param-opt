@@ -21,6 +21,8 @@
 #include "optimizer.h"
 #include "texture_rendering.h"
 
+#include "linmath.h"
+
 static vcg::Trackball trackball;
 
 const char *vs_text_3D[] = {
@@ -64,13 +66,13 @@ const char *vs_text_texture[] = {
 const char *fs_text_texture[] = {
     "#version 410 core                                              \n"
     "                                                               \n"
-    "const int COLOR_SRC_TEXTURE    = 0;                            \n"
-    "const int COLOR_SRC_PRIMITIVE  = 1;                            \n"
-    "const int COLOR_SRC_CHECKBOARD = 2;                            \n"
+    "const int COLOR_SRC_TEXTURE    = 1;                            \n"
+    "const int COLOR_SRC_PRIMITIVE  = 2;                            \n"
+    "const int COLOR_SRC_CHECKBOARD = 4;                            \n"
     "                                                               \n"
     "uniform sampler2D tex0;                                        \n"
     "uniform float resolution = 64.0f;                              \n"
-    "uniform int colorSource = COLOR_SRC_TEXTURE;                   \n"
+    "uniform int colorMask = COLOR_SRC_TEXTURE;                     \n"
     "uniform vec4 weight = vec4(1.0f, 1.0f, 1.0f, 1.0f);            \n"
     "                                                               \n"
     "in vec2 uv;                                                    \n"
@@ -79,35 +81,133 @@ const char *fs_text_texture[] = {
     "                                                               \n"
     "void main(void)                                                \n"
     "{                                                              \n"
-    "    if (colorSource == COLOR_SRC_TEXTURE) {                    \n"
-    "        color = texture(tex0, uv)*weight;                      \n"
+    "    color = weight;                                            \n"
+    "    if ((colorMask & COLOR_SRC_TEXTURE) != 0) {                \n"
+    "        color *= texture(tex0, uv);                            \n"
     "    }                                                          \n"
-    "    else if (colorSource == COLOR_SRC_PRIMITIVE) {             \n"
-    "        color = dcol*weight;                                   \n"
+    "    if ((colorMask & COLOR_SRC_PRIMITIVE) != 0) {              \n"
+    "        color *= dcol;                                         \n"
     "    }                                                          \n"
-    "    else if (colorSource == COLOR_SRC_CHECKBOARD) {            \n"
+    "    if ((colorMask & COLOR_SRC_CHECKBOARD) != 0) {             \n"
     "        float u_mod = mod(floor(uv.s * resolution), 2.0f);     \n"
     "        float v_mod = mod(floor(uv.t * resolution), 2.0f);     \n"
     "        float c = abs(u_mod - v_mod);                          \n"
-    "        color = vec4(c, c, c, 1.0f);                           \n"
-    "    } else {                                                   \n"
-    "        color = vec4(0.0f, 1.0f, 0.0f, 1.0f);                  \n"
+    "        c = clamp(c+0.4f, 0.0f, 1.0f);                         \n"
+    "        color *= vec4(c, c, c, 1.0f);                          \n"
     "    }                                                          \n"
     "}                                                              \n"
 };
 
+void TrackballGlfwMouseButtonCapture(GLFWwindow *window, int x, int y, int button, int action)
+{
+    int trackButton = vcg::Trackball::BUTTON_NONE;
+    switch (button) {
+    case GLFW_MOUSE_BUTTON_LEFT: trackButton = vcg::Trackball::BUTTON_LEFT; break;
+    case GLFW_MOUSE_BUTTON_MIDDLE: trackButton = vcg::Trackball::BUTTON_MIDDLE; break;
+    case GLFW_MOUSE_BUTTON_RIGHT: trackButton = vcg::Trackball::BUTTON_RIGHT; break;
+    default: assert(0 && "Mouse button input");
+    }
+
+    if (glfwGetKey(window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_ALT) == GLFW_PRESS) {
+        trackButton |= vcg::Trackball::KEY_ALT;
+    }
+
+    if (glfwGetKey(window, GLFW_KEY_LEFT_CONTROL) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_CONTROL) == GLFW_PRESS) {
+        trackButton |= vcg::Trackball::KEY_CTRL;
+    }
+    if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS) {
+        trackButton |= vcg::Trackball::KEY_SHIFT;
+    }
+
+    if (action == GLFW_PRESS) trackball.MouseDown(x, y, trackButton);
+    else if (action == GLFW_RELEASE) trackball.MouseUp(x, y, trackButton);
+}
+
+void TrackballGlfwKeyCapture(int key, int action)
+{
+    vcg::Trackball::Button trackKey = vcg::Trackball::BUTTON_NONE;
+    switch (key) {
+    case GLFW_KEY_LEFT_ALT:
+    case GLFW_KEY_RIGHT_ALT:
+        trackKey = vcg::Trackball::KEY_ALT; break;
+    case GLFW_KEY_LEFT_CONTROL:
+    case GLFW_KEY_RIGHT_CONTROL:
+        trackKey = vcg::Trackball::KEY_CTRL; break;
+    case GLFW_KEY_LEFT_SHIFT:
+    case GLFW_KEY_RIGHT_SHIFT:
+        trackKey = vcg::Trackball::KEY_SHIFT; break;
+    default: return;
+    }
+
+    if (action == GLFW_PRESS) trackball.ButtonDown(trackKey);
+    else if (action == GLFW_RELEASE) trackball.ButtonUp(trackKey);
+}
+
 // GLFW callbacks
 
-void MeshViewer::MouseButtonCallback(GLFWwindow *window, int button, int action, int mods)
+void MeshViewer::MouseButtonCallback(GLFWwindow *window, int button, int action, int /*mods*/)
 {
-    if (action == GLFW_PRESS && button >= 0 && button < 3)
+    static Timer clickTimer;
+    static bool waitingDoubleClick = false;
+
+    bool doubleClick = false;
+
+    if (action == GLFW_PRESS && button >= 0 && button < 3) {
         g_MouseJustPressed[button] = true;
+
+        float timeSinceLastClick = clickTimer.TimeElapsed();
+        if (waitingDoubleClick && timeSinceLastClick < 0.6f) { // if after more than 0.6 sec, listen for a new double click
+            if (clickTimer.TimeElapsed() < 0.25f) {
+                doubleClick = true;
+            }
+            waitingDoubleClick = false;
+        } else {
+            clickTimer.Reset();
+            waitingDoubleClick = true;
+        }
+    }
+
 
     ImGuiIO& io = ImGui::GetIO();
 
     // forward input to app logic only if gui is not involved or it is a release event
     if (io.WantCaptureMouse == false || action == GLFW_RELEASE) {
         MeshViewer *viewer = (MeshViewer *) glfwGetWindowUserPointer(window);
+
+        if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
+            viewer->PickRegion();
+        }
+
+        if (viewer->InPerspectiveView()) {
+            if (doubleClick) {
+                viewer->CenterPerspectiveViewFromMouse();
+            } else {
+                TrackballGlfwMouseButtonCapture(window, viewer->_xpos, viewer->info.height - viewer->_ypos, button, action);
+                if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+                    viewer->_dragMode = DragMode::PERSPECTIVE;
+                }
+            }
+        }
+        else if (viewer->InTextureView()) {
+            if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+                viewer->_dragMode = DragMode::TEXTURE;
+            }
+        }
+        else if (viewer->InDetailView()) {
+            if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) {
+                viewer->_dragMode = DragMode::DETAIL;
+            }
+        }
+
+        if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_RELEASE) {
+            TrackballGlfwMouseButtonCapture(window, viewer->_xpos, viewer->info.height - viewer->_ypos, button, action);
+            viewer->_dragMode = DragMode::DISABLED;
+        }
+
+
+/*
+
+        //MeshViewer *viewer = (MeshViewer *) glfwGetWindowUserPointer(window);
         if (mods & GLFW_MOD_SHIFT) {
             if (button == GLFW_MOUSE_BUTTON_LEFT && action == GLFW_PRESS) { // Center view on the point
                 viewer->CenterPerspectiveViewFromMouse();
@@ -130,7 +230,7 @@ void MeshViewer::MouseButtonCallback(GLFWwindow *window, int button, int action,
             if (button == GLFW_MOUSE_BUTTON_RIGHT && action == GLFW_PRESS) {
                 viewer->PickRegion();
             }
-        }
+        } */
     }
 }
 
@@ -146,11 +246,13 @@ void MeshViewer::CursorPositionCallback(GLFWwindow *window, double xpos, double 
 
     xpos *= scale, ypos *= scale;
 
+    trackball.MouseMove((int) xpos, viewer->info.height - ((int) ypos));
+
     if (viewer->_dragMode != DragMode::DISABLED) {
         viewer->_dragX += (int) (xpos - viewer->_xpos);
         viewer->_dragY += (int) (ypos - viewer->_ypos);
 
-        if (viewer->_dragMode == DragMode::PERSPECTIVE) {
+        /*if (viewer->_dragMode == DragMode::PERSPECTIVE) {
             trackball.center = {0, 0, 0};
             trackball.radius = 1;
             Matrix44f proj;
@@ -162,7 +264,7 @@ void MeshViewer::CursorPositionCallback(GLFWwindow *window, double xpos, double 
 
             trackball.camera.SetView(proj.V(), mv.V(), viewport);
             trackball.MouseMove((int) xpos, viewer->info.height - ((int) ypos));
-        }
+        }*/
     }
 
     viewer->_xpos = xpos;
@@ -178,9 +280,10 @@ void MeshViewer::ScrollCallback(GLFWwindow* window, double /*xoffset*/, double y
     if (io.WantCaptureMouse == false) {
         MeshViewer *viewer = (MeshViewer *) glfwGetWindowUserPointer(window);
         if (viewer->InPerspectiveView()) {
-            float factor = (yoffset > 0.0f) ? 0.9f : 1.1f;
-            viewer->_perspectiveCamera.eye[2] *= factor;
-            viewer->_perspectiveCamera.near *= factor;
+            //float factor = (yoffset > 0.0f) ? 0.9f : 1.1f;
+            //viewer->_perspectiveCamera.eye[2] *= factor;
+            //viewer->_perspectiveCamera.near *= factor;
+            trackball.MouseWheel(yoffset);
         }
         else if (viewer->InTextureView()) {
             float mx = ((viewer->_xpos-viewer->info.xSplit) / (viewer->info.height/2.0f)) - 0.5f;
@@ -195,20 +298,59 @@ void MeshViewer::ScrollCallback(GLFWwindow* window, double /*xoffset*/, double y
     }
 }
 
+void MeshViewer::KeyCallback(GLFWwindow* window, int key, int, int action, int /*mods*/)
+{
+    ImGuiIO& io = ImGui::GetIO();
+    if (action == GLFW_PRESS)
+        io.KeysDown[key] = true;
+    if (action == GLFW_RELEASE)
+        io.KeysDown[key] = false;
+
+    io.KeyCtrl = io.KeysDown[GLFW_KEY_LEFT_CONTROL] || io.KeysDown[GLFW_KEY_RIGHT_CONTROL];
+    io.KeyShift = io.KeysDown[GLFW_KEY_LEFT_SHIFT] || io.KeysDown[GLFW_KEY_RIGHT_SHIFT];
+    io.KeyAlt = io.KeysDown[GLFW_KEY_LEFT_ALT] || io.KeysDown[GLFW_KEY_RIGHT_ALT];
+    io.KeySuper = io.KeysDown[GLFW_KEY_LEFT_SUPER] || io.KeysDown[GLFW_KEY_RIGHT_SUPER];
+
+    if (io.WantCaptureKeyboard == false) {
+        MeshViewer *viewer = (MeshViewer *) glfwGetWindowUserPointer(window);
+        if (viewer->InPerspectiveView()) {
+            TrackballGlfwKeyCapture(key, action);
+        }
+    }
+}
+
 void MeshViewer::FramebufferSizeCallback(GLFWwindow *window, int width, int height)
 {
     MeshViewer *viewer = (MeshViewer *) glfwGetWindowUserPointer(window);
     if (width <= 0) width = 1;
     if (height <= 0) height = 1;
+    int borderToSplitWidth = width > (height/2) ? (width - (height/2)) : 1;
     viewer->info.width = width;
     viewer->info.height = height;
-    viewer->info.xSplit = width > (height/2) ? (width - (height/2)) : 1;
-    viewer->info.perspectiveViewAspect = viewer->info.xSplit / (float) height;
+    viewer->info.xSplit = borderToSplitWidth;
+
+    // for the perspective viewport, discard 10% of the borderToSplitWidth to make room for the controls
+
+    viewer->info.perspectiveViewport[0] = (int) (0.2f * borderToSplitWidth);
+    viewer->info.perspectiveViewport[1] = 0;
+    viewer->info.perspectiveViewport[2] = borderToSplitWidth - viewer->info.perspectiveViewport[0];
+    viewer->info.perspectiveViewport[3] = viewer->info.height;
+
+    viewer->info.perspectiveViewAspect = viewer->info.perspectiveViewport[2] / (float) viewer->info.perspectiveViewport[3];
+
+    viewer->info.detailViewport[0] = viewer->info.xSplit;
+    viewer->info.detailViewport[1] = 0;
+    viewer->info.detailViewport[2] = viewer->info.height/2;
+    viewer->info.detailViewport[3] = viewer->info.height/2;
+
+    viewer->info.textureViewport[0] = viewer->info.xSplit;
+    viewer->info.textureViewport[1] = viewer->info.height/2;
+    viewer->info.textureViewport[2] = viewer->info.height/2;
+    viewer->info.textureViewport[3] = viewer->info.height/2;
 }
 
 
 // Member functions
-
 
 MeshViewer::MeshViewer(std::shared_ptr<MeshGraph> meshParamData_, std::size_t minRegionSize_, const std::string& fileName_)
     : meshParamData{meshParamData_}, _currentTexture{meshParamData_->textureObject}, gm{std::make_shared<GraphManager>(meshParamData_)},
@@ -216,10 +358,9 @@ MeshViewer::MeshViewer(std::shared_ptr<MeshGraph> meshParamData_, std::size_t mi
 {
     std::size_t numRegions = meshParamData->Count();
     regionColors.reserve(numRegions);
-    std::srand(0);
     for (const auto& c : meshParamData->charts) {
-        vcg::Color4f color{std::rand()/(float)RAND_MAX, std::rand()/(float)RAND_MAX, std::rand()/(float)RAND_MAX, 1.0f};
-        regionColors.insert(std::make_pair(c.first, color));
+        auto color = vcg::Color4f::Scatter(20, c.first % 20, 0.95f);
+        regionColors.insert(std::make_pair(c.first, color/255.0f));
     }
 }
 
@@ -380,14 +521,30 @@ void MeshViewer::InitializeSelection(const std::vector<std::pair<RegionID,vcg::C
     glBufferData(GL_ARRAY_BUFFER, uvBoxes.size()*16*sizeof(float), NULL, GL_STATIC_DRAW);
     buffptr = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
     for (auto& box : uvBoxes) {
-        *buffptr++ = box.min.X(); *buffptr++ = box.min.Y();
+        Point2f center = box.Center();
+        *buffptr++ = center.X(); *buffptr++ = center.Y() - 0.1f;
+        *buffptr++ = center.X(); *buffptr++ = center.Y() + 0.1f;
+        *buffptr++ = center.X() - 0.1f; *buffptr++ = center.Y();
+        *buffptr++ = center.X() + 0.1f; *buffptr++ = center.Y();
+
+        *buffptr++ = center.X(); *buffptr++ = center.Y() - 0.1f;
+        *buffptr++ = center.X(); *buffptr++ = center.Y() + 0.1f;
+        *buffptr++ = center.X() - 0.1f; *buffptr++ = center.Y();
+        *buffptr++ = center.X() + 0.1f; *buffptr++ = center.Y();
+
+       // *buffptr++ = center.X(); *buffptr++ = 0.0f;
+       // *buffptr++ = center.X(); *buffptr++ = 1.0f;
+       // *buffptr++ = 0.0f; *buffptr++ = center.Y();
+       // *buffptr++ = 1.0f; *buffptr++ = center.Y();
+
+        /**buffptr++ = box.min.X(); *buffptr++ = box.min.Y();
         *buffptr++ = box.max.X(); *buffptr++ = box.min.Y();
         *buffptr++ = box.max.X(); *buffptr++ = box.min.Y();
         *buffptr++ = box.max.X(); *buffptr++ = box.max.Y();
         *buffptr++ = box.max.X(); *buffptr++ = box.max.Y();
         *buffptr++ = box.min.X(); *buffptr++ = box.max.Y();
         *buffptr++ = box.min.X(); *buffptr++ = box.max.Y();
-        *buffptr++ = box.min.X(); *buffptr++ = box.min.Y();
+        *buffptr++ = box.min.X(); *buffptr++ = box.min.Y();*/
     }
     glUnmapBuffer(GL_ARRAY_BUFFER);
 
@@ -410,12 +567,13 @@ bool MeshViewer::IntersectionMouseRayModel(Mesh::ConstFacePointer *fp, float &u,
     using vcg::Point3f;
     using vcg::Ray3f;
 
-    // Compute ray from mouse position
+    // Compute ray from mouse position in perspective view
 
     mat4x4 model, invModel;
-    mat4x4_dup(model, _meshTransform.positionMatrix);
-    mat4x4_mul(model, _meshTransform.orientationMatrix, model);
-    mat4x4_mul(model, _meshTransform.scaleMatrix, model);
+    mat4x4_dup(model, _meshTransform.trackballMatrix);
+    //mat4x4_dup(model, _meshTransform.positionMatrix);
+    //mat4x4_mul(model, _meshTransform.trackballMatrix, model);
+    //mat4x4_mul(model, _meshTransform.scaleMatrix, model);
     mat4x4_invert(invModel, model);
 
     mat4x4 invProj, invView, ndcToWorld;
@@ -423,7 +581,7 @@ bool MeshViewer::IntersectionMouseRayModel(Mesh::ConstFacePointer *fp, float &u,
     mat4x4_invert(invView, _meshTransform.viewMatrix);
     mat4x4_mul(ndcToWorld, invView, invProj);
 
-    float x = (_xpos / (float) info.xSplit) * 2.0f - 1.0f;
+    float x = ((_xpos - info.perspectiveViewport[0]) / (float) info.perspectiveViewport[2]) * 2.0f - 1.0f;
     float y = ((info.height - _ypos) / (float) info.height) * 2.0f - 1.0f;
 
     vec4 ndc_ray = {x, y, -1.0f, 1.0f}, worldRay, modelRay;
@@ -612,33 +770,38 @@ void MeshViewer::InitBuffers()
 
 void MeshViewer::SetupViews()
 {
-    const Mesh& m = meshParamData->mesh;
+    Mesh& m = meshParamData->mesh;
 
     // Setup perspective view
 
-    vcg::Box3f bbox = m.bbox;
-    if (bbox.IsNull()) {
-        for (const auto& v : m.vert) {
-            bbox.Add(v.cP());
-        }
-    }
+    tri::UpdateBounding<Mesh>::Box(m);
 
     // Define model transform: the mesh will be translated to the origin of the world space,
     // rotated according to accumulated rotations and then scaled
 
-    mat4x4_translate(_meshTransform.positionMatrix, -bbox.Center().X(), -bbox.Center().Y(), -bbox.Center().Z());
-    mat4x4_identity(_meshTransform.orientationMatrix); // Initially the mesh is not rotated
-    float scale = _perspectiveCamera.eye[2] / bbox.Diag();
+    /// todo remove all unused matrices
+    mat4x4_identity(_meshTransform.positionMatrix);
+    //mat4x4_translate(_meshTransform.positionMatrix, -m.bbox.Center().X(), -m.bbox.Center().Y(), -m.bbox.Center().Z());
+    trackball.SetIdentity();
+    trackball.center = {0.0f, 0.0f, 0.0f};
+    trackball.radius = 1.0f;
+    trackball.track.sca = 3.0f / m.bbox.Diag();
+    trackball.track.tra.Import(-m.bbox.Center());
+    mat4x4_identity(_meshTransform.trackballMatrix);
+    /*float scale = 1.0f / m.bbox.Diag();
     mat4x4_identity(_meshTransform.scaleMatrix);
-    mat4x4_scale_aniso(_meshTransform.scaleMatrix, _meshTransform.scaleMatrix, scale, scale, scale);
+    mat4x4_scale_aniso(_meshTransform.scaleMatrix, _meshTransform.scaleMatrix, scale, scale, scale);*/
+
+    // view matrix is constant
+    mat4x4_identity(_meshTransform.viewMatrix);
+    mat4x4_look_at(_meshTransform.viewMatrix, _perspectiveCamera.eye, _perspectiveCamera.target, _perspectiveCamera.up);
 
     // view and projection matrices will be updated at each draw
-    mat4x4_identity(_meshTransform.viewMatrix);
     mat4x4_identity(_meshTransform.projectionMatrix);
 
     _perspectiveView.uniforms.loc_modelView = glGetUniformLocation(_perspectiveView.program, "modelViewMatrix");
     _perspectiveView.uniforms.loc_projection = glGetUniformLocation(_perspectiveView.program, "projectionMatrix");
-    _perspectiveView.uniforms.loc_colorSource = glGetUniformLocation(_perspectiveView.program, "colorSource");
+    _perspectiveView.uniforms.loc_colorMask = glGetUniformLocation(_perspectiveView.program, "colorMask");
     _perspectiveView.uniforms.loc_weight = glGetUniformLocation(_perspectiveView.program, "weight");
 
     _perspectiveView.selection.uniforms.loc_modelView = glGetUniformLocation(_perspectiveView.selection.program, "modelViewMatrix");
@@ -681,12 +844,22 @@ void MeshViewer::SetupDetailView(const RegionID id)
 
 void MeshViewer::UpdateTransforms()
 {
+    // Copy current state to the trackball
+    Matrix44f proj;
+    memcpy(&proj, &_meshTransform.projectionMatrix, 16*sizeof(float));
+    proj.transposeInPlace();
+    Matrix44f mv;
+    memcpy(&mv, &_meshTransform.viewMatrix, 16*sizeof(float));
+    mv.transposeInPlace();
+    int windowView[] = {0, 0, info.width, info.height};
+    trackball.camera.SetView(proj.V(), mv.V(), windowView);
+
+    // set the tracball transform
+    Matrix44f trackballMatrix = trackball.Matrix().transpose();
+    memcpy(&_meshTransform.trackballMatrix, trackballMatrix.V(), 16*sizeof(float));
+
     switch (_dragMode) {
     case DragMode::PERSPECTIVE:
-        {
-            Matrix44f rot = trackball.Matrix().transpose();
-            memcpy(&_meshTransform.orientationMatrix, rot.V(), 16*sizeof(float));
-        }
         break;
     case DragMode::TEXTURE:
         _textureCamera.MoveX(-_dragX / (info.height/2.0f));
@@ -709,19 +882,21 @@ void MeshViewer::Draw3DView()
     mat4x4 modelView;
 
     // Build model matrix: translate, orient and scale
-    mat4x4_dup(model, _meshTransform.positionMatrix);
-    mat4x4_mul(model, _meshTransform.orientationMatrix, model);
-    mat4x4_mul(model, _meshTransform.scaleMatrix, model);
+    //mat4x4_dup(model, _meshTransform.positionMatrix);
+    //mat4x4_mul(model, _meshTransform.trackballMatrix, model);
+    //mat4x4_mul(model, _meshTransform.scaleMatrix, model);
 
-    mat4x4_look_at(_meshTransform.viewMatrix, _perspectiveCamera.eye, _perspectiveCamera.target, _perspectiveCamera.up);
 
-    mat4x4_mul(modelView, _meshTransform.viewMatrix, model);
+
+   // mat4x4_mul(modelView, _meshTransform.viewMatrix, model);
+    mat4x4_mul(modelView, _meshTransform.viewMatrix, _meshTransform.trackballMatrix);
 
     mat4x4_perspective(_meshTransform.projectionMatrix, 60.0f * M_PI / 180.0f, info.perspectiveViewAspect,
                        _perspectiveCamera.near, _perspectiveCamera.far);
 
-    glViewport(0, 0, info.xSplit, info.height);
-    glScissor(0, 0, info.xSplit, info.height);
+    int *vp = info.perspectiveViewport;
+    glViewport(vp[0], vp[1], vp[2], vp[3]);
+    glScissor(vp[0], vp[1], vp[2], vp[3]);
 
     glDrawBuffer(GL_BACK);
     glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
@@ -764,7 +939,7 @@ void MeshViewer::Draw3DView()
         glUniformMatrix4fv(_perspectiveView.uniforms.loc_modelView, 1, GL_FALSE, (const GLfloat *) modelView);
         glUniformMatrix4fv(_perspectiveView.uniforms.loc_projection, 1, GL_FALSE, (const GLfloat *)_meshTransform.projectionMatrix);
 
-        glUniform1i(_perspectiveView.uniforms.loc_colorSource, _perspectiveView.colorSource);
+        glUniform1i(_perspectiveView.uniforms.loc_colorMask, _perspectiveView.colorMask);
         glUniform4f(_perspectiveView.uniforms.loc_weight, 0.4f, 0.4f, 0.4f, 0.2f);
 
         // if stencil buffer == 1 the fragment must be discarded since the selection layer has already been drawn
@@ -789,13 +964,12 @@ void MeshViewer::Draw3DView()
         glUniformMatrix4fv(_perspectiveView.uniforms.loc_modelView, 1, GL_FALSE, (const GLfloat *) modelView);
         glUniformMatrix4fv(_perspectiveView.uniforms.loc_projection, 1, GL_FALSE, (const GLfloat *)_meshTransform.projectionMatrix);
 
-        glUniform1i(_perspectiveView.uniforms.loc_colorSource, _perspectiveView.colorSource);
+        glUniform1i(_perspectiveView.uniforms.loc_colorMask, _perspectiveView.colorMask);
         glUniform4f(_perspectiveView.uniforms.loc_weight, 1.0f, 1.0f, 1.0f, 1.0f);
 
         glDrawArrays(GL_TRIANGLES, 0, meshParamData->mesh.FN() * 3);
         glBindVertexArray(0);
     }
-
 
     CheckGLError();
 }
@@ -817,13 +991,15 @@ void MeshViewer::DrawTextureView()
 
     glUniformMatrix4fv(_textureView.uniforms.loc_projection, 1, GL_FALSE, (const GLfloat *) projection);
 
-    glViewport(info.xSplit, info.height/2, info.height/2, info.height/2);
-    glScissor(info.xSplit, info.height/2, info.height/2, info.height/2);
+    int *vp = info.textureViewport;
+    glViewport(vp[0], vp[1], vp[2], vp[3]);
+    glScissor(vp[0], vp[1], vp[2], vp[3]);
 
     glDrawBuffer(GL_BACK);
     glDisable(GL_DEPTH_TEST);
 
-    glClearColor(0.2f, 0.7f, 0.2f, 1.0f);
+    //glClearColor(0.2f, 0.7f, 0.2f, 1.0f);
+    glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
     glDrawArrays(GL_TRIANGLES, 0, meshParamData->mesh.FN() * 3);
@@ -834,8 +1010,8 @@ void MeshViewer::DrawTextureView()
 
         glUniformMatrix4fv(_textureView.highlight.uniforms.loc_projection, 1, GL_FALSE, (const GLfloat *) projection);
 
-        GLint loc_colorSource = glGetUniformLocation(_textureView.highlight.program, "colorSource");
-        glUniform1i(loc_colorSource, 1); // set primitive color as color source
+        GLint loc_colorMask = glGetUniformLocation(_textureView.highlight.program, "colorMask");
+        glUniform1i(loc_colorMask, ColorMask_PRIMITIVE); // set primitive color as color source
 
         int drawn = 0;
         for (const SelectedRegionInfo& sri : selectionVector) {
@@ -875,8 +1051,9 @@ void MeshViewer::DrawDetailView()
 
     glUniformMatrix4fv(_detailView.uniforms.loc_projection, 1, GL_FALSE, (const GLfloat *) transform);
 
-    glViewport(info.xSplit, 0, info.height/2, info.height/2);
-    glScissor(info.xSplit, 0, info.height/2, info.height/2);
+    int *vp = info.detailViewport;
+    glViewport(vp[0], vp[1], vp[2], vp[3]);
+    glScissor(vp[0], vp[1], vp[2], vp[3]);
 
     glDrawBuffer(GL_BACK);
     glDisable(GL_DEPTH_TEST);
@@ -906,8 +1083,6 @@ void MeshViewer::DrawViews()
 
 void MeshViewer::Run()
 {
-    trackball.SetIdentity();
-
     if (!glfwInit()) {
         std::cout << "Failed to initialize glfw" << std::endl;
         std::exit(-1);
@@ -1138,7 +1313,20 @@ void MeshViewer::ManageImGuiState()
 
         ImGui::Separator();
 
-        ImGui::Combo("Color source", &_perspectiveView.colorSource, "Texture\0Distortion\0Checkboard\0\0");
+        ImGui::Text("Color sources");
+        static bool mixTexture = true;
+        static bool mixDistortion = false;
+        static bool mixCheckboard = false;
+        ImGui::Checkbox("Texture", &mixTexture);
+        ImGui::Checkbox("Distortion", &mixDistortion);
+        ImGui::Checkbox("Checkboard", &mixCheckboard);
+        int colorMask = ColorMask_EMPTY;
+        if (mixTexture) colorMask |= ColorMask_TEXTURE;
+        if (mixDistortion) colorMask |= ColorMask_PRIMITIVE;
+        if (mixCheckboard) colorMask |= ColorMask_CHECKBOARD;
+        _perspectiveView.colorMask = colorMask;
+
+        //ImGui::Combo("Color source", &_perspectiveView.colorSource, "Texture\0Distortion\0Checkboard\0\0");
 
         ImGui::End();
     }

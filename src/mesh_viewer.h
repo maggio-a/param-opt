@@ -70,6 +70,12 @@ public:
     static void KeyCallback(GLFWwindow *, int, int, int, int);
     static void FramebufferSizeCallback(GLFWwindow *, int, int);
 
+    static constexpr int ColorMask_EMPTY      = 0;
+    static constexpr int ColorMask_TEXTURE    = 1;
+    static constexpr int ColorMask_PRIMITIVE  = 2;
+    static constexpr int ColorMask_CHECKBOARD = 4;
+
+
 private:
 
     // TODO the mesh graph (meshParamData) should be encapsulated by the GraphManager object
@@ -110,7 +116,7 @@ private:
     } _vertexBuffers;
 
     struct {
-        int colorSource = 0; // see shader code
+        int colorMask = 1; // see  ColorMask enum and shader code
         GLuint program = 0;
         GLuint vao = 0;
         struct {
@@ -121,7 +127,7 @@ private:
         struct {
             GLint loc_modelView;
             GLint loc_projection;
-            GLint loc_colorSource;
+            GLint loc_colorMask;
             GLint loc_weight;
         } uniforms;
 
@@ -177,7 +183,7 @@ private:
     } _detailView;
 
     struct {
-        vec3 eye = {0.0f, 0.0f, 15.0f};
+        vec3 eye = {0.0f, 0.0f, 3.0f};
         vec3 target = { 0.0f, 0.0f, 0.0f};
         vec3 up = {0.0f, 1.0f, 0.0f};
         float near = 0.1f;
@@ -189,7 +195,7 @@ private:
 
     struct {
         mat4x4 positionMatrix;
-        mat4x4 orientationMatrix;
+        mat4x4 trackballMatrix;
         mat4x4 scaleMatrix;
         mat4x4 viewMatrix;
         mat4x4 projectionMatrix;
@@ -204,6 +210,9 @@ private:
         int height;
         int xSplit;
         float perspectiveViewAspect;
+        int perspectiveViewport[4];
+        int textureViewport[4];
+        int detailViewport[4];
     } info;
 
 public:
