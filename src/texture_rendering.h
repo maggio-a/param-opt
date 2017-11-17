@@ -162,7 +162,6 @@ static TextureObjectHandle RenderTexture(Mesh::FaceIterator fbegin, Mesh::FaceIt
     // Allocate vertex data
 
     // Note that if the viewer is running texture coords are already in a gpu buffer so I could re-use those
-    // cleanup
     auto WTCSh = tri::Allocator<Mesh>::FindPerFaceAttribute<WedgeTexCoordStorage>(m, "WedgeTexCoordStorage");
     assert(tri::Allocator<Mesh>::IsValidHandle<WedgeTexCoordStorage>(m, WTCSh));
 
@@ -195,14 +194,12 @@ static TextureObjectHandle RenderTexture(Mesh::FaceIterator fbegin, Mesh::FaceIt
 
     // Setup FBO
 
-    // cleanup
     GLuint fbo;
     glGenFramebuffers(1, &fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 
     glViewport(0, 0, img.width(), img.height());
 
-    // cleanup
     GLuint renderTarget;
     glGenTextures(1, &renderTarget);
     glBindTexture(GL_TEXTURE_2D, renderTarget);

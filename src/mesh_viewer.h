@@ -78,6 +78,8 @@ public:
 
 private:
 
+    using ChartHandle = std::shared_ptr<FaceGroup>;
+
     // TODO the mesh graph (meshParamData) should be encapsulated by the GraphManager object
     // and queried through it
     std::shared_ptr<MeshGraph> meshParamData;
@@ -97,7 +99,7 @@ private:
     DragMode _dragMode = DISABLED;
 
     float _dragX = 0.0f, _dragY = 0.0f;
-
+/*
     struct SelectedRegionInfo {
         std::shared_ptr<FaceGroup> chart;
         GLint first;
@@ -108,11 +110,28 @@ private:
 
     SelectionType selectionType = None;
     std::vector<SelectedRegionInfo> selectionVector;
+*/
+    struct SelectionBufferInfo {
+        ChartHandle chart;
+        std::size_t bufferIndex;
+        GLint first;
+        GLsizei count;
+        GLint first_highlight;
+        GLuint texicon;
+        int referenceCount;
+    };
+
+    std::unordered_map<RegionID, SelectionBufferInfo> selectedRegions;
+    std::unordered_map<RegionID, int> primaryCharts;  // charts selected and ready for merge
+
+    std::vector<GLuint> selectionVao;
+    std::vector<GLuint> detailVao;
+    std::vector<GLuint> highlightVao;
 
     struct {
         GLuint mesh = 0;
-        GLuint selection = 0;
-        GLuint highlight = 0;
+        std::vector<GLuint> selection;
+        std::vector<GLuint> highlight;
     } _vertexBuffers;
 
     struct {
@@ -133,7 +152,7 @@ private:
 
         struct {
             GLuint program = 0;
-            GLuint vao = 0;
+            //GLuint vao = 0;
             struct {
                 GLint loc_position;
                 GLint loc_texcoord;
@@ -172,7 +191,7 @@ private:
 
     struct {
         GLuint program = 0;
-        GLuint vao = 0;
+        //GLuint vao = 0;
         struct {
             GLint loc_texcoord;
         } attributes;
@@ -221,7 +240,7 @@ public:
     GLuint CompileShaders(const GLchar **vs_text, const GLchar **fs_text);
     void InitBuffers();
     void SetupViews();
-    void SetupDetailView(const RegionID id);
+    void SetupDetailView();
 
     void UpdateTransforms();
     void DrawViews();
@@ -242,6 +261,7 @@ public:
     void Select(const RegionID id);
     void Select(const GraphManager::Edge& e);
     void InitializeSelection(const std::vector<std::pair<RegionID,vcg::Color4f>>& vsel);
+    void UpdateSelection(const RegionID id);
 
     void ManageImGuiState();
 
@@ -252,6 +272,8 @@ public:
     void gmRemoveNextEdge();
     GraphManager::ChartHandle gmCollapse(const GraphManager::Edge& e);
 
+    template <typename ChartInputIterator>
+    std::pair<int,GraphManager::ChartHandle> gmCollapse(ChartInputIterator first, ChartInputIterator last);
 };
 
 #endif // MESH_VIEWER_H

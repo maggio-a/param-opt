@@ -411,155 +411,205 @@ void MeshViewer::TexturePick()
 
 void MeshViewer::ClearSelection()
 {
-    if (selectionVector.size() > 0) {
-        glDeleteVertexArrays(1, &_perspectiveView.selection.vao);
-        glDeleteVertexArrays(1, &_textureView.highlight.vao);
-        glDeleteVertexArrays(1, &_detailView.vao);
-        glDeleteBuffers(1, &_vertexBuffers.selection);
-        glDeleteBuffers(1, &_vertexBuffers.highlight);
+    if (selectedRegions.size() > 0) {
+        for (auto vao : selectionVao) glDeleteVertexArrays(1, &vao);
+        for (auto vao : detailVao) glDeleteVertexArrays(1, &vao);
+        for (auto vao : highlightVao) glDeleteVertexArrays(1, &vao);
+        for (auto vbo : _vertexBuffers.selection) glDeleteBuffers(1, &vbo);
+        for (auto vbo : _vertexBuffers.highlight) glDeleteBuffers(1, &vbo);
+        for (auto& entry : selectedRegions) glDeleteTextures(1, &entry.second.texicon);
 
-        CheckGLError();
-
-        _perspectiveView.selection.vao = 0;
-        _textureView.highlight.vao = 0;
-        _detailView.vao = 0;
-        _vertexBuffers.selection = 0;
-        _vertexBuffers.highlight = 0;
-
-        selectionType = SelectionType::None;
-        selectionVector.clear();
+        selectionVao.clear();
+        detailVao.clear();
+        highlightVao.clear();
+        _vertexBuffers.selection.clear();
+        _vertexBuffers.highlight.clear();
+        selectedRegions.clear();
+        primaryCharts.clear();
     }
 }
 
 void MeshViewer::Select(const RegionID id)
 {
-    auto region = meshParamData->GetChart(id);
-    std::vector<std::pair<RegionID,vcg::Color4f>> vsel;
-    vsel.reserve(1 + region->NumAdj());
-
-    vsel.emplace_back(std::make_pair(region->id, vcg::Color4f{1.0f, 1.0f, 1.0f, 1.0f}));
-
-    for (auto adj : region->adj) {
-        float c = adj->id / (float) meshParamData->charts.size();
-        vsel.emplace_back(std::make_pair(adj->id, vcg::Color4f{c*0.6f, 1.0f*0.6f, (1.0f-c)*0.6f, 1.0f}));
-    }
-
-    InitializeSelection(vsel);
-    selectionType = SelectionType::Chart;
-
-    std::cout << "Selected region " << id << " (uv area = " << region->AreaUV() << ")" << std::endl;
+    if (primaryCharts.count(id) == 1) return;
+    else UpdateSelection(id);
 }
 
-void MeshViewer::Select(const GraphManager::Edge& e)
+void MeshViewer::UpdateSelection(const RegionID id)
 {
-    InitializeSelection({
-        {e.a->id, vcg::Color4f{1.0f, 0.1f, 0.1f, 1.0f}},
-        {e.b->id, vcg::Color4f{0.1f, 0.1f, 1.0f, 1.0f}}
-    });
-    selectionType = SelectionType::Edge;
-
-    std::cout << "Selected edge (" << e.a->id << " , " << e.b->id << ")" << std::endl;
-}
-
-void MeshViewer::InitializeSelection(const std::vector<std::pair<RegionID,vcg::Color4f>>& vsel)
-{
-    ClearSelection();
-    std::size_t selectionCount = 0;
-    std::vector<vcg::Box2f> uvBoxes;
-    for (const auto& p : vsel) {
-        auto chart = meshParamData->GetChart(p.first);
-        selectionCount += chart->FN();
-        uvBoxes.push_back(chart->UVBox());
+    // Allocate new buffers if necessary
+    std::set<ChartHandle> newCharts;
+    std::size_t  newElements = 0;
+    if (selectedRegions.count(id) == 0) {
+        newCharts.insert(meshParamData->GetChart(id));
+        newElements += meshParamData->GetChart(id)->FN();
     }
-
-    selectionVector.reserve(vsel.size());
-    GLint first = 0;
-
-    glGenBuffers(1, &_vertexBuffers.selection);
-    glBindBuffer(GL_ARRAY_BUFFER, _vertexBuffers.selection);
-    glBufferData(GL_ARRAY_BUFFER, selectionCount*15*sizeof(float), NULL, GL_STATIC_DRAW);
-    float *buffptr = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
-    for (const auto& p : vsel) {
-        const auto& region = meshParamData->GetChart(p.first);
-        selectionVector.emplace_back(SelectedRegionInfo{region, first, static_cast<GLsizei>(region->FN() * 3)});
-        for (auto &fptr : region->fpVec) {
-            for (int i = 0; i < 3; ++i) {
-                *buffptr++ = fptr->cV(i)->P().X();
-                *buffptr++ = fptr->cV(i)->P().Y();
-                *buffptr++ = fptr->cV(i)->P().Z();
-                *buffptr++ = fptr->cWT(i).U();
-                *buffptr++ = fptr->cWT(i).V();
-            }
+    else {
+        selectedRegions[id].referenceCount++;
+    }
+    for (auto chart : meshParamData->GetChart(id)->adj) {
+        if (selectedRegions.count(chart->id) == 0) {
+            newCharts.insert(chart);
+            newElements += chart->FN();
+        } else {
+            selectedRegions[chart->id].referenceCount++;
         }
-        first += region->FN() * 3;
     }
-    glUnmapBuffer(GL_ARRAY_BUFFER);
+    if (newElements > 0) {
+        std::size_t bufferIndex = _vertexBuffers.selection.size();
+        GLint first = 0;
+        GLuint selection_vbo;
+        glGenBuffers(1, &selection_vbo);
+        glBindBuffer(GL_ARRAY_BUFFER, selection_vbo);
+        glBufferData(GL_ARRAY_BUFFER, newElements * 15 * sizeof(float), NULL, GL_STATIC_DRAW);
+        float *buffptr = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+        for (auto chart : newCharts) {
+            selectedRegions.insert(std::make_pair(chart->id,
+                                                 SelectionBufferInfo{chart, bufferIndex, first, (GLsizei)(chart->FN() * 3), -1, 0, 1}));
+            for (auto fptr : chart->fpVec) {
+                for (int i = 0; i < 3; ++i) {
+                    *buffptr++ = fptr->cV(i)->P().X();
+                    *buffptr++ = fptr->cV(i)->P().Y();
+                    *buffptr++ = fptr->cV(i)->P().Z();
+                    *buffptr++ = fptr->cWT(i).U();
+                    *buffptr++ = fptr->cWT(i).V();
+                }
+            }
+            first += chart->FN() * 3;
+        }
+        glUnmapBuffer(GL_ARRAY_BUFFER);
 
-    glGenVertexArrays(1, &_perspectiveView.selection.vao);
-    glBindVertexArray(_perspectiveView.selection.vao);
-    _perspectiveView.selection.attributes.loc_position = glGetAttribLocation(_perspectiveView.selection.program, "position");
-    glVertexAttribPointer(_perspectiveView.selection.attributes.loc_position, 3, GL_FLOAT, GL_FALSE, 5*sizeof(float), 0);
-    glEnableVertexAttribArray(_perspectiveView.selection.attributes.loc_position);
-    _perspectiveView.selection.attributes.loc_texcoord = glGetAttribLocation(_perspectiveView.selection.program, "texcoord");
-    glVertexAttribPointer(_perspectiveView.selection.attributes.loc_texcoord, 2, GL_FLOAT, GL_FALSE, 5*sizeof(float),
-                          (const GLvoid *) (3*sizeof(float)));
-    glEnableVertexAttribArray(_perspectiveView.selection.attributes.loc_texcoord);
+        GLuint selection_vao;
+        glGenVertexArrays(1, &selection_vao);
+        glBindVertexArray(selection_vao);
+        _perspectiveView.selection.attributes.loc_position = glGetAttribLocation(_perspectiveView.selection.program, "position");
+        glVertexAttribPointer(_perspectiveView.selection.attributes.loc_position, 3, GL_FLOAT, GL_FALSE, 5*sizeof(float), 0);
+        glEnableVertexAttribArray(_perspectiveView.selection.attributes.loc_position);
+        _perspectiveView.selection.attributes.loc_texcoord = glGetAttribLocation(_perspectiveView.selection.program, "texcoord");
+        glVertexAttribPointer(_perspectiveView.selection.attributes.loc_texcoord, 2, GL_FLOAT, GL_FALSE, 5*sizeof(float),
+                              (const GLvoid *) (3*sizeof(float)));
+        glEnableVertexAttribArray(_perspectiveView.selection.attributes.loc_texcoord);
 
-    glGenVertexArrays(1, &_detailView.vao);
-    glBindVertexArray(_detailView.vao);
-    _detailView.attributes.loc_texcoord = glGetAttribLocation(_detailView.program, "texcoord");
-    glVertexAttribPointer(_detailView.attributes.loc_texcoord, 2, GL_FLOAT, GL_FALSE, 5*sizeof(float), (const GLvoid *) (3*sizeof(float)));
-    glEnableVertexAttribArray(_detailView.attributes.loc_texcoord);
+        GLuint detail_vao;
+        glGenVertexArrays(1, &detail_vao);
+        glBindVertexArray(detail_vao);
+        _detailView.attributes.loc_texcoord = glGetAttribLocation(_detailView.program, "texcoord");
+        glVertexAttribPointer(_detailView.attributes.loc_texcoord, 2, GL_FLOAT, GL_FALSE, 5*sizeof(float), (const GLvoid *) (3*sizeof(float)));
+        glEnableVertexAttribArray(_detailView.attributes.loc_texcoord);
 
-    glBindVertexArray(0);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glBindVertexArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-    CheckGLError();
+        CheckGLError();
 
-    glGenBuffers(1, &_vertexBuffers.highlight);
-    glBindBuffer(GL_ARRAY_BUFFER, _vertexBuffers.highlight);
-    glBufferData(GL_ARRAY_BUFFER, uvBoxes.size()*16*sizeof(float), NULL, GL_STATIC_DRAW);
-    buffptr = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
-    for (auto& box : uvBoxes) {
-        Point2f center = box.Center();
-        *buffptr++ = center.X(); *buffptr++ = center.Y() - 0.1f;
-        *buffptr++ = center.X(); *buffptr++ = center.Y() + 0.1f;
-        *buffptr++ = center.X() - 0.1f; *buffptr++ = center.Y();
-        *buffptr++ = center.X() + 0.1f; *buffptr++ = center.Y();
+        GLuint highlight_vbo, highlight_vao;
+        glGenBuffers(1, &highlight_vbo);
+        glBindBuffer(GL_ARRAY_BUFFER, highlight_vbo);
+        glBufferData(GL_ARRAY_BUFFER, newCharts.size() * 16 * sizeof(float), NULL, GL_STATIC_DRAW);
+        float *bufferBase = buffptr = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+        for (auto& chart : newCharts) {
+            selectedRegions[chart->id].first_highlight = (buffptr - bufferBase) / 2;
 
-        *buffptr++ = center.X(); *buffptr++ = center.Y() - 0.1f;
-        *buffptr++ = center.X(); *buffptr++ = center.Y() + 0.1f;
-        *buffptr++ = center.X() - 0.1f; *buffptr++ = center.Y();
-        *buffptr++ = center.X() + 0.1f; *buffptr++ = center.Y();
+            Point2f center = chart->UVBox().Center();
+            *buffptr++ = center.X(); *buffptr++ = center.Y() - 0.1f;
+            *buffptr++ = center.X(); *buffptr++ = center.Y() + 0.1f;
+            *buffptr++ = center.X() - 0.1f; *buffptr++ = center.Y();
+            *buffptr++ = center.X() + 0.1f; *buffptr++ = center.Y();
 
-       // *buffptr++ = center.X(); *buffptr++ = 0.0f;
-       // *buffptr++ = center.X(); *buffptr++ = 1.0f;
-       // *buffptr++ = 0.0f; *buffptr++ = center.Y();
-       // *buffptr++ = 1.0f; *buffptr++ = center.Y();
+            *buffptr++ = center.X(); *buffptr++ = center.Y() - 0.1f;
+            *buffptr++ = center.X(); *buffptr++ = center.Y() + 0.1f;
+            *buffptr++ = center.X() - 0.1f; *buffptr++ = center.Y();
+            *buffptr++ = center.X() + 0.1f; *buffptr++ = center.Y();
+        }
+        glUnmapBuffer(GL_ARRAY_BUFFER);
 
-        /**buffptr++ = box.min.X(); *buffptr++ = box.min.Y();
-        *buffptr++ = box.max.X(); *buffptr++ = box.min.Y();
-        *buffptr++ = box.max.X(); *buffptr++ = box.min.Y();
-        *buffptr++ = box.max.X(); *buffptr++ = box.max.Y();
-        *buffptr++ = box.max.X(); *buffptr++ = box.max.Y();
-        *buffptr++ = box.min.X(); *buffptr++ = box.max.Y();
-        *buffptr++ = box.min.X(); *buffptr++ = box.max.Y();
-        *buffptr++ = box.min.X(); *buffptr++ = box.min.Y();*/
+        glGenVertexArrays(1, &highlight_vao);
+        glBindVertexArray(highlight_vao);
+        _textureView.highlight.attributes.loc_texcoord = glGetAttribLocation(_textureView.program, "texcoord");
+        glVertexAttribPointer(_textureView.highlight.attributes.loc_texcoord, 2, GL_FLOAT, GL_FALSE, 0, 0);
+        glEnableVertexAttribArray(_textureView.highlight.attributes.loc_texcoord);
+
+        glBindVertexArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+        CheckGLError();
+
+        /// todo maybe put vao and buffer together in a struct
+        selectionVao.push_back(selection_vao);
+        detailVao.push_back(detail_vao);
+        highlightVao.push_back(highlight_vao);
+        _vertexBuffers.selection.push_back(selection_vbo);
+        _vertexBuffers.highlight.push_back(highlight_vbo);
+
+        // generate icons - reuse detail view program
+        glUseProgram(_detailView.program);
+
+        glBindBuffer(GL_ARRAY_BUFFER, selection_vbo);
+        GLuint icon_vao;
+        glGenVertexArrays(1, &icon_vao);
+        glBindVertexArray(icon_vao);
+
+        GLint loc_texcoord = glGetAttribLocation(_detailView.program, "texcoord");
+        glVertexAttribPointer(loc_texcoord, 2, GL_FLOAT, GL_FALSE, 5*sizeof(float), (const GLvoid *) (3*sizeof(float)));
+        glEnableVertexAttribArray(loc_texcoord);
+
+        GLint loc_projection = glGetUniformLocation(_detailView.program, "projectionMatrix");
+
+        GLuint fbo;
+        glGenFramebuffers(1, &fbo);
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+        for (auto& chart : newCharts) {
+            SelectionBufferInfo& sbi = selectedRegions[chart->id];
+            vcg::Box2f box = chart->UVBox();
+
+            mat4x4 projection;
+            float halfsz = std::max(box.Dim().X(), box.Dim().Y()) / 2.0f;
+            mat4x4_ortho(projection, box.Center().X() - halfsz, box.Center().X() + halfsz, box.Center().Y() - halfsz, box.Center().Y() + halfsz, 1.0f, -1.0f);
+
+            glUniformMatrix4fv(loc_projection, 1, GL_FALSE, (const float *) projection);
+
+            // the icon will be a 64x64 texture
+            GLuint texicon = 0;
+            glGenTextures(1, &texicon);
+            glBindTexture(GL_TEXTURE_2D, texicon);
+            glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, 64, 64);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texicon, 0);
+            glBindTexture(GL_TEXTURE_2D, 0);
+
+            glActiveTexture(GL_TEXTURE0);
+            _currentTexture->Bind();
+
+            glViewport(0, 0, 64, 64);
+
+            glDisable(GL_DEPTH_TEST);
+            glDisable(GL_STENCIL_TEST);
+
+            glDrawBuffer(GL_COLOR_ATTACHMENT0);
+
+            if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) assert(0 && "Framebuffer state not supported");
+
+            glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
+            glClear(GL_COLOR_BUFFER_BIT);
+            glDrawArrays(GL_TRIANGLES, sbi.first, sbi.count);
+
+            sbi.texicon = texicon;
+        }
+        glUseProgram(0);
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glBindVertexArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        glDeleteVertexArrays(1, &icon_vao);
+        glDeleteFramebuffers(1, &fbo);
+
+        CheckGLError();
     }
-    glUnmapBuffer(GL_ARRAY_BUFFER);
 
-    glGenVertexArrays(1, &_textureView.highlight.vao);
-    glBindVertexArray(_textureView.highlight.vao);
-    _textureView.highlight.attributes.loc_texcoord = glGetAttribLocation(_textureView.program, "texcoord");
-    glVertexAttribPointer(_textureView.highlight.attributes.loc_texcoord, 2, GL_FLOAT, GL_FALSE, 0, 0);
-    glEnableVertexAttribArray(_textureView.highlight.attributes.loc_texcoord);
+    // make the selected chart primary
+    primaryCharts[id] = 1;
 
-    glBindVertexArray(0);
-    glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-    CheckGLError();
-
-    SetupDetailView(vsel[0].first);
+    SetupDetailView();
 }
 
 bool MeshViewer::IntersectionMouseRayModel(Mesh::ConstFacePointer *fp, float &u, float &v)
@@ -644,7 +694,8 @@ void MeshViewer::CenterPerspectiveViewFromMouse()
         float v;
         if (IntersectionMouseRayModel(&fp, u, v)) {
             Point3f centerPoint = fp->cP(0) * (1.0f - u - v) + fp->cP(1) * u + fp->cP(2) * v;
-            mat4x4_translate(_meshTransform.positionMatrix, -centerPoint.X(), -centerPoint.Y(), -centerPoint.Z());
+            Matrix44f transform = trackball.Matrix();
+            trackball.Translate(-(transform*centerPoint));
         }
     }
 }
@@ -816,19 +867,15 @@ void MeshViewer::SetupViews()
     _textureView.highlight.uniforms.loc_primitiveColor = glGetUniformLocation(_textureView.highlight.program, "primitiveColor");
 }
 
-void MeshViewer::SetupDetailView(const RegionID id)
+void MeshViewer::SetupDetailView()
 {
-    auto region = meshParamData->GetChart(id);
+    Box2f bbox;
+    for (auto& entry : primaryCharts) {
+        bbox.Add(meshParamData->GetChart(entry.first)->UVBox());
+    }
 
     _detailCamera.Reset();
     _detailView.uniforms.loc_projection = glGetUniformLocation(_detailView.program, "projectionMatrix");
-
-    Box2f bbox;
-    for (auto fptr : region->fpVec) {
-        for (int i = 0; i < fptr->VN(); ++i) {
-            bbox.Add(fptr->cWT(i).P());
-        }
-    }
 
     float scale = 1.0f / std::max(bbox.Dim().X(), bbox.Dim().Y());
 
@@ -907,8 +954,8 @@ void MeshViewer::Draw3DView()
 
     glEnable(GL_DEPTH_TEST);
 
-    if (selectionVector.size() > 0) {
-        glBindVertexArray(_perspectiveView.selection.vao);
+    if (selectedRegions.size() > 0) {
+        //glBindVertexArray(_perspectiveView.selection.vao);
         glUseProgram(_perspectiveView.selection.program);
 
         glUniformMatrix4fv(_perspectiveView.selection.uniforms.loc_modelView, 1, GL_FALSE, (const GLfloat *) modelView);
@@ -921,15 +968,17 @@ void MeshViewer::Draw3DView()
         glStencilFuncSeparate(GL_BACK, GL_ALWAYS, 0, 0xFF);
         glStencilOpSeparate(GL_BACK, GL_KEEP, GL_KEEP, GL_REPLACE);
 
-        for (const SelectedRegionInfo& sri : selectionVector) {
-            if (selectionType == SelectionType::Chart && &sri == &selectionVector[0]) {
+        for (const auto& sel : selectedRegions) {
+            RegionID id = sel.first;
+            const SelectionBufferInfo& sbi = sel.second;
+            glBindVertexArray(selectionVao[sbi.bufferIndex]);
+            if (primaryCharts.count(id) == 1) {
                 float one[] = {1.0f, 1.0f, 1.0f, 1.0f};
                 glUniform4fv(_perspectiveView.selection.uniforms.loc_weight, 1, one);
             } else {
-                glUniform4fv(_perspectiveView.selection.uniforms.loc_weight, 1, regionColors[sri.chart->id].V());
+                glUniform4fv(_perspectiveView.selection.uniforms.loc_weight, 1, regionColors[id].V());
             }
-            glDrawArrays(GL_TRIANGLES, sri.first, sri.count);
-
+            glDrawArrays(GL_TRIANGLES, sbi.first, sbi.count);
         }
 
         // Now draw transparent layer
@@ -1004,8 +1053,8 @@ void MeshViewer::DrawTextureView()
 
     glDrawArrays(GL_TRIANGLES, 0, meshParamData->mesh.FN() * 3);
 
-    if (selectionType == SelectionType::Chart) {
-        glBindVertexArray(_textureView.highlight.vao);
+    if (selectedRegions.size() > 0) {
+        //glBindVertexArray(_textureView.highlight.vao);
         glUseProgram(_textureView.highlight.program);
 
         glUniformMatrix4fv(_textureView.highlight.uniforms.loc_projection, 1, GL_FALSE, (const GLfloat *) projection);
@@ -1013,16 +1062,17 @@ void MeshViewer::DrawTextureView()
         GLint loc_colorMask = glGetUniformLocation(_textureView.highlight.program, "colorMask");
         glUniform1i(loc_colorMask, ColorMask_PRIMITIVE); // set primitive color as color source
 
-        int drawn = 0;
-        for (const SelectedRegionInfo& sri : selectionVector) {
-            if (drawn == 0) {
+        for (const auto& sel : selectedRegions) {
+            RegionID id = sel.first;
+            const SelectionBufferInfo& sbi = sel.second;
+            glBindVertexArray(highlightVao[sbi.bufferIndex]);
+            if (primaryCharts.count(id) == 1) {
                 float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
                 glUniform4fv(_textureView.highlight.uniforms.loc_primitiveColor, 1, white);
             } else {
-                glUniform4fv(_textureView.highlight.uniforms.loc_primitiveColor, 1, regionColors[sri.chart->id].V());
+                glUniform4fv(_textureView.highlight.uniforms.loc_primitiveColor, 1, regionColors[id].V());
             }
-            glDrawArrays(GL_LINES, drawn * 8, 8);
-            drawn++;
+            glDrawArrays(GL_LINES, sbi.first_highlight, 8);
         }
     }
 
@@ -1031,9 +1081,9 @@ void MeshViewer::DrawTextureView()
     CheckGLError();
 }
 
+// as of now it shows the atlas of primary charts
 void MeshViewer::DrawDetailView()
 {
-    glBindVertexArray(_detailView.vao);
     glUseProgram(_detailView.program);
 
     glActiveTexture(GL_TEXTURE0);
@@ -1065,7 +1115,16 @@ void MeshViewer::DrawDetailView()
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     }
 
-    glDrawArrays(GL_TRIANGLES, selectionVector[0].first, selectionVector[0].count);
+    // only draw primary charts
+    for (const auto& sel : selectedRegions) {
+        RegionID id = sel.first;
+        if (primaryCharts.count(id) == 1) {
+            const SelectionBufferInfo& sbi = sel.second;
+            glBindVertexArray(detailVao[sbi.bufferIndex]);
+            glDrawArrays(GL_TRIANGLES, sbi.first, sbi.count);
+        }
+    }
+
     glBindVertexArray(0);
 
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
@@ -1077,7 +1136,7 @@ void MeshViewer::DrawViews()
 {
     Draw3DView();
     DrawTextureView();
-    if (selectionVector.size() > 0) DrawDetailView();
+    if (selectedRegions.size() > 0) DrawDetailView();
 }
 
 
@@ -1168,15 +1227,16 @@ void MeshViewer::Run()
 
     while (!glfwWindowShouldClose(_window)) {
 
-        glfwPollEvents();
-        ImGui_ImplGlfwGL3_NewFrame();
-
-        ManageImGuiState();
-
+        glDrawBuffer(GL_BACK);
         glScissor(0, 0, info.width, info.height);
         glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
+        glfwPollEvents();
+
+        ImGui_ImplGlfwGL3_NewFrame();
+
+        ManageImGuiState();
         UpdateTransforms();
         DrawViews();
 
@@ -1226,10 +1286,12 @@ void MeshViewer::ManageImGuiState()
         }
 
         if (ImGui::Button("Highlight next merge")) {
+            ClearSelection();
             if (gmHasNextEdge()) {
                 const auto& next = gmPeekNextEdge();
-                Select(next.first);
                 std::cout << "Next edge has weight " << next.second << std::endl;
+                Select(next.first.a->id);
+                Select(next.first.b->id);
             }
             else {
                 std::cout << "No next edge available" << std::endl;
@@ -1260,6 +1322,30 @@ void MeshViewer::ManageImGuiState()
         if (ImGui::Button("Invoke greedy algorithm")) {
             ClearSelection();
             ReduceTextureFragmentation_NoPacking(*gm, minRegionSize);
+        }
+
+        if (selectedRegions.size() > 0 && primaryCharts.size() > 1) {
+            if (ImGui::Button("Merge current selection")) {
+                std::cout << "Merging selected charts" << std::endl;
+                std::vector<ChartHandle> cm;
+                for (auto& entry : primaryCharts) {
+                    cm.push_back(meshParamData->GetChart(entry.first));
+                }
+                std::pair<int,ChartHandle> result = gmCollapse(cm.begin(), cm.end());
+                if (result.first == gm->Collapse_OK) {
+                    ClearSelection();
+                    Select(result.second->id);
+                    std::cout << "Collapse succeeded" << std::endl;
+                } else {
+                    if (result.first == gm->Collapse_ERR_DISCONNECTED) {
+                        std::cout << "Cannot merge, selected charts are disconnected" << std::endl;
+                    } else if (result.first == gm->Collapse_ERR_UNFEASIBLE) {
+                        std::cout << "Cannot merge, result is unfeasible" << std::endl;
+                    } else {
+                        assert(0 && "GraphManager::Collapse() exit status");
+                    }
+                }
+            }
         }
 
         if (ImGui::Button("Pack the atlas")) {
@@ -1327,7 +1413,6 @@ void MeshViewer::ManageImGuiState()
         _perspectiveView.colorMask = colorMask;
 
         //ImGui::Combo("Color source", &_perspectiveView.colorSource, "Texture\0Distortion\0Checkboard\0\0");
-
         ImGui::End();
     }
 
@@ -1335,9 +1420,9 @@ void MeshViewer::ManageImGuiState()
     {
         if (showInfoArea) {
             ImGui::Begin("Info area", &showInfoArea);
-            if (selectionType == SelectionType::Chart) {
+            if (primaryCharts.size() == 1) {
                 // display info about the chart
-                auto chart = selectionVector[0].chart;
+                auto chart = meshParamData->GetChart(primaryCharts.begin()->first);
                 ImGui::Text("Chart %lu (%lu faces, %lu adjacencies)", chart->id, chart->FN(), chart->NumAdj());
                 ImGui::Text("Aggregate count: %d", chart->numMerges + 1);
                 ImGui::Text("Area 3D: %.4f", chart->Area3D());
@@ -1355,6 +1440,25 @@ void MeshViewer::ManageImGuiState()
             ImGui::End();
         }
     }
+
+    // selection widget
+    {
+        if (selectedRegions.size() > 0) {
+            ImGui::Begin("Selection widget", nullptr, 0);
+            int i = 0;
+            for (const auto& entry : selectedRegions) {
+                RegionID id = entry.first;
+                const SelectionBufferInfo& sbi = entry.second;
+                ImVec4 bg = (primaryCharts.count(id) == 1) ? ImVec4(0.4f, 0.4f, 0.4f, 1.0f) : ImVec4(0.1f, 0.1f, 0.1f, 1.0f);
+                if (ImGui::ImageButton((void *)(long unsigned)sbi.texicon, ImVec2(64, 64), ImVec2(0, 1), ImVec2(1, 0), -1, bg)) {
+                    Select(id);
+                }
+                if ((++i % 4) != 0) ImGui::SameLine();
+            }
+            ImGui::End();
+        }
+    }
+
 
     if (updateTexcoord || updateColor) {
         glBindBuffer(GL_ARRAY_BUFFER, _vertexBuffers.mesh);
@@ -1409,4 +1513,10 @@ void MeshViewer::gmRemoveNextEdge()
 GraphManager::ChartHandle MeshViewer::gmCollapse(const GraphManager::Edge& e)
 {
     return gm->Collapse(e);
+}
+
+template <typename ChartInputIterator>
+std::pair<int,GraphManager::ChartHandle> MeshViewer::gmCollapse(ChartInputIterator first, ChartInputIterator last)
+{
+    return gm->Collapse(first, last);
 }

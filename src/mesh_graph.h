@@ -281,6 +281,10 @@ public:
         }
     };
 
+    int Collapse_OK               = 0;
+    int Collapse_ERR_DISCONNECTED = 1;
+    int Collapse_ERR_UNFEASIBLE   = 2;
+
 private:
 
     std::shared_ptr<MeshGraph> g;
@@ -372,6 +376,7 @@ public:
         return false;
     }
 
+    /// TODO this is not robust if a client tries to collapse an arbitrary edge
     ChartHandle Collapse(const Edge& e)
     {
         ChartHandle c1, c2;
@@ -387,6 +392,8 @@ public:
     }
 
     // Merges c2 into c1
+    /// TODO reorder interface properly
+private:
     void Merge(ChartHandle c1, ChartHandle c2)
     {
         assert(edges.find(Edge{c1,c2}) != edges.end());
@@ -423,6 +430,7 @@ public:
 
         g->charts.erase(c2->id);
     }
+public:
 
     int CloseMacroRegions(std::size_t minRegionSize)
     {
@@ -456,6 +464,7 @@ public:
             if (Parameterizable(probe)) {
                 std::cout << "Merging " << entry.second.size() << " islands from macro region " << entry.first << std::endl;
                 for (auto id : entry.second) {
+                    // don't bother checking feasibility of each merge since we already know that the union of all the charts is
                     Merge(regions[entry.first], regions[id]);
                     mergeCount++;
                 }
@@ -465,6 +474,61 @@ public:
         }
 
         return mergeCount;
+    }
+
+    // this function allows to collapse multiple charts in one go
+    // if the merge cannot happen (either due to infeasibility of the resulting surface or because the charts are
+    // not contiguous) it returns a proper error code
+    template <typename ChartInputIterator>
+    std::pair<int,ChartHandle> Collapse(ChartInputIterator first, ChartInputIterator last)
+    {
+        std::unordered_set<ChartHandle> chartSet, testSet;
+        while (first != last) {
+            if (*first) {
+                chartSet.insert(*first);
+                testSet.insert(*first);
+            }
+            first++;
+        }
+
+        assert(chartSet.size() > 1 && "Need to merge at least two charts");
+
+        // first validate the chart set by checking if an equivalent tree exists in the graph
+        std::queue<ChartHandle> q;
+        std::queue<ChartHandle> mergeQueue;
+        q.push(*chartSet.begin());
+        while (q.size() > 0) {
+            auto& chart = q.front();
+            testSet.erase(chart);
+            for (auto& c : chart->adj) {
+                if (testSet.count(c) > 0) q.push(c);
+            }
+            mergeQueue.push(chart);
+            q.pop();
+        }
+
+        if (testSet.size() > 0) return std::make_pair(Collapse_ERR_DISCONNECTED, nullptr);
+
+        // build the test mesh, and merge the charts if the test mesh is feasible
+        PMesh probe;
+        std::vector<std::vector<Mesh::FacePointer>* > fpVecp;
+        for (auto& chart : chartSet) {
+            fpVecp.push_back(&(chart->fpVec));
+        }
+        BuildPMeshFromFacePointers<Mesh>(probe, fpVecp);
+        if (Parameterizable(probe)) {
+            std::cout << "Merging charts" << std::endl;
+            ChartHandle chart = mergeQueue.front();
+            mergeQueue.pop();
+            while (mergeQueue.size() > 0) {
+                Merge(chart, mergeQueue.front());
+                mergeQueue.pop();
+            }
+            return std::make_pair(Collapse_OK, chart);
+        } else {
+            return std::make_pair(Collapse_ERR_UNFEASIBLE, nullptr);
+            //tri::io::ExporterOBJ<PMesh>::Save(probe, "fail.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
+        }
     }
 };
 

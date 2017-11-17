@@ -73,11 +73,12 @@ struct TextureObject {
             glBindTexture(GL_TEXTURE_2D, _texture);
             glTexStorage2D(GL_TEXTURE_2D, 1, format, img.width(), img.height());
             glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, img.width(), img.height(), channels, type, mirrored.constBits());
+            CheckGLError();
         }
         else {
             glBindTexture(GL_TEXTURE_2D, _texture);
+            CheckGLError();
         }
-        CheckGLError();
     }
 
     void Release()
