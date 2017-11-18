@@ -125,11 +125,12 @@ private:
     std::unordered_map<RegionID, int> primaryCharts;  // charts selected and ready for merge
 
     std::vector<GLuint> selectionVao;
-    std::vector<GLuint> detailVao;
+    //std::vector<GLuint> detailVao;
     std::vector<GLuint> highlightVao;
 
     struct {
         GLuint mesh = 0;
+        GLuint detail = 0;
         std::vector<GLuint> selection;
         std::vector<GLuint> highlight;
     } _vertexBuffers;
@@ -169,6 +170,7 @@ private:
         GLuint program = 0;
         GLuint vao = 0;
         struct {
+            GLint loc_position;
             GLint loc_texcoord;
         } attributes;
         struct {
@@ -179,6 +181,7 @@ private:
             GLuint program;
             GLuint vao;
             struct {
+                GLint loc_position;
                 GLint loc_texcoord;
             } attributes;
             struct {
@@ -191,14 +194,17 @@ private:
 
     struct {
         GLuint program = 0;
-        //GLuint vao = 0;
+        GLuint vao = 0;
         struct {
+            GLint loc_position;
             GLint loc_texcoord;
         } attributes;
         struct {
             GLint loc_projection;
         } uniforms;
         bool wireframe = false;
+        GLint first = 0;
+        GLsizei count = 0;
     } _detailView;
 
     struct {
@@ -240,7 +246,7 @@ public:
     GLuint CompileShaders(const GLchar **vs_text, const GLchar **fs_text);
     void InitBuffers();
     void SetupViews();
-    void SetupDetailView();
+    void SetupDetailView(ChartHandle chart);
 
     void UpdateTransforms();
     void DrawViews();

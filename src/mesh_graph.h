@@ -376,7 +376,8 @@ public:
         return false;
     }
 
-    /// TODO this is not robust if a client tries to collapse an arbitrary edge
+    /// TODO this is not robust if a client tries to collapse an arbitrary edge rather than the one returned
+    /// by *NextEdge() since feasibility is lazily evaluated (unfeasible edges may be present in the edge set)
     ChartHandle Collapse(const Edge& e)
     {
         ChartHandle c1, c2;
@@ -476,11 +477,14 @@ public:
         return mergeCount;
     }
 
-    // this function allows to collapse multiple charts in one go
-    // if the merge cannot happen (either due to infeasibility of the resulting surface or because the charts are
-    // not contiguous) it returns a proper error code
+    /*
+     * Test if a range of chart can be merged together
+     * If the range can be merged together, it returns a queue defining a sequence of merges that result in the union of the chart range.
+     * The merges can be performed by extracting the first chart, and iteratively merging it with the following charts in the queue.
+     * If the range cannot be merged (either because it is disconnected or unfeasible) it returns a proper error code and an empty queue.
+     * */
     template <typename ChartInputIterator>
-    std::pair<int,ChartHandle> Collapse(ChartInputIterator first, ChartInputIterator last)
+    std::pair<int,std::queue<ChartHandle>> CollapseAllowed(ChartInputIterator first, ChartInputIterator last)
     {
         std::unordered_set<ChartHandle> chartSet, testSet;
         while (first != last) {
@@ -491,23 +495,31 @@ public:
             first++;
         }
 
-        assert(chartSet.size() > 1 && "Need to merge at least two charts");
+        // if chartset is empty or 1 chart it can always be merged
+        if (chartSet.size() < 2) {
+            auto p = std::make_pair(Collapse_OK, std::queue<ChartHandle>{});
+            for (auto chart : chartSet) p.second.push(chart);
+            return p;
+        }
 
         // first validate the chart set by checking if an equivalent tree exists in the graph
         std::queue<ChartHandle> q;
         std::queue<ChartHandle> mergeQueue;
         q.push(*chartSet.begin());
+        testSet.erase(q.front());
         while (q.size() > 0) {
             auto& chart = q.front();
-            testSet.erase(chart);
             for (auto& c : chart->adj) {
-                if (testSet.count(c) > 0) q.push(c);
+                if (testSet.count(c) > 0) {
+                    q.push(c);
+                    testSet.erase(c);
+                }
             }
             mergeQueue.push(chart);
             q.pop();
         }
 
-        if (testSet.size() > 0) return std::make_pair(Collapse_ERR_DISCONNECTED, nullptr);
+        if (testSet.size() > 0) return std::make_pair(Collapse_ERR_DISCONNECTED, std::queue<ChartHandle>{});
 
         // build the test mesh, and merge the charts if the test mesh is feasible
         PMesh probe;
@@ -517,7 +529,23 @@ public:
         }
         BuildPMeshFromFacePointers<Mesh>(probe, fpVecp);
         if (Parameterizable(probe)) {
+            return std::make_pair(Collapse_OK, mergeQueue);
+        } else {
+            return std::make_pair(Collapse_ERR_UNFEASIBLE, std::queue<ChartHandle>{});
+            //tri::io::ExporterOBJ<PMesh>::Save(probe, "fail.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
+        }
+    }
+
+    // Collapse multiple charts in one go
+    // if the merge cannot happen (either due to infeasibility of the resulting surface or because the charts are
+    // not contiguous) it returns a proper error code
+    template <typename ChartInputIterator>
+    std::pair<int,ChartHandle> Collapse(ChartInputIterator first, ChartInputIterator last)
+    {
+        auto p = CollapseAllowed(first, last);
+        if (p.first == Collapse_OK) {
             std::cout << "Merging charts" << std::endl;
+            std::queue<ChartHandle>& mergeQueue = p.second;
             ChartHandle chart = mergeQueue.front();
             mergeQueue.pop();
             while (mergeQueue.size() > 0) {
@@ -525,10 +553,8 @@ public:
                 mergeQueue.pop();
             }
             return std::make_pair(Collapse_OK, chart);
-        } else {
-            return std::make_pair(Collapse_ERR_UNFEASIBLE, nullptr);
-            //tri::io::ExporterOBJ<PMesh>::Save(probe, "fail.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
-        }
+
+        } else return std::make_pair(p.first, nullptr);
     }
 };
 

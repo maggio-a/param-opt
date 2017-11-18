@@ -10,7 +10,7 @@
 
 #include "mesh_graph.h"
 
-struct WedgeTexCoordStorage {
+struct TexCoordStorage {
     vcg::TexCoord2f tc[3];
 };
 
@@ -19,8 +19,8 @@ template <class MeshType>
 void StoreWedgeTexCoordAsAttribute(MeshType &m)
 {
     //TODO assert MeshType has wedge tex coord
-    typename MeshType::template PerFaceAttributeHandle<WedgeTexCoordStorage> WTCSh
-            = tri::Allocator<MeshType>::template GetPerFaceAttribute<WedgeTexCoordStorage>(m, "WedgeTexCoordStorage");
+    typename MeshType::template PerFaceAttributeHandle<TexCoordStorage> WTCSh
+            = tri::Allocator<MeshType>::template GetPerFaceAttribute<TexCoordStorage>(m, "WedgeTexCoordStorage");
     for (auto &f : m.face) {
         for (int i = 0; i < 3; ++i) {
             WTCSh[&f].tc[i].P() = f.WT(i).P();
