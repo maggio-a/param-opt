@@ -7,6 +7,11 @@
 #include <vcg/space/intersection3.h>
 #include <vcg/space/intersection2.h>
 
+
+
+#include <vcg/complex/complex.h>
+#include <wrap/io_trimesh/export.h>
+
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
 
@@ -528,7 +533,9 @@ void MeshViewer::UpdateSelection(const RegionID id)
         GLint loc_projection = glGetUniformLocation(_detailView.program, "projectionMatrix");
 
         GLint loc_colorMask = glGetUniformLocation(_detailView.program, "colorMask");
+        GLint loc_weight = glGetUniformLocation(_detailView.program, "weight");
         glUniform1i(loc_colorMask, ColorMask_TEXTURE);
+        glUniform4f(loc_weight, 1.0f, 1.0f, 1.0f, 1.0f);
 
         GLuint fbo;
         glGenFramebuffers(1, &fbo);
@@ -1433,6 +1440,29 @@ void MeshViewer::ManageImGuiState()
            } else {
                std::cout << "No merges, nothing to do" << std::endl;
            }
+        }
+
+        if (primaryCharts.size() == 1) {
+            if (ImGui::Button("Save current chart")) {
+                PMesh pm;
+                auto chart = meshParamData->GetChart(primaryCharts.begin()->first);
+                Box2f b = chart->UVBox();
+
+                auto f = [&pm, &b](typename Mesh::FacePointer fptr) {
+                    auto f = tri::Allocator<PMesh>::AddFace(pm, fptr->P(0), fptr->P(1), fptr->P(2));
+                    for (int i = 0; i < 3; ++i) {
+                        f->WT(i) = fptr->WT(i);
+                        f->WT(i).P() = (f->WT(i).P() - b.min) / std::max(b.DimX(), b.DimY());
+                    }
+                };
+
+                std::for_each(chart->fpVec.begin(), chart->fpVec.end(), f);
+
+                tri::Clean<PMesh>::RemoveDuplicateVertex(pm);
+                tri::Allocator<PMesh>::CompactEveryVector(pm);
+
+                tri::io::ExporterOBJ<PMesh>::Save(pm, "chart.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
+            }
         }
 
         ImGui::Separator();
