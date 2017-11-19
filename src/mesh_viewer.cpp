@@ -377,7 +377,9 @@ void MeshViewer::ClearSelection()
         for (auto vbo : _vertexBuffers.highlight) glDeleteBuffers(1, &vbo);
 
         glDeleteVertexArrays(1, &_detailView.vao);
+        glDeleteVertexArrays(1, &_detailView.borderVao);
         glDeleteBuffers(1, &_vertexBuffers.detail);
+        glDeleteBuffers(1, &_vertexBuffers.detailBorder);
 
         for (auto& entry : selectedRegions) glDeleteTextures(1, &entry.second.texicon);
 
@@ -388,7 +390,9 @@ void MeshViewer::ClearSelection()
         _vertexBuffers.highlight.clear();
 
         _detailView.vao = 0;
+        _detailView.borderVao = 0;
         _vertexBuffers.detail = 0;
+        _vertexBuffers.detailBorder = 0;
 
         selectedRegions.clear();
         primaryCharts.clear();
@@ -523,6 +527,9 @@ void MeshViewer::UpdateSelection(const RegionID id)
 
         GLint loc_projection = glGetUniformLocation(_detailView.program, "projectionMatrix");
 
+        GLint loc_colorMask = glGetUniformLocation(_detailView.program, "colorMask");
+        glUniform1i(loc_colorMask, ColorMask_TEXTURE);
+
         GLuint fbo;
         glGenFramebuffers(1, &fbo);
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
@@ -595,7 +602,7 @@ void MeshViewer::UpdateSelection(const RegionID id)
 
         struct FaceData { RegionID id; TexCoordStorage wt; };
         std::unordered_map<Mesh::FacePointer,FaceData> fd;
-        RegionID tempID = 0xffffffff;
+        constexpr RegionID tempID = 0xffffffff;
 
         auto aggregate = std::make_shared<FaceGroup>(meshParamData->mesh, tempID);
 
@@ -616,6 +623,8 @@ void MeshViewer::UpdateSelection(const RegionID id)
 
         glUseProgram(_detailView.program);
 
+        std::vector<float> borderVertexData;
+
         glGenVertexArrays(1, &_detailView.vao);
         glBindVertexArray(_detailView.vao);
         glGenBuffers(1, &_vertexBuffers.detail);
@@ -624,6 +633,12 @@ void MeshViewer::UpdateSelection(const RegionID id)
         float *buffptr = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
         for (auto fptr : aggregate->fpVec) {
             for (int i = 0; i < 3; ++i) {
+                if (face::IsBorder(*fptr, i) || CCIDh[fptr->FFp(i)] != tempID) {
+                    borderVertexData.push_back(fptr->WT(i).P().X());
+                    borderVertexData.push_back(fptr->WT(i).P().Y());
+                    borderVertexData.push_back(fptr->WT((i+1)%3).P().X());
+                    borderVertexData.push_back(fptr->WT((i+1)%3).P().Y());
+                }
                 *buffptr++ = fptr->WT(i).P().X();
                 *buffptr++ = fptr->WT(i).P().Y();
                 *buffptr++ = fd[fptr].wt.tc[i].P().X();
@@ -632,7 +647,6 @@ void MeshViewer::UpdateSelection(const RegionID id)
         }
         glUnmapBuffer(GL_ARRAY_BUFFER);
 
-        _detailView.first = 0;
         _detailView.count = (GLsizei) (aggregate->FN() * 3);
 
         _detailView.attributes.loc_position = glGetAttribLocation(_detailView.program, "position");
@@ -641,6 +655,22 @@ void MeshViewer::UpdateSelection(const RegionID id)
 
         _detailView.attributes.loc_texcoord = glGetAttribLocation(_detailView.program, "texcoord");
         glVertexAttribPointer(_detailView.attributes.loc_texcoord, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (const GLvoid *) (2*sizeof(float)));
+        glEnableVertexAttribArray(_detailView.attributes.loc_texcoord);
+
+        glBindVertexArray(0);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+        glGenVertexArrays(1, &_detailView.borderVao);
+        glBindVertexArray(_detailView.borderVao);
+        glGenBuffers(1, &_vertexBuffers.detailBorder);
+        glBindBuffer(GL_ARRAY_BUFFER, _vertexBuffers.detailBorder);
+        glBufferData(GL_ARRAY_BUFFER, borderVertexData.size() * sizeof(float), &borderVertexData[0], GL_STATIC_DRAW);
+        _detailView.borderCount = (GLsizei) (borderVertexData.size()/2);
+
+        glVertexAttribPointer(_detailView.attributes.loc_position, 2, GL_FLOAT, GL_FALSE, 0, 0);
+        glEnableVertexAttribArray(_detailView.attributes.loc_position);
+
+        glVertexAttribPointer(_detailView.attributes.loc_texcoord, 2, GL_FLOAT, GL_FALSE, 0, 0);
         glEnableVertexAttribArray(_detailView.attributes.loc_texcoord);
 
         glBindVertexArray(0);
@@ -1121,7 +1151,7 @@ void MeshViewer::DrawTextureView()
             } else {
                 glUniform4fv(_textureView.highlight.uniforms.loc_primitiveColor, 1, regionColors[id].V());
             }
-            glDrawArrays(GL_LINES, sbi.first_highlight, 8);
+            glDrawArrays(GL_LINES, sbi.first_highlight, 4);
         }
     }
 
@@ -1151,27 +1181,32 @@ void MeshViewer::DrawDetailView()
 
     glUniformMatrix4fv(_detailView.uniforms.loc_projection, 1, GL_FALSE, (const GLfloat *) transform);
 
+    GLint loc_colorMask = glGetUniformLocation(_detailView.program, "colorMask");
+    GLint loc_weight = glGetUniformLocation(_detailView.program, "weight");
+    glUniform1i(loc_colorMask, ColorMask_TEXTURE);
+    glUniform4f(loc_weight, 1.0f, 1.0f, 1.0f, 1.0f);
+
     int *vp = info.detailViewport;
     glViewport(vp[0], vp[1], vp[2], vp[3]);
     glScissor(vp[0], vp[1], vp[2], vp[3]);
 
     glDrawBuffer(GL_BACK);
     glDisable(GL_DEPTH_TEST);
-
     glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
     if (_detailView.wireframe) {
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
     }
-
-    // only draw primary charts
-    glDrawArrays(GL_TRIANGLES, _detailView.first, _detailView.count);
-
-    glBindVertexArray(0);
-
+    glDrawArrays(GL_TRIANGLES, 0, _detailView.count);
     glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
+    glBindVertexArray(_detailView.borderVao);
+    glUniform1i(loc_colorMask, ColorMask_EMPTY);
+    glUniform4f(loc_weight, 0.3f, 1.0f, 0.3f, 1.0f);
+    glDrawArrays(GL_LINES, 0, _detailView.borderCount);
+
+    glBindVertexArray(0);
     CheckGLError();
 }
 
@@ -1341,9 +1376,11 @@ void MeshViewer::ManageImGuiState()
             }
         }
 
+        bool disabled = false;
         if (primaryCharts.size() < 2) {
             ImGui::PushItemFlag(ImGuiItemFlags_Disabled, true);
             ImGui::PushStyleVar(ImGuiStyleVar_Alpha, ImGui::GetStyle().Alpha * 0.5f);
+            disabled = true;
         }
         if (ImGui::Button("Merge current selection")) {
             std::cout << "Merging selected charts" << std::endl;
@@ -1366,7 +1403,7 @@ void MeshViewer::ManageImGuiState()
                 }
             }
         }
-        if (primaryCharts.size() < 2) {
+        if (disabled) {
             ImGui::PopItemFlag();
             ImGui::PopStyleVar();
         }

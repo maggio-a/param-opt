@@ -131,6 +131,7 @@ private:
     struct {
         GLuint mesh = 0;
         GLuint detail = 0;
+        GLuint detailBorder = 0;
         std::vector<GLuint> selection;
         std::vector<GLuint> highlight;
     } _vertexBuffers;
@@ -195,6 +196,7 @@ private:
     struct {
         GLuint program = 0;
         GLuint vao = 0;
+        GLuint borderVao = 0;
         struct {
             GLint loc_position;
             GLint loc_texcoord;
@@ -203,8 +205,8 @@ private:
             GLint loc_projection;
         } uniforms;
         bool wireframe = false;
-        GLint first = 0;
         GLsizei count = 0;
+        GLsizei borderCount = 0;
     } _detailView;
 
     struct {
