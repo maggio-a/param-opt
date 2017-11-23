@@ -294,7 +294,7 @@ void MeshViewer::FramebufferSizeCallback(GLFWwindow *window, int width, int heig
 
     // for the perspective viewport, discard 10% of the borderToSplitWidth to make room for the controls
 
-    viewer->info.perspectiveViewport[0] = (int) (0.2f * borderToSplitWidth);
+    viewer->info.perspectiveViewport[0] = std::min(160, (int) (0.2f * borderToSplitWidth));
     viewer->info.perspectiveViewport[1] = 0;
     viewer->info.perspectiveViewport[2] = borderToSplitWidth - viewer->info.perspectiveViewport[0];
     viewer->info.perspectiveViewport[3] = viewer->info.height;
@@ -626,7 +626,7 @@ void MeshViewer::UpdateSelection(const RegionID id)
         }
         // Parameterize the aggregate chart, build the vertex buffer and restore the original state
 
-        ParameterizeChartFromInitialTexCoord(meshParamData->mesh, aggregate);
+        ParameterizeChartFromInitialTexCoord(meshParamData->mesh, aggregate, strategy);
 
         glUseProgram(_detailView.program);
 
@@ -689,12 +689,18 @@ void MeshViewer::UpdateSelection(const RegionID id)
         for (auto fptr : aggregate->fpVec) {
             CCIDh[fptr] = fd[fptr].id;
             for (int i = 0; i < 3; ++i) {
+                std::cout << fptr->WT(i).U() << " ";
                 fptr->WT(i) = fd[fptr].wt.tc[i];
+                std::cout << fptr->WT(i).U() << std::endl;
             }
         }
     } else {
         /// todo check error code
-        std::cout << "Warning: current selection cannot be parameterized" << std::endl;
+        std::cout << "Warning: current selection cannot be parameterized: ";
+        if (status.first == gm->Collapse_ERR_DISCONNECTED) std::cout << "disconnected selection";
+        else if (status.first == gm->Collapse_ERR_UNFEASIBLE) std:: cout << "unfeasible selection";
+        else std::cout << "unhandled error code";
+        std::cout << std::endl;
     }
 }
 
@@ -1239,7 +1245,7 @@ void MeshViewer::Run()
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
 
-    _window = glfwCreateWindow(980, 720, "Mesh viewer", NULL, NULL);
+    _window = glfwCreateWindow(1280, 720, "Mesh viewer", NULL, NULL);
     if (!_window) {
         cout << "Failed to create window or context" << endl;
         std::exit(-1);
@@ -1486,6 +1492,38 @@ void MeshViewer::ManageImGuiState()
                 ImGui::CloseCurrentPopup();
             }
             ImGui::EndPopup();
+        }
+
+        ImGui::Separator();
+
+        static DirectParameterizer parameterizer[] = { DCP, FixedBorderBijective };
+        static TexCoordOptimizer optimizer[] = { AreaPreserving, MIPS };
+
+        static int parameterizerInUse = 0;
+        static int optimizerInUse = 0;
+
+        ImGui::Text("Parameterizer");
+        ImGui::RadioButton("DCP", &parameterizerInUse, 0);
+        ImGui::RadioButton("Fixed border Bijective", &parameterizerInUse, 1);
+        ImGui::Text("Optimizer");
+        ImGui::RadioButton("Area preserving", &optimizerInUse, 0);
+        ImGui::RadioButton("MIPS", &optimizerInUse, 1);
+
+        strategy.directParameterizer = parameterizer[parameterizerInUse];
+        strategy.optimizer = optimizer[optimizerInUse];
+
+        ImGui::Text("Optimizer iterations");
+        ImGui::InputInt("##Optimizer iterations", &strategy.optimizerIterations, 1, 100);
+        if (ImGui::Button("Reselect")) {
+            std::unordered_map<RegionID,int> savedPrimary = primaryCharts;
+            int numIter = strategy.optimizerIterations; strategy.optimizerIterations = 0;
+            ClearSelection();
+            std::size_t numPrimary = savedPrimary.size();
+            for (auto& entry : savedPrimary) {
+                if (numPrimary == 1) strategy.optimizerIterations = numIter;
+                Select(entry.first);
+                numPrimary--;
+            }
         }
 
         ImGui::Separator();

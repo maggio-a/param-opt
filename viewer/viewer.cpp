@@ -1,6 +1,7 @@
 #include <vcg/complex/complex.h>
 #include <wrap/io_trimesh/io_mask.h>
 
+#include <wrap/io_trimesh/export.h>
 
 #include <string>
 #include <vector>
@@ -37,7 +38,7 @@ int main(int argc, char *argv[])
         std::exit(-1);
     }
 
-    assert(textureObject->ArraySize() == 1 && "Currently only single texture is supported");
+    //assert(textureObject->ArraySize() == 1 && "Currently only single texture is supported");
 
     assert(loadMask & tri::io::Mask::IOM_WEDGTEXCOORD);
 
@@ -53,5 +54,30 @@ int main(int argc, char *argv[])
     viewer.Run();
 
     return 0;
+
+    for (auto &f : m.face) {
+        for (int i =0 ; i < 3; ++i) {
+            f.V(i)->T() = f.WT(i);
+        }
+    }
+
+/*
+    tri::UpdateTopology<Mesh>::FaceFace(m);
+    tri::UpdateFlags<Mesh>::VertexBorderFromFaceAdj(m);
+    tri::AreaPreservingTextureOptimizer<Mesh> opt(m);
+
+    opt.TargetCurrentGeometry();
+    opt.SetBorderAsFixed();
+
+    for (int i = 0; i < 100; ++i) {
+        Timer t;
+        opt.Iterate();
+        tri::io::ExporterOBJ<Mesh>::Save(m, "opt.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
+        tri::UpdateTexture<Mesh>::WedgeTexFromVertexTex(m);
+        std::cout << "Iteration took " << t.TimeSinceLastCheck() << " seconds";
+        std::cout << std::endl;
+    }
+
+    return 0; */
 
 }

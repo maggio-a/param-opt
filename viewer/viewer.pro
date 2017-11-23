@@ -45,6 +45,8 @@ HEADERS += \
     ../src/mesh_graph.h \
     ../src/mesh_viewer.h \
     ../src/optimizer.h \
+    ../src/dcpsolver.h \
+    ../src/fixed_border_bijective.h \
     ../src/texture_rendering.h \
     ../imgui/imconfig.h \
     ../imgui/imgui_internal.h \

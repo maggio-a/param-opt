@@ -8,6 +8,7 @@
 #include <GL/glew.h>
 
 #include "mesh_graph.h"
+#include "optimizer.h"
 #include "linmath.h"
 
 class GLFWwindow;
@@ -89,6 +90,10 @@ private:
     std::unordered_map<RegionID, vcg::Color4f> regionColors;
 
     std::string fileName;
+
+
+    ParameterizationStrategy strategy;
+
 
     // TODO move the optimizer parameters somewhere else
     std::size_t minRegionSize;

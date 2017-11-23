@@ -13,9 +13,153 @@
 #include "mesh_graph.h"
 #include "timer.h"
 #include "dcpsolver.h"
+#include "fixed_border_bijective.h"
+#include <ext/texcoord_optimization.h>
 
 #include "uv.h"
 
+/// TODO REFACTOR
+enum DirectParameterizer {
+    DCP, FixedBorderBijective
+};
+
+enum TexCoordOptimizer {
+    AreaPreserving, MIPS
+};
+
+struct ParameterizationStrategy {
+    DirectParameterizer directParameterizer = DCP;
+    TexCoordOptimizer optimizer = AreaPreserving;
+    int optimizerIterations = 0;
+};
+
+
+static bool ParameterizeChartFromInitialTexCoord(Mesh &m, GraphManager::ChartHandle ch, ParameterizationStrategy strategy = ParameterizationStrategy{})
+{
+    auto CCIDh  = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(m, "ConnectedComponentID");
+    assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(m, CCIDh));
+
+    auto ICCh  = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(m, "InitialConnectedComponentID");
+    assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(m, ICCh));
+
+    auto WTCSh = tri::Allocator<Mesh>::FindPerFaceAttribute<TexCoordStorage>(m, "WedgeTexCoordStorage");
+    assert(tri::Allocator<Mesh>::IsValidHandle<TexCoordStorage>(m, WTCSh));
+
+    PMesh pm;
+    // Count the required vertices, split those at a seam in the initial parameterization
+    std::unordered_map<Mesh::VertexPointer,PMesh::VertexPointer> mv_to_pmv{ch->FN() * 3};
+
+    std::size_t vn = 0;
+    for (auto fptr : ch->fpVec) {
+        for (int i = 0; i < 3; ++i) {
+            if (mv_to_pmv.count(fptr->V(i)) == 0) {
+                vn++;
+                mv_to_pmv[fptr->V(i)] = nullptr;
+            }
+        }
+    }
+
+    auto pmvi = tri::Allocator<PMesh>::AddVertices(pm, vn);
+    auto pmfi = tri::Allocator<PMesh>::AddFaces(pm, ch->FN());
+
+    for (auto fptr : ch->fpVec) {
+        PMesh::FacePointer pmf = &*pmfi++;
+        for (int i = 0; i < 3; ++i) {
+            Mesh::VertexPointer mv = fptr->V(i);
+            PMesh::VertexPointer& pmv = mv_to_pmv[mv];
+            if (pmv == nullptr) {
+                pmv = &*pmvi++;
+                pmv->P() = mv->P();
+            }
+            pmf->V(i) = pmv;
+            pmf->WT(i) = WTCSh[fptr].tc[i];
+        }
+    }
+
+    bool solved = false;
+    if (strategy.directParameterizer == DirectParameterizer::DCP) {
+        DCPSolver<PMesh> solver(pm);
+
+        auto CoordMapper = [](PMesh::FacePointer fp, int i) { vcg::Point2f uv = fp->WT(i).P(); return vcg::Point3f{uv[0], uv[1], 0.0f}; };
+
+        solved = solver.Solve(CoordMapper);
+        //bool solved = solver.Solve(1.0f, 0.0f);
+        //bool solved = solver.Solve();
+    } else if (strategy.directParameterizer == DirectParameterizer::FixedBorderBijective) {
+        UniformSolver<PMesh> solver(pm);
+        solved = solver.Solve();
+    } else {
+        assert(0 && "Solver not supported");
+    }
+
+    // TEST CODE
+#ifndef NDEBUG
+
+    if (!solved) std::cout << "Not solved" << std::endl;
+
+    int n1 = 0;
+    int n2 = 0;
+    int n3 = 0;
+
+    for (auto &f : pm.face) {
+        Point3f p0{ f.WT(0).P().X(), f.WT(0).P().Y(), 0.0f };
+        Point3f p1{ f.WT(1).P().X(), f.WT(1).P().Y(), 0.0f };
+        Point3f p2{ f.WT(2).P().X(), f.WT(2).P().Y(), 0.0f };
+        float area = ((p1 - p0) ^ (p2 - p0)).Z() * 0.5f;
+        if (area < 0.0f) n1++;
+        else if (area > 0.0f) n2++;
+        else n3++;
+    }
+
+    std::cout << "Negative area " << n1 << std::endl;
+    std::cout << "Positive area " << n2 << std::endl;
+    std::cout << "Zero area     " << n3 << std::endl;
+
+    //tri::io::ExporterOBJ<PMesh>::Save(pm, "test_mesh.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
+
+#endif
+
+    if (solved) { // optimize and Copy texture coords back
+
+        if (strategy.optimizerIterations != 0) {
+            tri::TexCoordOptimization<PMesh> *opt;
+            if (strategy.optimizer == TexCoordOptimizer::AreaPreserving) {
+                opt = new tri::AreaPreservingTexCoordOptimization<PMesh>(pm);
+            }
+            else if (strategy.optimizer == TexCoordOptimizer::MIPS) {
+                opt = new tri::MIPSTexCoordOptimization<PMesh>(pm);
+            }
+            else assert(0 && "Optimizer not supported");
+
+            opt->TargetCurrentGeometry();
+
+            Timer t;
+            if (strategy.optimizerIterations < 0) {
+                opt->IterateUntilConvergence();
+            } else {
+                for (int i = 0; i < strategy.optimizerIterations; ++i) {
+                    opt->Iterate();
+                }
+            }
+            std::cout << "Optimization took " << t.TimeSinceLastCheck() << " seconds" << std::endl;
+            //delete opt;
+        }
+
+        for (auto& fptr : ch->fpVec) {
+            for (int i = 0; i < 3; ++i) {
+                auto vi = fptr->V(i);
+                auto pmv = mv_to_pmv[vi];
+                fptr->WT(i).P() = pmv->T().P();
+            }
+
+        }
+    }
+
+
+    return solved;
+}
+
+/*
 bool ParameterizeChartFromInitialTexCoord(Mesh &m, GraphManager::ChartHandle ch)
 {
     auto CCIDh  = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(m, "ConnectedComponentID");
@@ -121,9 +265,9 @@ bool ParameterizeChartFromInitialTexCoord(Mesh &m, GraphManager::ChartHandle ch)
 
     return solved;
 }
-
+*/
 // Computes the texture outlines of a given chart
-void ChartOutlinesUV(Mesh& m, GraphManager::ChartHandle chart, std::vector<std::vector<Point2f>> &outline2Vec)
+static void ChartOutlinesUV(Mesh& m, GraphManager::ChartHandle chart, std::vector<std::vector<Point2f>> &outline2Vec)
 {
     struct FaceAdjacency {
         bool changed[3] = {false, false, false};
@@ -181,7 +325,7 @@ void ChartOutlinesUV(Mesh& m, GraphManager::ChartHandle chart, std::vector<std::
     }
 }
 
-vcg::Box2f UVBox(GraphManager::ChartHandle chart) {
+static vcg::Box2f UVBox(GraphManager::ChartHandle chart) {
     vcg::Box2f bbox;
     for (auto fptr : chart->fpVec) {
         for (int i = 0; i < 3; ++i) {

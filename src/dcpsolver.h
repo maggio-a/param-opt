@@ -7,8 +7,20 @@
 #include <type_traits>
 
 #include <Eigen/Sparse>
+#include <Eigen/OrderingMethods>
 
 #include "mesh.h"
+
+#include <vcg/complex/complex.h>
+
+template <typename MeshType>
+struct DefaultVertexPosition
+{
+    using FacePointer = typename MeshType::FacePointer;
+    using CoordType = typename MeshType::CoordType;
+
+    CoordType operator()(FacePointer fp, int i) { return fp->V(i)->P(); }
+};
 
 /*
  * Discrete Conformal Parameterization
@@ -18,8 +30,6 @@
 template <typename MeshType>
 class DCPSolver
 {
-    enum BorderManagement { skip, compute };
-
 public:
 
     using ScalarType = typename MeshType::ScalarType;
@@ -29,8 +39,6 @@ public:
     using FacePointer = typename MeshType::FacePointer;
     using Coord3D = typename MeshType::CoordType;
     using CoordUV = typename FaceType::TexCoordType::PointType;
-
-    static const BorderManagement __trust_vertex_border_flags = skip;
 
 private:
 
@@ -45,11 +53,6 @@ private:
 
     int vn;
 
-    // support for DeclareUnique
-    std::unordered_map<VertexPointer,VertexPointer> crossReferences;
-
-    //int U(int i) { return 2*i; }
-    //int V(int i) { return 2*i + 1; }
     int U(int i) { return i; }
     int V(int i) { return vn + i; }
 
@@ -57,65 +60,67 @@ public:
 
     DCPSolver(MeshType &m) : mesh{m}, vn{0} {}
    
-    int U(VertexPointer v) { auto vi = crossReferences.find(v); return vi == crossReferences.end() ? U(vmap[v]) : U(vmap[vi->second]); }
-    int V(VertexPointer v) { auto vi = crossReferences.find(v); return vi == crossReferences.end() ? V(vmap[v]) : V(vmap[vi->second]); }
+    int U(VertexPointer v) { return U(vcg::tri::Index(mesh, v)); }
+    int V(VertexPointer v) { return V(vcg::tri::Index(mesh, v)); }
 
     bool AddConstraint(VertexPointer vp, CoordUV uv)
     {
         return constraints.insert(std::make_pair(vp, uv)).second;
     }
 
-    // function to map multiple vertices to the same index
-    // no checks on duplicate entries, multiple declarations, etc...
-    void DeclareUnique(const std::vector<VertexPointer>& vertices)
-    {
-        if (vertices.size() > 1) {
-            for (auto vp : vertices) {
-                crossReferences[vp] = vertices[0];
-            }
-        }
-    }
-
     void BuildIndex()
     {
         for (auto& v : mesh.vert) {
-            auto vi = crossReferences.find(&v);
-            if (vi != crossReferences.end()) {
-                VertexPointer rep = vi->second;
-                if (vmap.count(rep) == 1) {
-                    vmap[&v] = vmap[rep];
-                }
-                else {
-                    vmap[&v] = vmap[rep] = vn++;
-                }
-            } else {
-                vmap[&v] = vn++;
-            }
+            vmap[&v] = vn++;
         }
     }
 
-    // Mock PoissonSolver interface
-    void Init() {}
-    void FixDefaultVertices() {}
-    bool IsFeasible() { return true; }
-    bool SolvePoisson() { return Solve(); }
+    bool Solve(float lambda = 1.0f, float mi = 0.0f)
+    {
+        return Solve(DefaultVertexPosition<MeshType>{}, lambda, mi);
+    }
 
-    bool Solve(BorderManagement mode = compute)
+    template <typename VertexPosFunctor>
+    bool Solve(VertexPosFunctor VertPos, float lambda = 1.0f, float mi = 0.0f)
     {
         // Mark border vertices
-        if (mode != __trust_vertex_border_flags) {
-            tri::UpdateTopology<MeshType>::FaceFace(mesh);
-            tri::UpdateFlags<MeshType>::VertexBorderFromFaceAdj(mesh);
-        }
+        tri::UpdateTopology<MeshType>::FaceFace(mesh);
+        tri::UpdateFlags<MeshType>::VertexBorderFromFaceAdj(mesh);
+
         // Init index
         BuildIndex();
 
-        /*
-        std::cout << "Border indices" << std::endl;
-        for (auto p : vmap) {
-            if (p.first->IsB()) std::cout << p.second << std::endl;
+        if (constraints.size() < 2) {
+            // Fix at least two vertices (needed since the energy is invariant to rotations
+            // and translations, fixing two vertices acts as an anchor to the parametric space)
+            VertexPointer v0 = nullptr;
+            VertexPointer v1 = nullptr;
+
+            vcg::Box3f box;
+            for (auto& f : mesh.face) {
+                for (int i = 0; i < 3; ++i) box.Add(VertPos(&f, i));
+            }
+            const int bestAxis = box.MaxDim();
+            for (auto& f : mesh.face) {
+                for (int i = 0; i < 3; ++i) {
+                    Coord3D vpos = VertPos(&f, i);
+                    if (vpos[bestAxis] <= box.min[bestAxis]) v0 = f.V(i);
+                    if (vpos[bestAxis] >= box.max[bestAxis]) v1 = f.V(i);
+                }
+            }
+            /*
+            tri::UpdateBounding<MeshType>::Box(mesh);
+            const int bestAxis = mesh.bbox.MaxDim();
+            for(VertexType &vv : mesh.vert) {
+                if(vv.P()[bestAxis] <= mesh.bbox.min[bestAxis]) v0 = &vv;
+                if(vv.P()[bestAxis] >= mesh.bbox.max[bestAxis]) v1 = &vv;
+            }*/
+
+            assert( (v0!=v1) && v0 && v1);
+            AddConstraint(v0, CoordUV{0,0});
+            AddConstraint(v1, CoordUV{1,1});
         }
-        */
+
 
         // Workaround to avoid inifinities if an angle is too small
         assert(std::is_floating_point<ScalarType>::value);
@@ -124,16 +129,22 @@ public:
         // Compute matrix coefficients
         coeffList.reserve(vn * 32);
         for (auto &f : mesh.face) {
-            for (int i = 0; i < 3; ++i) {
-                VertexPointer vi = f.V0(i);
-                VertexPointer vj = f.V1(i);
-                VertexPointer vk = f.V2(i);
+            for (int i = 0; i < 3; ++i) if (constraints.find(f.V(i)) == constraints.end()) {
+                // indices are given clockwise to avoid flipped parameterizations
+                VertexPointer vi = f.V(i);
+                Coord3D pi = VertPos(&f, i);
 
-                ScalarType alpha_ij = std::max(vcg::Angle(vi->P() - vk->P(), vj->P() - vk->P()), eps);
-                ScalarType weight_ij = ScalarType(1) / std::tan(alpha_ij);
+                VertexPointer vj = f.V((i+2)%3);
+                Coord3D pj = VertPos(&f, (i+2)%3);
 
-                ScalarType alpha_ik = std::max(vcg::Angle(vi->P() - vj->P(), vk->P() - vj->P()), eps);
-                ScalarType weight_ik = ScalarType(1) / std::tan(alpha_ik);
+                VertexPointer vk = f.V((i+1)%3);
+                Coord3D pk = VertPos(&f, (i+1)%3);
+
+                ScalarType alpha_ij = std::max(vcg::Angle(pi - pk, pj - pk), eps); // angle at k
+                ScalarType alpha_ik = std::max(vcg::Angle(pi - pj, pk - pj), eps); // angle at j
+
+                ScalarType weight_ij = lambda * (std::tan(M_PI_2 - alpha_ij)) + mi * (std::tan(M_PI_2 - alpha_ik) / (vi->P() - vj->P()).Norm());
+                ScalarType weight_ik = lambda * (std::tan(M_PI_2 - alpha_ik)) + mi * (std::tan(M_PI_2 - alpha_ij) / (vi->P() - vk->P()).Norm());
 
                 // Signs should be inverted wrt to the partial derivatives of the energy, but are the same
                 // as the matrix expression on the paper
@@ -149,8 +160,8 @@ public:
                 if (vi->IsB()) {
 
                     // following from above, I invert the signs from eq (7) here too...
-                    coeffList.push_back(Td(U(vi), V(vk), -1)); // pi/2 rotation: (x,y) -> (-y,x), hence V() as column index
-                    coeffList.push_back(Td(U(vi), V(vj), 1));
+                    coeffList.push_back(Td(U(vi), V(vk), 1)); // pi/2 rotation: (x,y) -> (-y,x), hence V() as column index
+                    coeffList.push_back(Td(U(vi), V(vj), -1));
 
                     coeffList.push_back(Td(V(vi), U(vk), -1));
                     coeffList.push_back(Td(V(vi), U(vj), 1));
@@ -158,47 +169,21 @@ public:
             }
         }
 
-        // Fix at least two vertices (needed since the energy is invariant to rotations
-        // and translations, fixing two vertices acts as an anchor to the parametric space)
-        
-        tri::UpdateBounding<MeshType>::Box(mesh);
-
-        VertexPointer v0 = nullptr;
-        VertexPointer v1 = nullptr;
-        const int bestAxis = mesh.bbox.MaxDim();
-        for(VertexType &vv : mesh.vert) {
-            if(vv.P()[bestAxis] <= mesh.bbox.min[bestAxis]) v0 = &vv;
-            if(vv.P()[bestAxis] >= mesh.bbox.max[bestAxis]) v1 = &vv;
-        }
-        assert( (v0!=v1) && v0 && v1);
-
-        AddConstraint(v0, CoordUV{0,0});
-        AddConstraint(v1, CoordUV{1,1});
-
         // Prepare to solve
-        int n = (vn + constraints.size()) * 2;
 
         // Allocate matrix and constants vector
-        Eigen::SparseMatrix<double> A(n, n);
+        const int n = vn * 2;
+        Eigen::SparseMatrix<double,Eigen::ColMajor> A(n, n);
         Eigen::VectorXd b(Eigen::VectorXd::Zero(n));
 
-        // Add constraints to the system
-        int h = vn * 2; // first constraint index
+        // Add fixed vertices coefficients
         for (auto &c : constraints) {
             VertexPointer vp = c.first;
             CoordUV uv = c.second;
-
-            // constrain u
-            coeffList.push_back(Td(U(vp), h, 1));
-            coeffList.push_back(Td(h, U(vp), 1));
-            b[h] = uv[0];
-            h++;
-
-            // constrain v
-            coeffList.push_back(Td(V(vp), h, 1));
-            coeffList.push_back(Td(h, V(vp), 1));
-            b[h] = uv[1];
-            h++;
+            coeffList.push_back(Td(U(vp), U(vp), 1));
+            b[U(vp)] = uv[0];
+            coeffList.push_back(Td(V(vp), V(vp), 1));
+            b[V(vp)] = uv[1];
         }
 
         // Initialize matrix
@@ -206,23 +191,34 @@ public:
 
         //std::cout << Eigen::MatrixXd(A) << std::endl;
         //std::cout << b << std::endl;
+        if (!A.isApprox(A.transpose(), 1e-3)) {
+            std::cout << "Matrix not symmetric" << std::endl;
+        }
 
         // Solve TODO find out why the conjugate gradient fails with x = NaNs
-        //Eigen::ConjugateGradient<Eigen::SparseMatrix<double>, Eigen::Lower|Eigen::Upper> cg;
-        Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> cholesky;
+        //Eigen::ConjugateGradient<Eigen::SparseMatrix<double>, Eigen::Lower|Eigen::Upper> solver;
+        //Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> solver;
 
-        cholesky.compute(A);
-        if (cholesky.info() != Eigen::Success) {
+        //Eigen::BiCGSTAB<Eigen::SparseMatrix<double>, Eigen::IncompleteLUT<double>> solver;
+        Eigen::SparseLU<Eigen::SparseMatrix<double,Eigen::ColMajor>, Eigen::COLAMDOrdering<Eigen::SparseMatrix<double>::StorageIndex>> solver;
+
+        A.makeCompressed();
+        solver.analyzePattern(A);
+        //solver.setMaxIterations(10);
+        //solver.setTolerance(1e-8);
+
+        solver.compute(A);
+        if (solver.info() != Eigen::Success) {
             std::cout << "Factorization failed" << std::endl;
             return false;
         }
 
-        Eigen::VectorXd x = cholesky.solve(b);
+        Eigen::VectorXd x = solver.solve(b);
 
-        //std::cout << "# iterations    " << cg.iterations() << std::endl;
-        //std::cout << "estimated error " << cg.error() << std::endl;
+        //std::cout << "#iterations:     " << solver.iterations() << std::endl;
+        //std::cout << "estimated error: " << solver.error()      << std::endl;
 
-        if (cholesky.info() != Eigen::Success) {
+        if (solver.info() != Eigen::Success) {
             std::cout << "Solving failed" << std::endl;
             return false;
         }

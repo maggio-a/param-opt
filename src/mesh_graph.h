@@ -519,7 +519,9 @@ public:
             q.pop();
         }
 
-        if (testSet.size() > 0) return std::make_pair(Collapse_ERR_DISCONNECTED, std::queue<ChartHandle>{});
+        if (testSet.size() > 0) {
+            return std::make_pair(Collapse_ERR_DISCONNECTED, std::queue<ChartHandle>{});
+        }
 
         // build the test mesh, and merge the charts if the test mesh is feasible
         PMesh probe;
@@ -531,8 +533,8 @@ public:
         if (Parameterizable(probe)) {
             return std::make_pair(Collapse_OK, mergeQueue);
         } else {
-            return std::make_pair(Collapse_ERR_UNFEASIBLE, std::queue<ChartHandle>{});
             //tri::io::ExporterOBJ<PMesh>::Save(probe, "fail.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
+            return std::make_pair(Collapse_ERR_UNFEASIBLE, std::queue<ChartHandle>{});
         }
     }
 
