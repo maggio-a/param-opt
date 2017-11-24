@@ -86,7 +86,14 @@ struct FaceGroup {
         maxMappedFaceValue = std::numeric_limits<float>::lowest();
         for (auto fptr : fpVec) {
             if (distortionType == DistortionWedge::AreaDist) {
-                fptr->Q() = DistortionWedge::AreaDistortion(fptr, areaScale);
+
+                float areaUV = DistortionWedge::AreaUV(fptr) * areaScale;
+                float area3D = DistortionWedge::Area3D(fptr);
+                assert(area3D > 0);
+                float diff = (areaUV - area3D) / area3D;
+                assert(!math::IsNAN(diff));
+                fptr->Q() = diff;
+                //fptr->Q() = DistortionWedge::AreaDistortion(fptr, areaScale);
             }
             else if (distortionType == DistortionWedge::AngleDist) {
                 fptr->Q() = DistortionWedge::AngleDistortion(fptr);
