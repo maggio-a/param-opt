@@ -10,17 +10,9 @@
 #include <Eigen/OrderingMethods>
 
 #include "mesh.h"
+#include "vertex_position.h"
 
 #include <vcg/complex/complex.h>
-
-template <typename MeshType>
-struct DefaultVertexPosition
-{
-    using FacePointer = typename MeshType::FacePointer;
-    using CoordType = typename MeshType::CoordType;
-
-    CoordType operator()(FacePointer fp, int i) { return fp->V(i)->P(); }
-};
 
 /*
  * Discrete Conformal Parameterization
@@ -80,8 +72,8 @@ public:
         return Solve(DefaultVertexPosition<MeshType>{}, lambda, mi);
     }
 
-    template <typename VertexPosFunctor>
-    bool Solve(VertexPosFunctor VertPos, float lambda = 1.0f, float mi = 0.0f)
+    template <typename VertexPosFct>
+    bool Solve(VertexPosFct VertPos, float lambda = 1.0f, float mi = 0.0f)
     {
         // Mark border vertices
         tri::UpdateTopology<MeshType>::FaceFace(mesh);

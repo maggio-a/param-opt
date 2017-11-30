@@ -68,49 +68,6 @@ std::size_t ComputePerFaceConnectedComponentIdAttribute(MeshType &m)
     return regionCounter;
 }
 
-template <class MeshType>
-std::shared_ptr<MeshGraph> ComputeParameterizationGraph(
-        MeshType &m, TextureObjectHandle textureObject, float *uvMeshBorder = nullptr)
-{
-    std::size_t numRegions = ComputePerFaceConnectedComponentIdAttribute<MeshType>(m);
-
-    std::shared_ptr<MeshGraph> paramData = std::make_shared<MeshGraph>(m);
-    paramData->textureObject = textureObject;
-    paramData->charts.reserve(numRegions);
-    auto CCIDh = tri::Allocator<MeshType>::template GetPerFaceAttribute<std::size_t>(m, "ConnectedComponentID");
-
-    auto ICCIDh = tri::Allocator<MeshType>::template GetPerFaceAttribute<std::size_t>(m, "InitialConnectedComponentID");
-    ICCIDh._handle->data.assign(CCIDh._handle->data.begin(), CCIDh._handle->data.end());
-
-    // build parameterization graph
-    tri::UpdateTopology<Mesh>::FaceFace(m);
-    for (auto &f : m.face) {
-        std::size_t regionId = CCIDh[&f];
-        paramData->GetChart_Insert(regionId)->AddFace(&f);
-        // TODO this may be refactored into AddFace
-        for (int i = 0; i < f.VN(); ++i) {
-            std::size_t adjId = CCIDh[f.FFp(i)];
-            if (regionId != adjId) {
-                (paramData->GetChart_Insert(regionId)->adj).insert(paramData->GetChart_Insert(adjId));
-            }
-        }
-    }
-
-    // compute uv mesh border if required
-    if (uvMeshBorder) {
-        *uvMeshBorder = 0.0f;
-        for (auto &f : m.face) {
-            for (int i = 0; i < f.VN(); ++i) {
-                if (face::IsBorder(f, i)) {
-                   *uvMeshBorder += (f.cWT((i+1)%f.VN()).P() - f.cWT(i).P()).Norm();
-                }
-            }
-        }
-    }
-
-    return paramData;
-}
-
 template<class ScalarType, class MeshType>
 static std::size_t ConvertTextureBoundaryToOutline2Vec(MeshType &m, std::vector<std::vector<Point2<ScalarType>>> &outline2Vec)
 {
@@ -146,12 +103,6 @@ static std::size_t ConvertTextureBoundaryToOutline2Vec(MeshType &m, std::vector<
     }
 
     return outline2Vec.size();
-}
-
-static void PrintParameterizationInfo(std::shared_ptr<MeshGraph> pdata)
-{
-    std::cout << pdata->charts.size() << " " << pdata->Area3D() << " "
-              << pdata->AreaUV() << " " << pdata->BorderUV() << std::endl;
 }
 
 #endif // UV_H

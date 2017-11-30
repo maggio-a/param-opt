@@ -44,9 +44,12 @@ HEADERS += \
     ../src/uv.h \
     ../src/mesh_graph.h \
     ../src/mesh_viewer.h \
+    ../src/distortion_pos.h \
     ../src/optimizer.h \
+    ../src/vertex_position.h \
     ../src/dcpsolver.h \
     ../src/fixed_border_bijective.h \
+    ../src/ext/texcoord_optimization.h \
     ../src/texture_rendering.h \
     ../imgui/imconfig.h \
     ../imgui/imgui_internal.h \
@@ -54,7 +57,7 @@ HEADERS += \
     ../imgui/stb_rect_pack.h \
     ../imgui/stb_textedit.h \
     ../imgui/stb_truetype.h \
-    ../imgui/imgui_glfw_gl3/imgui_impl_glfw_gl3.h
+    ../imgui/imgui_glfw_gl3/imgui_impl_glfw_gl3.h \
 
 DISTFILES += \
     readme.txt

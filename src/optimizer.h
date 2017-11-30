@@ -24,12 +24,17 @@ enum DirectParameterizer {
 };
 
 enum TexCoordOptimizer {
-    AreaPreserving, MIPS
+    AreaPreserving, SymmetricDirichlet, MIPS
+};
+
+enum Geometry {
+    VertexPosition, WedgeTexCoord
 };
 
 struct ParameterizationStrategy {
     DirectParameterizer directParameterizer = DCP;
     TexCoordOptimizer optimizer = AreaPreserving;
+    Geometry geometry = VertexPosition;
     int optimizerIterations = 0;
 };
 
@@ -46,9 +51,10 @@ static bool ParameterizeChartFromInitialTexCoord(Mesh &m, GraphManager::ChartHan
     assert(tri::Allocator<Mesh>::IsValidHandle<TexCoordStorage>(m, WTCSh));
 
     PMesh pm;
-    // Count the required vertices, split those at a seam in the initial parameterization
-    std::unordered_map<Mesh::VertexPointer,PMesh::VertexPointer> mv_to_pmv{ch->FN() * 3};
+    std::unordered_map<Mesh::VertexPointer,PMesh::VertexPointer> mv_to_pmv;
 
+    CopyFaceGroupIntoMesh(pm, *ch, mv_to_pmv, [&WTCSh](Mesh::FacePointer fptr, int i) { return WTCSh[fptr].tc[i]; });
+/*
     std::size_t vn = 0;
     for (auto fptr : ch->fpVec) {
         for (int i = 0; i < 3; ++i) {
@@ -74,17 +80,15 @@ static bool ParameterizeChartFromInitialTexCoord(Mesh &m, GraphManager::ChartHan
             pmf->V(i) = pmv;
             pmf->WT(i) = WTCSh[fptr].tc[i];
         }
-    }
+    }*/
 
     bool solved = false;
     if (strategy.directParameterizer == DirectParameterizer::DCP) {
         DCPSolver<PMesh> solver(pm);
-
-        auto CoordMapper = [](PMesh::FacePointer fp, int i) { vcg::Point2f uv = fp->WT(i).P(); return vcg::Point3f{uv[0], uv[1], 0.0f}; };
-
-        solved = solver.Solve(CoordMapper);
-        //bool solved = solver.Solve(1.0f, 0.0f);
-        //bool solved = solver.Solve();
+        if (strategy.geometry == VertexPosition)
+            solved = solver.Solve(DefaultVertexPosition<PMesh>{});
+        else
+            solved = solver.Solve(WedgeTexCoordVertexPosition<PMesh>{});
     } else if (strategy.directParameterizer == DirectParameterizer::FixedBorderBijective) {
         UniformSolver<PMesh> solver(pm);
         solved = solver.Solve();
@@ -94,7 +98,7 @@ static bool ParameterizeChartFromInitialTexCoord(Mesh &m, GraphManager::ChartHan
 
     // TEST CODE
 #ifndef NDEBUG
-
+/*
     if (!solved) std::cout << "Not solved" << std::endl;
 
     int n1 = 0;
@@ -116,7 +120,7 @@ static bool ParameterizeChartFromInitialTexCoord(Mesh &m, GraphManager::ChartHan
     std::cout << "Zero area     " << n3 << std::endl;
 
     //tri::io::ExporterOBJ<PMesh>::Save(pm, "test_mesh.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
-
+*/
 #endif
 
     if (solved) { // optimize and Copy texture coords back
@@ -124,25 +128,40 @@ static bool ParameterizeChartFromInitialTexCoord(Mesh &m, GraphManager::ChartHan
         if (strategy.optimizerIterations != 0) {
             tri::TexCoordOptimization<PMesh> *opt;
             if (strategy.optimizer == TexCoordOptimizer::AreaPreserving) {
-                opt = new tri::AreaPreservingTexCoordOptimization<PMesh>(pm);
+                if (strategy.geometry == Geometry::WedgeTexCoord)
+                    opt = new tri::AreaPreservingTexCoordOptimization<PMesh,WedgeTexCoordVertexPosition<PMesh>>(pm);
+                else
+                    opt = new tri::AreaPreservingTexCoordOptimization<PMesh>(pm);
             }
             else if (strategy.optimizer == TexCoordOptimizer::MIPS) {
-                opt = new tri::MIPSTexCoordOptimization<PMesh>(pm);
+                if (strategy.geometry == Geometry::WedgeTexCoord)
+                    opt = new tri::MIPSTexCoordOptimization<PMesh,WedgeTexCoordVertexPosition<PMesh>>(pm);
+                else
+                    opt = new tri::MIPSTexCoordOptimization<PMesh>(pm);
+            }
+            else if (strategy.optimizer == TexCoordOptimizer::SymmetricDirichlet) {
+                if (strategy.geometry == Geometry::WedgeTexCoord)
+                    opt = new tri::SymmetricDirichletTexCoordOptimization<PMesh,WedgeTexCoordVertexPosition<PMesh>>(pm);
+                else
+                    opt = new tri::SymmetricDirichletTexCoordOptimization<PMesh>(pm);
             }
             else assert(0 && "Optimizer not supported");
 
+            opt->SetNothingAsFixed();
             opt->TargetCurrentGeometry();
 
             Timer t;
             if (strategy.optimizerIterations < 0) {
                 opt->IterateUntilConvergence();
             } else {
+                float movement;
                 for (int i = 0; i < strategy.optimizerIterations; ++i) {
-                    opt->Iterate();
+                    movement = opt->Iterate();
                 }
+                std::cout << "Max movement at last step was " << movement << std::endl;
             }
             std::cout << "Optimization took " << t.TimeSinceLastCheck() << " seconds" << std::endl;
-            //delete opt;
+            delete opt;
         }
 
         for (auto& fptr : ch->fpVec) {
@@ -337,7 +356,7 @@ static vcg::Box2f UVBox(GraphManager::ChartHandle chart) {
 
 // returns the number of charts that could not be parameterized
 /// TODO update distortion info if needed (this should also be done through the graph manager)
-static int ParameterizeGraph(std::shared_ptr<MeshGraph> graph)
+static int ParameterizeGraph(std::shared_ptr<MeshGraph> graph, ParameterizationStrategy strategy = ParameterizationStrategy{})
 {
     Timer timer;
     Mesh& m = graph->mesh;
@@ -369,7 +388,7 @@ static int ParameterizeGraph(std::shared_ptr<MeshGraph> graph)
         }
         else {
             // TODO function parameter to choose the source of the mesh geometry (3D or old UV space)
-            bool parameterized = ParameterizeChartFromInitialTexCoord(m, chart);
+            bool parameterized = ParameterizeChartFromInitialTexCoord(m, chart, strategy);
 
             if (parameterized) {
                 // Normalize area: the region gets scaled by sqrt(oldUVArea)/sqrt(newUVArea) to keep the original proportions

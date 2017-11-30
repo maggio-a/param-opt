@@ -8,13 +8,17 @@
 
 #include <QImage>
 
-#include "mesh.h"
-#include "gl_util.h"
 
+#include <vcg/complex/complex.h>
 #include <vcg/complex/algorithms/parametrization/distortion.h>
 #include <vcg/math/histogram.h>
 #include <vcg/complex/algorithms/stat.h>
 #include <vcg/complex/algorithms/update/color.h>
+
+#include "mesh.h"
+#include "gl_util.h"
+#include "distortion_pos.h"
+#include "uv.h"
 
 /// TODO cache border and area state
 struct FaceGroup {
@@ -80,6 +84,36 @@ struct FaceGroup {
     std::size_t FN() const { return fpVec.size(); }
     std::size_t NumAdj() const { return adj.size(); }
 
+    template <typename VP>
+    void MapDistortionFromTexCoord(DistortionWedge::DistType distortionType, float areaScale, float edgeScale, const VP& vp)
+    {
+        minMappedFaceValue = std::numeric_limits<float>::max();
+        maxMappedFaceValue = std::numeric_limits<float>::lowest();
+        for (auto fptr : fpVec) {
+            if (distortionType == DistortionWedge::AreaDist) {
+
+                float areaUV = DistortionPos<Mesh>::AreaUV(fptr) * areaScale;
+                float area3D = DistortionPos<Mesh>::Area3D(fptr, vp);
+                assert(area3D > 0);
+                float diff = (areaUV - area3D) / area3D;
+                assert(!math::IsNAN(diff));
+                fptr->Q() = diff;
+                //fptr->Q() = DistortionWedge::AreaDistortion(fptr, areaScale);
+            }
+            else if (distortionType == DistortionWedge::AngleDist) {
+                fptr->Q() = DistortionPos<Mesh>::AngleDistortion(fptr, vp);
+            }
+            else if (distortionType == DistortionWedge::EdgeDist) {
+                fptr->Q() = (DistortionPos<Mesh>::EdgeDistortion(fptr, 0, edgeScale, vp) +
+                             DistortionPos<Mesh>::EdgeDistortion(fptr, 1, edgeScale, vp) +
+                             DistortionPos<Mesh>::EdgeDistortion(fptr, 2, edgeScale, vp)) / 3.0f;
+            }
+            else assert(0 && "FaceGroup::MapDistortion");
+            minMappedFaceValue = std::min(minMappedFaceValue, fptr->Q());
+            maxMappedFaceValue = std::max(maxMappedFaceValue, fptr->Q());
+        }
+    }
+
     void MapDistortion(DistortionWedge::DistType distortionType, float areaScale, float edgeScale)
     {
         minMappedFaceValue = std::numeric_limits<float>::max();
@@ -127,28 +161,74 @@ struct FaceGroup {
 
 };
 
+template <typename MeshType, typename WedgeTextureMapper>
+void CopyFaceGroupIntoMesh(MeshType &m, const struct FaceGroup& fg, std::unordered_map<Mesh::VertexPointer, typename MeshType::VertexPointer> &vpmap, const WedgeTextureMapper& wtmapper)
+{
+    m.Clear();
+    vpmap.clear();
+    vpmap.reserve(fg.FN() * 3);
+
+    std::size_t vn = 0;
+    for (auto fptr : fg.fpVec) {
+        for (int i = 0; i < 3; ++i) {
+            if (vpmap.count(fptr->V(i)) == 0) {
+                vn++;
+                vpmap[fptr->V(i)] = nullptr;
+            }
+        }
+    }
+    auto mvi = tri::Allocator<MeshType>::AddVertices(m, vn);
+    auto mfi = tri::Allocator<MeshType>::AddFaces(m, fg.FN());
+
+    for (auto fptr : fg.fpVec) {
+        typename MeshType::FacePointer mfp = &*mfi++;
+        for (int i = 0; i < 3; ++i) {
+            Mesh::VertexPointer vp = fptr->V(i);
+            typename MeshType::VertexPointer& mvp = vpmap[vp];
+            if (mvp == nullptr) {
+                mvp = &*mvi++;
+                mvp->P() = vp->P();
+            }
+            mfp->V(i) = mvp;
+            mfp->WT(i) = wtmapper(fptr, i);
+        }
+    }
+}
+
+
 struct MeshGraph {
 
     Mesh& mesh;
 
-    // TODO the whole quality/color stuff should be decoupled from the graph instance itself and handled
-    // by the graph manager
-    float areaScale;
-    float edgeScale;
-
     std::unordered_map<std::size_t, std::shared_ptr<FaceGroup>> charts;
     TextureObjectHandle textureObject;
 
-    MeshGraph(Mesh& m) : mesh{m}, areaScale{-1}, edgeScale{-1} {}
+    MeshGraph(Mesh& m) : mesh{m} {}
 
-    void UpdateScaleValues()
+    void MapDistortionFromTexCoord(DistortionWedge::DistType distortionType)
     {
-        DistortionWedge::MeshScalingFactor(mesh, areaScale, edgeScale);
-    }
+        auto WTCSh = tri::Allocator<Mesh>::FindPerFaceAttribute<TexCoordStorage>(mesh, "WedgeTexCoordStorage");
+        assert(tri::Allocator<Mesh>::IsValidHandle<TexCoordStorage>(mesh, WTCSh));
+
+        float areaScale;
+        float edgeScale;
+        auto VertexPosMapper = [&WTCSh] (Mesh::ConstFacePointer fptr, int i) {
+            Point2f uv = WTCSh[fptr].tc[i].P(); return Point3f{uv[0], uv[1], 0};
+        };
+
+        DistortionPos<Mesh>::MeshScalingFactor(mesh, areaScale, edgeScale, VertexPosMapper);
+        for (auto& c : charts) c.second->MapDistortionFromTexCoord(distortionType, areaScale, edgeScale, VertexPosMapper);
+        Distribution<float> qd;
+        tri::Stat<Mesh>::ComputePerFaceQualityDistribution(mesh, qd);
+        std::pair<float, float> range = DistortionRange();
+        tri::UpdateColor<Mesh>::PerFaceQualityRamp(mesh, range.first, range.second);
+   }
 
     void MapDistortion(DistortionWedge::DistType distortionType)
     {
-        if (areaScale == -1) UpdateScaleValues();
+        float areaScale;
+        float edgeScale;
+        DistortionWedge::MeshScalingFactor(mesh, areaScale, edgeScale);
         for (auto& c : charts) c.second->MapDistortion(distortionType, areaScale, edgeScale);
         Distribution<float> qd;
         tri::Stat<Mesh>::ComputePerFaceQualityDistribution(mesh, qd);
@@ -213,6 +293,58 @@ struct MeshGraph {
         return borderUV;
     }
 };
+
+static void PrintParameterizationInfo(std::shared_ptr<MeshGraph> pdata)
+{
+    std::cout << pdata->charts.size() << " " << pdata->Area3D() << " "
+              << pdata->AreaUV() << " " << pdata->BorderUV() << std::endl;
+}
+
+template <class MeshType>
+std::shared_ptr<MeshGraph> ComputeParameterizationGraph(
+        MeshType &m, TextureObjectHandle textureObject, float *uvMeshBorder = nullptr)
+{
+    std::size_t numRegions = ComputePerFaceConnectedComponentIdAttribute<MeshType>(m);
+
+    std::shared_ptr<MeshGraph> paramData = std::make_shared<MeshGraph>(m);
+    paramData->textureObject = textureObject;
+    paramData->charts.reserve(numRegions);
+    auto CCIDh = tri::Allocator<MeshType>::template GetPerFaceAttribute<std::size_t>(m, "ConnectedComponentID");
+
+    auto ICCIDh = tri::Allocator<MeshType>::template GetPerFaceAttribute<std::size_t>(m, "InitialConnectedComponentID");
+    ICCIDh._handle->data.assign(CCIDh._handle->data.begin(), CCIDh._handle->data.end());
+
+    // build parameterization graph
+    tri::UpdateTopology<Mesh>::FaceFace(m);
+    for (auto &f : m.face) {
+        std::size_t regionId = CCIDh[&f];
+        paramData->GetChart_Insert(regionId)->AddFace(&f);
+        // TODO this may be refactored into AddFace
+        for (int i = 0; i < f.VN(); ++i) {
+            std::size_t adjId = CCIDh[f.FFp(i)];
+            if (regionId != adjId) {
+                (paramData->GetChart_Insert(regionId)->adj).insert(paramData->GetChart_Insert(adjId));
+            }
+        }
+    }
+
+    // compute uv mesh border if required
+    if (uvMeshBorder) {
+        *uvMeshBorder = 0.0f;
+        for (auto &f : m.face) {
+            for (int i = 0; i < f.VN(); ++i) {
+                if (face::IsBorder(f, i)) {
+                   *uvMeshBorder += (f.cWT((i+1)%f.VN()).P() - f.cWT(i).P()).Norm();
+                }
+            }
+        }
+    }
+
+    return paramData;
+}
+
+
+
 
 class GraphManager {
 

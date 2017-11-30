@@ -322,7 +322,7 @@ MeshViewer::MeshViewer(std::shared_ptr<MeshGraph> meshParamData_, std::size_t mi
     std::size_t numRegions = meshParamData->Count();
     regionColors.reserve(numRegions);
     for (const auto& c : meshParamData->charts) {
-        auto color = vcg::Color4f::Scatter(20, c.first % 20, 0.95f);
+        auto color = vcg::Color4f::Scatter(20, c.first % 20, 0.75f);
         regionColors.insert(std::make_pair(c.first, color/255.0f));
     }
 }
@@ -406,8 +406,7 @@ void MeshViewer::ClearSelection()
 
 void MeshViewer::Select(const RegionID id)
 {
-    if (primaryCharts.count(id) == 1) return;
-    else UpdateSelection(id);
+    UpdateSelection(id);
 }
 
 void MeshViewer::UpdateSelection(const RegionID id)
@@ -415,19 +414,38 @@ void MeshViewer::UpdateSelection(const RegionID id)
     // Allocate new buffers if necessary
     std::set<ChartHandle> newCharts;
     std::size_t  newElements = 0;
-    if (selectedRegions.count(id) == 0) {
-        newCharts.insert(meshParamData->GetChart(id));
-        newElements += meshParamData->GetChart(id)->FN();
+
+    if (primaryCharts.count(id) == 1) {
+        // de-select
+        primaryCharts.erase(id);
+        selectedRegions[id].referenceCount--;
+        for (auto& chart : meshParamData->GetChart(id)->adj) {
+            selectedRegions[chart->id].referenceCount--;
+        }
+        if (primaryCharts.size() == 0) {
+            ClearSelection();
+            return;
+        }
     }
     else {
-        selectedRegions[id].referenceCount++;
-    }
-    for (auto chart : meshParamData->GetChart(id)->adj) {
-        if (selectedRegions.count(chart->id) == 0) {
-            newCharts.insert(chart);
-            newElements += chart->FN();
-        } else {
-            selectedRegions[chart->id].referenceCount++;
+        // make the selected chart primary
+        primaryCharts[id] = 1;
+
+        if (selectedRegions.count(id) == 0) {
+            // new buffers will be allocated later
+            newCharts.insert(meshParamData->GetChart(id));
+            newElements += meshParamData->GetChart(id)->FN();
+        }
+        else {
+            selectedRegions[id].referenceCount++;
+        }
+        for (auto chart : meshParamData->GetChart(id)->adj) {
+            if (selectedRegions.count(chart->id) == 0) {
+                newCharts.insert(chart);
+                newElements += chart->FN();
+            } else {
+                selectedRegions[chart->id].referenceCount++;
+            }
         }
     }
     if (newElements > 0) {
@@ -588,8 +606,7 @@ void MeshViewer::UpdateSelection(const RegionID id)
         CheckGLError();
     }
 
-    // make the selected chart primary
-    primaryCharts[id] = 1;
+    // parameterize selection and generate rendering data
 
     if (_vertexBuffers.detail != 0) {
         glDeleteBuffers(1, &_vertexBuffers.detail);
@@ -689,9 +706,7 @@ void MeshViewer::UpdateSelection(const RegionID id)
         for (auto fptr : aggregate->fpVec) {
             CCIDh[fptr] = fd[fptr].id;
             for (int i = 0; i < 3; ++i) {
-                std::cout << fptr->WT(i).U() << " ";
                 fptr->WT(i) = fd[fptr].wt.tc[i];
-                std::cout << fptr->WT(i).U() << std::endl;
             }
         }
     } else {
@@ -1064,14 +1079,16 @@ void MeshViewer::Draw3DView()
         for (const auto& sel : selectedRegions) {
             RegionID id = sel.first;
             const SelectionBufferInfo& sbi = sel.second;
-            glBindVertexArray(selectionVao[sbi.bufferIndex]);
-            if (primaryCharts.count(id) == 1) {
-                float one[] = {1.0f, 1.0f, 1.0f, 1.0f};
-                glUniform4fv(_perspectiveView.selection.uniforms.loc_weight, 1, one);
-            } else {
-                glUniform4fv(_perspectiveView.selection.uniforms.loc_weight, 1, regionColors[id].V());
+            if (sbi.referenceCount > 0) {
+                glBindVertexArray(selectionVao[sbi.bufferIndex]);
+                if (primaryCharts.count(id) == 1) {
+                    float one[] = {1.0f, 1.0f, 1.0f, 1.0f};
+                    glUniform4fv(_perspectiveView.selection.uniforms.loc_weight, 1, one);
+                } else {
+                    glUniform4fv(_perspectiveView.selection.uniforms.loc_weight, 1, regionColors[id].V());
+                }
+                glDrawArrays(GL_TRIANGLES, sbi.first, sbi.count);
             }
-            glDrawArrays(GL_TRIANGLES, sbi.first, sbi.count);
         }
 
         // Now draw transparent layer
@@ -1157,14 +1174,16 @@ void MeshViewer::DrawTextureView()
         for (const auto& sel : selectedRegions) {
             RegionID id = sel.first;
             const SelectionBufferInfo& sbi = sel.second;
-            glBindVertexArray(highlightVao[sbi.bufferIndex]);
-            if (primaryCharts.count(id) == 1) {
-                float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
-                glUniform4fv(_textureView.highlight.uniforms.loc_primitiveColor, 1, white);
-            } else {
-                glUniform4fv(_textureView.highlight.uniforms.loc_primitiveColor, 1, regionColors[id].V());
+            if (sbi.referenceCount > 0) {
+                glBindVertexArray(highlightVao[sbi.bufferIndex]);
+                if (primaryCharts.count(id) == 1) {
+                    float white[] = {1.0f, 1.0f, 1.0f, 1.0f};
+                    glUniform4fv(_textureView.highlight.uniforms.loc_primitiveColor, 1, white);
+                } else {
+                    glUniform4fv(_textureView.highlight.uniforms.loc_primitiveColor, 1, regionColors[id].V());
+                }
+                glDrawArrays(GL_LINES, sbi.first_highlight, 4);
             }
-            glDrawArrays(GL_LINES, sbi.first_highlight, 4);
         }
     }
 
@@ -1434,7 +1453,7 @@ void MeshViewer::ManageImGuiState()
         if (ImGui::Button("Pack the atlas")) {
             ClearSelection();
             if (meshParamData->MergeCount() > 0) {
-                int c = ParameterizeGraph(meshParamData);
+                int c = ParameterizeGraph(meshParamData, strategy);
                 if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
                 updateTexcoord = true;
                 if (activeDistIndex != -1) {
@@ -1497,20 +1516,28 @@ void MeshViewer::ManageImGuiState()
         ImGui::Separator();
 
         static DirectParameterizer parameterizer[] = { DCP, FixedBorderBijective };
-        static TexCoordOptimizer optimizer[] = { AreaPreserving, MIPS };
+        static TexCoordOptimizer optimizer[] = { AreaPreserving, SymmetricDirichlet, MIPS };
+        static Geometry geometry[] = { VertexPosition, WedgeTexCoord };
 
         static int parameterizerInUse = 0;
         static int optimizerInUse = 0;
+        static int geometryInUse = 1;
+
+        ImGui::Text("Geometry");
+        ImGui::RadioButton("Vertex position", &geometryInUse, 0);
+        ImGui::RadioButton("Texture coords", &geometryInUse, 1);
 
         ImGui::Text("Parameterizer");
         ImGui::RadioButton("DCP", &parameterizerInUse, 0);
         ImGui::RadioButton("Fixed border Bijective", &parameterizerInUse, 1);
         ImGui::Text("Optimizer");
         ImGui::RadioButton("Area preserving", &optimizerInUse, 0);
-        ImGui::RadioButton("MIPS", &optimizerInUse, 1);
+        ImGui::RadioButton("Symmetric Dirichlet", &optimizerInUse, 1);
+        ImGui::RadioButton("MIPS", &optimizerInUse, 2);
 
         strategy.directParameterizer = parameterizer[parameterizerInUse];
         strategy.optimizer = optimizer[optimizerInUse];
+        strategy.geometry = geometry[geometryInUse];
 
         ImGui::Text("Optimizer iterations");
         ImGui::InputInt("##Optimizer iterations", &strategy.optimizerIterations, 1, 100);
@@ -1528,12 +1555,17 @@ void MeshViewer::ManageImGuiState()
 
         ImGui::Separator();
 
+        static bool distortionFromTexture = false;
         ImGui::Text("Distortion metric");
+        bool clicked = ImGui::Checkbox("Target original texture", &distortionFromTexture);
         ImGui::RadioButton("Area Distortion", &distortionIndex, 0);
         ImGui::RadioButton("Edge Distortion", &distortionIndex, 1);
         ImGui::RadioButton("Angle Distortion", &distortionIndex, 2);
-        if (distortionIndex != activeDistIndex) {
-            meshParamData->MapDistortion(distortion[distortionIndex]);
+        if (distortionIndex != activeDistIndex || clicked) {
+            if (distortionFromTexture)
+                meshParamData->MapDistortionFromTexCoord(distortion[distortionIndex]);
+            else
+                meshParamData->MapDistortion(distortion[distortionIndex]);
             activeDistIndex = distortionIndex;
             updateColor = true;
         }
@@ -1586,15 +1618,19 @@ void MeshViewer::ManageImGuiState()
         if (selectedRegions.size() > 0) {
             ImGui::Begin("Selection widget", nullptr, 0);
             int i = 0;
+            std::vector<RegionID> selected;
             for (const auto& entry : selectedRegions) {
                 RegionID id = entry.first;
                 const SelectionBufferInfo& sbi = entry.second;
-                ImVec4 bg = (primaryCharts.count(id) == 1) ? ImVec4(0.4f, 0.4f, 0.4f, 1.0f) : ImVec4(0.1f, 0.1f, 0.1f, 1.0f);
-                if (ImGui::ImageButton((void *)(long unsigned)sbi.texicon, ImVec2(64, 64), ImVec2(0, 1), ImVec2(1, 0), -1, bg)) {
-                    Select(id);
+                if (sbi.referenceCount > 0) {
+                    ImVec4 bg = (primaryCharts.count(id) == 1) ? ImVec4(0.4f, 0.4f, 0.4f, 1.0f) : ImVec4(0.1f, 0.1f, 0.1f, 1.0f);
+                    if (ImGui::ImageButton((void *)(long unsigned)sbi.texicon, ImVec2(64, 64), ImVec2(0, 1), ImVec2(1, 0), -1, bg)) {
+                        selected.push_back(id);
+                    }
+                    if ((++i % 4) != 0) ImGui::SameLine();
                 }
-                if ((++i % 4) != 0) ImGui::SameLine();
             }
+            for (auto id : selected) Select(id);
             ImGui::End();
         }
     }

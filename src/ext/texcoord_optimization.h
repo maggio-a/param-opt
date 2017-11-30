@@ -1,10 +1,13 @@
-// to be included in the library
-
 #ifndef __VCGLIB__TEXTCOOORD_OPTIMIZATION
 #define __VCGLIB__TEXTCOOORD_OPTIMIZATION
 
+#include <cmath>
 
 #include <vcg/container/simple_temporary_data.h>
+#include <vcg/complex/complex.h>
+
+#include "vertex_position.h"
+
 /*
 
 SINGLE PATCH TEXTURE OPTIMIZATIONS
@@ -25,119 +28,122 @@ namespace tri
 template <class ScalarType>
 bool testParamCoordsPoint(const vcg::Point2<ScalarType> &p)
 {
-	ScalarType eps=(ScalarType)0.00001;
-	if (!((p.X()>=-1-eps)&&(p.X()<=1+eps)&&
-		   (p.Y()>=-1-eps)&&(p.Y()<=1+eps)))
-			return (false);
-	return true;
+    ScalarType eps=(ScalarType)0.00001;
+    if (!((p.X()>=-1-eps) && (p.X()<=1+eps)  && (p.Y()>=-1-eps) && (p.Y()<=1+eps)))
+        return false;
+    return true;
 }
 
 /* Base class for all Texture Optimizers*/
-template<class MESH_TYPE> 
+template<class MESH_TYPE>
 class TexCoordOptimization{
 protected:
-  MESH_TYPE &m;
-  SimpleTempData<typename MESH_TYPE::VertContainer, int > isFixed;
+    MESH_TYPE &m;
+    SimpleTempData<typename MESH_TYPE::VertContainer, int > isFixed;
 public:
 
-  /* Tpyes */
-  typedef MESH_TYPE MeshType;
-  typedef typename MESH_TYPE::VertexIterator VertexIterator;
-  typedef typename MESH_TYPE::FaceIterator FaceIterator;
-  typedef typename MESH_TYPE::VertexType VertexType;
-  typedef typename MESH_TYPE::FaceType FaceType;
-  typedef typename MESH_TYPE::ScalarType ScalarType;
-  
-  
-  /* Access functions */
-  const MeshType & Mesh() const {return m;}
-  MeshType & Mesh() {return m;}
-   
-  /* Constructior */
-  TexCoordOptimization(MeshType &_m):m(_m),isFixed(_m.vert){
-   /* assert(m.HasPerVertexTexture());*/
-  }
-  
-  // initializes on current geometry 
-  virtual void TargetCurrentGeometry()=0;
-  
-  // performs an interation. Returns largest movement.
-  virtual ScalarType Iterate()=0;
-  
-  // performs an iteration (faster, but it does not tell how close it is to stopping)
-  virtual void IterateBlind()=0;
-  
-  // performs <steps> iteration
-  virtual ScalarType IterateN(int step){
-    for (int i=0; i<step-1; i++) {
-      this->IterateBlind();
+    /* Types */
+    typedef MESH_TYPE MeshType;
+    typedef typename MESH_TYPE::VertexIterator VertexIterator;
+    typedef typename MESH_TYPE::FaceIterator FaceIterator;
+    typedef typename MESH_TYPE::VertexType VertexType;
+    typedef typename MESH_TYPE::FaceType FaceType;
+    typedef typename MESH_TYPE::ScalarType ScalarType;
+
+
+    /* Access functions */
+    const MeshType & Mesh() const { return m; }
+    MeshType & Mesh() { return m; }
+
+    /* Constructior */
+    TexCoordOptimization(MeshType &_m) : m(_m), isFixed(_m.vert, 0)
+    {
     }
-    if (step>1) return this->Iterate(); else return 0;
-  }
- 
-  // performs iterations until convergence.
-  virtual int IterateUntilConvergence(ScalarType threshold=0.0001, int maxite=5000){
-    int i=0;
-    while (Iterate()>threshold) {
-	  if (i++>maxite) return i;
+
+    // initializes on current geometry
+    virtual void TargetCurrentGeometry() = 0;
+
+    // performs an interation. Returns largest movement.
+    virtual ScalarType Iterate() = 0;
+
+    // performs an iteration (faster, but it does not tell how close it is to stopping)
+    virtual void IterateBlind() = 0;
+
+    // performs <steps> iteration
+    virtual ScalarType IterateN(int step)
+    {
+        for (int i=0; i<step-1; i++) this->IterateBlind();
+        if (step>1) return this->Iterate();
+        else return 0;
     }
-    return i;
-  }
-  
-  // desctuctor: free temporary field
-  ~TexCoordOptimization(){
-    /*isFixed.Stop();*/
-  };
-  
-  // set the current border as fixed (forced to stay in position during text optimization)
-  void SetBorderAsFixed(){
-    /*isFixed.Start();*/
-    for (VertexIterator v=m.vert.begin(); v!=m.vert.end(); v++) {
-		  isFixed[v]=(v->IsB())?1:0; 
-	  }  
-  }
-  
-  // everything moves, no vertex must fixed during texture optimization)
-  void SetNothingAsFixed(){
-    //isFixed.Start();
-    for (VertexIterator v=m.vert.begin(); v!=m.vert.end(); v++) {
-		  isFixed[v]=0; 
-	  }  
-  }
-  
-  // fix a given vertex
-  void FixVertex(const VertexType *v, bool fix=true){
-    isFixed[v]=(fix)?1:0;
-  }
 
-  bool IsFixed(const VertexType *v)
-  {
-	return (isFixed[v]);
-  }
+    // performs iterations until convergence.
+    virtual int IterateUntilConvergence(ScalarType threshold=0.0001, int maxite=5000)
+    {
+        int i = 0;
+        while (Iterate()>threshold) {
+            if (i++>maxite) return i;
+        }
+        return i;
+    }
 
-  bool Fixed(const FaceType* f)
-  {
-	return ((isFixed[f->V(0)])&&(isFixed[f->V(1)])&&(isFixed[f->V(2)]));
-  }
+    // desctuctor: free temporary field
+    virtual ~TexCoordOptimization()
+    {
+    }
 
-  virtual void SetSpeed(ScalarType){
-    //assert(0); // by default, no speed to set
-  }
+    // set the current border as fixed (forced to stay in position during text optimization)
+    void SetBorderAsFixed()
+    {
+        for (VertexIterator v=m.vert.begin(); v!=m.vert.end(); v++) {
+            isFixed[v]=(v->IsB())?1:0;
+        }
+    }
 
-  virtual ScalarType GetSpeed(){
-    //assert(0); // by default, no speed to set
-    return 0;
-  }
-   
-  virtual void SetTheta(int){
-    assert(0);
-  }
+    // everything moves, no vertex must fixed during texture optimization)
+    void SetNothingAsFixed()
+    {
+        for (VertexIterator v=m.vert.begin(); v!=m.vert.end(); v++) {
+            isFixed[v]=0;
+        }
+    }
 
-  virtual int GetTheta(){
-    assert(0);
-    return 0;
-  }
-  
+    // fix a given vertex
+    void FixVertex(const VertexType *v, bool fix=true)
+    {
+        isFixed[v]=(fix)?1:0;
+    }
+
+    bool IsFixed(const VertexType *v)
+    {
+        return (isFixed[v]);
+    }
+
+    bool Fixed(const FaceType* f)
+    {
+        return ((isFixed[f->V(0)])&&(isFixed[f->V(1)])&&(isFixed[f->V(2)]));
+    }
+
+    virtual void SetSpeed(ScalarType)
+    {
+    }
+
+    virtual ScalarType GetSpeed()
+    {
+        return 0;
+    }
+
+    virtual void SetTheta(int)
+    {
+        assert(0);
+    }
+
+    virtual int GetTheta()
+    {
+        assert(0);
+        return 0;
+    }
+
 };
 
 /*
@@ -162,7 +168,7 @@ Features:
        Lower speed => longer convercence times
 */
 
-template<class MESH_TYPE> 
+template<class MESH_TYPE, class VertexPosFct = DefaultVertexPosition<MESH_TYPE>>
 class AreaPreservingTexCoordOptimization:public TexCoordOptimization<MESH_TYPE>{
 public:
   /* Types */
@@ -180,8 +186,12 @@ private:
   
   // extra data per face: [0..3] -> cotangents. [4] -> area*2
   SimpleTempData<typename MESH_TYPE::FaceContainer, Point4<ScalarType> > data;
+
+  // vertex gradients
   SimpleTempData<typename MESH_TYPE::VertContainer, Point2<ScalarType> > sum;
-  
+
+  // per face gradient components (sumX is a vector of 3d points where sumX[k][i] contains
+  // the gradient term of vertex i wrt to face k, same goes for sumY)
   std::vector<CoordType> sumX;
   std::vector<CoordType> sumY;
 
@@ -194,11 +204,14 @@ private:
   
   int theta;
   
+  VertexPosFct VertexPos;
+
 public:
   
    
   // constructor and destructor
-  AreaPreservingTexCoordOptimization(MeshType &_m):Super(_m),data(_m.face),sum(_m.vert),lastDir(_m.vert),vSpeed(_m.vert,1){
+  AreaPreservingTexCoordOptimization(MeshType &_m, VertexPosFct vpf = VertexPosFct{})
+      :Super(_m),data(_m.face),sum(_m.vert),lastDir(_m.vert),vSpeed(_m.vert,1), VertexPos{vpf} {
     speed=(ScalarType)0.00005;
     theta=3;
 	
@@ -241,10 +254,10 @@ public:
 
   ScalarType Area(int i)
   {
-         FaceType *f=&(Super::m.face[i]);
-	 double val=0;
-	 if (!(Super::isFixed[f->V(0)]&& Super::isFixed[f->V(1)] && Super::isFixed[f->V(2)]))
-		val=(f->V(1)->T().P()-f->V(0)->T().P())^(f->V(2)->T().P()-f->V(0)->T().P());
+    FaceType *f = &(Super::m.face[i]);
+    double val = 0;
+    if (!(Super::isFixed[f->V(0)] && Super::isFixed[f->V(1)] && Super::isFixed[f->V(2)]))
+      val = (f->V(1)->T().P()-f->V(0)->T().P())^(f->V(2)->T().P()-f->V(0)->T().P());
 
 	/* bool b0=testParamCoords(f->V(0));
 	 bool b1=testParamCoords(f->V(1));
@@ -262,37 +275,35 @@ public:
 	 return fabs(val);
   }
 
- void InitSum()
- {
-	 int k;
-         auto n=Super::m.vert.size();
-         auto n1=Super::m.face.size();
-	 for (k=0;k<n;k++) 
-	 {
-	   sum[k]=Point2<ScalarType>(0,0); 
-	 }
-	 for (k=0;k<n1;k++)
-	 {
-	   sumX[k].X()=0;
-	   sumX[k].Y()=0;
-	   sumX[k].Z()=0;
-	   sumY[k].X()=0;
-	   sumY[k].Y()=0;
-	   sumY[k].Z()=0;
-	 }
- }
+  void InitSum()
+  {
+    int k;
+    auto n = Super::m.vert.size();
+    auto n1 = Super::m.face.size();
+    for (k = 0; k < n; k++) {
+      sum[k]=Point2<ScalarType>(0,0);
+    }
+    for (k = 0; k < n1; k++) {
+      sumX[k].X()=0;
+      sumX[k].Y()=0;
+      sumX[k].Z()=0;
+      sumY[k].X()=0;
+      sumY[k].Y()=0;
+      sumY[k].Z()=0;
+    }
+  }
 
-ScalarType getProjArea()
-{
-	  int k;
-          int n=Super::m.face.size();
-	  ScalarType tot_proj_area=0;
-	 //# pragma omp parallel for 
-	  for (k=0;k<n; k++) {
-	      tot_proj_area+=Area(k);
-	  }
-	  return (tot_proj_area);
-}
+  ScalarType getProjArea()
+  {
+    int k;
+    int n = Super::m.face.size();
+    ScalarType tot_proj_area=0;
+   //# pragma omp parallel for
+    for (k = 0; k < n; k++) {
+      tot_proj_area+=Area(k);
+    }
+    return (tot_proj_area);
+  }
 
 vcg::Point2<ScalarType> VertValue(const int &face,const int &vert,const double &scale)
 {
@@ -401,10 +412,11 @@ ScalarType Iterate()
      /* if ( n*speed<=0.1 );
       {*/
 
-            vcg::Point2f goal=v->T().P()-(sum[v] * (speed * vSpeed[v]) );
+            /*vcg::Point2f goal=v->T().P()-(sum[v] * (speed * vSpeed[v]) );
             bool isOK=testParamCoordsPoint<ScalarType>(goal);
             if (isOK)
-                v->T().P()-=(sum[v] * (speed * vSpeed[v]) );
+                v->T().P()-=(sum[v] * (speed * vSpeed[v]) ); */
+            v->T().P()-=(sum[v] * (speed * vSpeed[v]) );
 
 
             n=n*speed * vSpeed[v];
@@ -416,26 +428,27 @@ ScalarType Iterate()
 }
 
   
-  void TargetCurrentGeometry(){
+  void TargetCurrentGeometry()
+  {
     
    /* Super::isFixed.Start();
     data.Start();
     sum.Start();*/
-      sumX.resize(Super::m.face.size());
-          sumY.resize(Super::m.face.size());
-	  totArea=0;
-	  for (FaceIterator f=Super::m.face.begin(); f!=Super::m.face.end(); f++) {
-		  double area2 = 	((f->V(1)->P() - f->V(0)->P() )^(f->V(2)->P() - f->V(0)->P() )).Norm();
-		  totArea+=area2;
-		
+    for (auto& v : Super::m.vert) lastDir[&v] = Point2f(0, 0);
+    sumX.resize(Super::m.face.size());
+    sumY.resize(Super::m.face.size());
+    totArea=0;
+    for (FaceIterator f=Super::m.face.begin(); f!=Super::m.face.end(); f++) {
+      //double area2 = ((f->V(1)->P() - f->V(0)->P() )^(f->V(2)->P() - f->V(0)->P() )).Norm();
+      double area2 = ((VertexPos(&*f, 1) - VertexPos(&*f, 0)) ^ (VertexPos(&*f, 2) - VertexPos(&*f, 1))).Norm();
+      totArea+=area2;
 		  //if (  Super::isFixed[f->V1(0)] )
-		  for (int i=0; i<3; i++){
-			  data[f][i]=(
-				(f->V1(i)->P() - f->V0(i)->P() )*(f->V2(i)->P() - f->V0(i)->P() )
-			  )/area2;
-			  data[f][3]=area2;
-		  }
-	  }
+      for (int i=0; i<3; i++) {
+        //data[f][i]=((f->V1(i)->P() - f->V0(i)->P()) * (f->V2(i)->P() - f->V0(i)->P())) / area2;
+        data[f][i]= ((VertexPos.V1(&*f, i) - VertexPos.V0(&*f, i)) * (VertexPos.V2(&*f, i) - VertexPos.V0(&*f, i))) / area2;
+        data[f][3]=area2;
+      }
+    }
   }
   
 };
@@ -457,148 +470,528 @@ Features:
 
 */
 
-template<class MESH_TYPE> 
+template<class MESH_TYPE, class VertexPosFct = DefaultVertexPosition<MESH_TYPE>>
 class MIPSTexCoordOptimization:public TexCoordOptimization<MESH_TYPE>{
 public:
-  /* Types */
-  typedef MESH_TYPE MeshType;
-  typedef typename MESH_TYPE::VertexIterator VertexIterator;
-  typedef typename MESH_TYPE::FaceIterator FaceIterator;
-  typedef typename MESH_TYPE::VertexType VertexType;
-  typedef typename MESH_TYPE::FaceType FaceType;
-  typedef typename MESH_TYPE::ScalarType ScalarType;
-  
+    /* Types */
+    typedef MESH_TYPE MeshType;
+    typedef typename MESH_TYPE::VertexIterator VertexIterator;
+    typedef typename MESH_TYPE::FaceIterator FaceIterator;
+    typedef typename MESH_TYPE::VertexType VertexType;
+    typedef typename MESH_TYPE::FaceType FaceType;
+    typedef typename MESH_TYPE::ScalarType ScalarType;
+
 
 protected:
-  typedef TexCoordOptimization<MESH_TYPE> Super; // superclass (commodity)
-  
-  // extra data per face: [0..3] -> cotangents. 
-  SimpleTempData<typename MESH_TYPE::FaceContainer, Point3<ScalarType> > data;
-  SimpleTempData<typename MESH_TYPE::VertContainer, Point2<ScalarType> > sum;
-  
-  ScalarType totArea;
-  ScalarType speed;
-  
+    typedef TexCoordOptimization<MESH_TYPE> Super; // superclass (commodity)
+
+    // extra data per face: [0..3] -> cotangents.
+    SimpleTempData<typename MESH_TYPE::FaceContainer, Point3<ScalarType> > data;
+    SimpleTempData<typename MESH_TYPE::VertContainer, Point2<ScalarType> > sum;
+
+    ScalarType totArea;
+    ScalarType speed;
+
+    VertexPosFct VertexPos;
+
 public:
-  
-   
-  // constructor and destructor
-  MIPSTexCoordOptimization(MeshType &_m):Super(_m),data(_m.face),sum(_m.vert){
-    speed=(ScalarType)0.001;
-  }
-  
-  ~MIPSTexCoordOptimization(){
-   /* data.Stop();
-    sum.Stop();
-    Super::isFixed.Stop();*/
-  }
-  
-  void SetSpeed(ScalarType _speed){
-    speed=_speed;
-  }
 
-  ScalarType GetSpeed(){
-    return speed;
-  }
-  
-  void IterateBlind(){
-    /* todo: do as iterate, but without */ 
-    Iterate();
-  }
-  
-  ScalarType Iterate(){
-        
-    #define v0 (f->V(0)->T().P())
-    #define v1 (f->V(1)->T().P())
-    #define v2 (f->V(2)->T().P())
-    #define vi (f->V(i)->T().P())
-    #define vj (f->V(j)->T().P())
-    #define vk (f->V(k)->T().P())
-	  for (VertexIterator v=Super::m.vert.begin(); v!=Super::m.vert.end(); v++) {
-		  //sum[v].Zero();
-		  sum[v]=Point2<ScalarType>(0,0);
-	  }
 
-    ScalarType totProjArea=0;
-	  for (FaceIterator f=Super::m.face.begin(); f!=Super::m.face.end(); f++) {
-      ScalarType area2 = ((v1-v0) ^ (v2-v0));
-      totProjArea+=area2;
-      ScalarType o[3] = { // (opposite edge)^2 
-        (   v1-v2).SquaredNorm(),
-        (v0   -v2).SquaredNorm(),
-        (v0-v1   ).SquaredNorm(),
-      };
-      ScalarType e =( data[f][0] * o[0] + 
-                      data[f][1] * o[1] + 
-                      data[f][2] * o[2] ) / (area2*area2);            
-
-		  for (int i=0; i<3; i++){               
-        int j=(i+1)%3, k=(i+2)%3;                     
-			  ScalarType p=(vj-vi)*(vk-vi);							  
-				ScalarType gy= e*(o[k]-p) - 2*data[f][j]; 
-				ScalarType gx= e*(o[j]-p) - 2*data[f][k];
-				      
-				// speed free mode: (a try!)
-			  //sum[f->V(i)]+= ( (vj-vi) * gx + (vk-vi) * gy );// / area2; 
-			  
-			  // speed mode:
-        sum[f->V(i)]+= ( (vj-vi) * gx + (vk-vi) * gy ) / area2; 
-		  }
-	  }
- 
-    ScalarType max=0; // max displacement
-
- 	  for (VertexIterator v=Super::m.vert.begin(); v!=Super::m.vert.end(); v++) 
-    if (  !Super::isFixed[v] ) 
+    // constructor and destructor
+    MIPSTexCoordOptimization(MeshType &_m, VertexPosFct vpf = VertexPosFct{}):Super(_m),data(_m.face),sum(_m.vert), VertexPos{vpf}
     {
-      // speed free mode: (a try!)
-      //v->T().P()-=speed * sum[v] *totProjArea/totArea;
-      
-      // speed mode:     
-      
-      ScalarType n=sum[v].Norm(); if ( n > 1 ) { sum[v]/=n; n=1.0;}
-		  v->T().P()-=(sum[v] ) * speed ;
-		  if (max<n) max=n;
-		  
-  	}
-  	return max;
-  	#undef v0
-    #undef v1 
-    #undef v2 
-  	#undef vi
-    #undef vj 
-    #undef vk 
-  	//printf("rejected %d\n",rejected);
-  }
-  
+        speed = (ScalarType)0.001;
+    }
+
+    ~MIPSTexCoordOptimization()
+    {
+        /* data.Stop();
+        sum.Stop();
+        Super::isFixed.Stop();*/
+    }
+
+    void SetSpeed(ScalarType _speed)
+    {
+        speed=_speed;
+    }
+
+    ScalarType GetSpeed()
+    {
+        return speed;
+    }
+
+    void IterateBlind()
+    {
+        /* todo: do as iterate, but without */
+        Iterate();
+    }
+
+/*
+    ScalarType Iterate()
+    {
+
+#define p0 (f->V(0)->P())
+#define p1 (f->V(1)->P())
+#define p2 (f->V(2)->P())
+#define q0 (f->V(0)->T().P())
+#define q1 (f->V(1)->T().P())
+#define q2 (f->V(2)->T().P())
+#define qi (f->V(i)->T().P())
+#define qj (f->V(j)->T().P())
+#define qk (f->V(k)->T().P())
+
+        for (VertexIterator v=Super::m.vert.begin(); v!=Super::m.vert.end(); v++) {
+            sum[v]=Point2<ScalarType>(0,0);
+        }
+
+        //ScalarType totProjArea=0;
+        ScalarType totalEnergy = 0;
+        for (FaceIterator f=Super::m.face.begin(); f!=Super::m.face.end(); f++) {
+            //totProjArea+=area2;
+            ScalarType o[3] = { // (opposite edge)^2
+                (   q1-q2).SquaredNorm(),
+                (q0   -q2).SquaredNorm(),
+                (q0-q1   ).SquaredNorm(),
+            };
+
+            ScalarType cotg[3] = {
+                std::tan(float(M_PI_2) - data[f][0]),
+                std::tan(float(M_PI_2) - data[f][1]),
+                std::tan(float(M_PI_2) - data[f][2]),
+            };
+
+            // dirichlet energy at the current face
+            ScalarType e_d = cotg[0] * o[0] + cotg[1] * o[1] + cotg[2] * o[2];
+            ScalarType area = 0.5f * ((q1 - q0) ^ (q2 - q0));
+            ScalarType areaSquared = area * area;
+
+            ScalarType area3D = ((p1 - p0) ^ (p2 - p0)).Norm() / 2;
+
+            ScalarType areaTermRatio = - (area3D*area3D) / (area*area*area);
+            ScalarType e_a = (1 + (area3D*area3D) / (area*area));
+
+            totalEnergy += e_d / (area); // multiplied by the area in parameter space
+
+            assert(area > 0);
+
+            for (int i = 0; i < 3; ++i) {
+                int j = (i+1)%3;
+                int k = (i+2)%3;
+
+                ScalarType gu_area = areaTermRatio * ( qj.Y() - qk.Y());
+                ScalarType gv_area = areaTermRatio * (-qj.X() + qk.X());
+
+                ScalarType gu_angle = (cotg[k]*(qi.X() - qj.X()) + cotg[j]*(qi.X() - qk.X()));
+                ScalarType gv_angle = (cotg[k]*(qi.Y() - qj.Y()) + cotg[j]*(qi.Y() - qk.Y()));
+
+                ScalarType gu = gu_area * e_d + e_a * gu_angle;
+                ScalarType gv = gv_area * e_d + e_a * gv_angle;
+
+                sum[f->V(i)].X() += gu;
+                sum[f->V(i)].Y() += gv;
+
+                // MIPS che non funziona
+                ScalarType mips_gu_area =  qj.Y() - qk.Y();
+                ScalarType mips_gv_area = -qj.X() + qk.X();
+
+                ScalarType mips_gu = 2 * (gu_angle * area - e_d * mips_gu_area) / areaSquared;
+                ScalarType mips_gv = 2 * (gv_angle * area - e_d * mips_gv_area) / areaSquared;
+
+                //sum[f->V(i)].X() += mips_gu;
+                //sum[f->V(i)].Y() += mips_gv;
 
 
-  
-  void TargetCurrentGeometry(){
-    
-   /* Super::isFixed.Start();
-    data.Start();
-    sum.Start();*/
-    
-	  totArea=0;
-	  for (FaceIterator f=Super::m.face.begin(); f!=Super::m.face.end(); f++) {
-		  double area2 = 	((f->V(1)->P() - f->V(0)->P() )^(f->V(2)->P() - f->V(0)->P() )).Norm();
-		  totArea+=area2;
-		  for (int i=0; i<3; i++){
-			  data[f][i]=(
-				  (f->V1(i)->P() - f->V0(i)->P() )*(f->V2(i)->P() - f->V0(i)->P() )
-			  );
-        // / area2;
-		  }
-	  }
-  }
-  
+                //ScalarType gu = (cotg[k]*(qi.X() - qj.X()) + cotg[j]*(qi.X() - qk.X())) * area - (e_d * (qj.Y() - qk.Y()));
+                //ScalarType gv = (cotg[k]*(qi.Y() - qj.Y()) + cotg[j]*(qi.Y() - qk.Y())) * area - (e_d * (qk.X() - qj.X()));
+
+                //ScalarType gv = 2.0f * (cotg[k]*(qi.Y() - qj.Y()) + cotg[j]*(qi.Y() - qk.Y())) * area - e_d * (0.5f * qk.X() - qj.X());
+                //gv = (2.0f * gv) / areaSquared;
+
+                //sum[f->V(i)].X() += (2 / areaSquared) * gu;
+                //sum[f->V(i)].Y() += (2 / areaSquared) * gv;
+            }
+        }
+
+        ScalarType max=0; // max displacement
+
+        for (VertexIterator v=Super::m.vert.begin(); v!=Super::m.vert.end(); v++) {
+            if (!Super::isFixed[v]) {
+                // speed free mode: (a try!)
+                //v->T().P()-=speed * sum[v] *totProjArea/totArea;
+
+                // speed mode:
+
+                ScalarType n=sum[v].Norm();
+                if ( n > 1 ) { sum[v]/=n; n=1.0; }
+                v->T().P()-=(sum[v] ) * speed ;
+                n = n * speed;
+                if (max<n) max=n;
+            }
+        }
+        std::cout << "Total energy = " << totalEnergy << std::endl;
+        return max;
+#undef p0
+#undef p1
+#undef p2
+#undef q0
+#undef q1
+#undef q2
+#undef qi
+#undef qj
+#undef qk
+        //printf("rejected %d\n",rejected);
+    }
+
+
+*/
+
+
+
+    ScalarType Iterate()
+    {
+
+#define v0 (f->V(0)->T().P())
+#define v1 (f->V(1)->T().P())
+#define v2 (f->V(2)->T().P())
+#define vi (f->V(i)->T().P())
+#define vj (f->V(j)->T().P())
+#define vk (f->V(k)->T().P())
+
+        for (VertexIterator v=Super::m.vert.begin(); v!=Super::m.vert.end(); v++) {
+            //sum[v].Zero();
+            sum[v]=Point2<ScalarType>(0,0);
+        }
+
+        ScalarType totProjArea=0;
+        for (FaceIterator f=Super::m.face.begin(); f!=Super::m.face.end(); f++) {
+            ScalarType area2 = ((v1-v0) ^ (v2-v0));
+            totProjArea+=area2;
+            ScalarType o[3] = { // (opposite edge)^2
+                (   v1-v2).SquaredNorm(),
+                (v0   -v2).SquaredNorm(),
+                (v0-v1   ).SquaredNorm(),
+            };
+            ScalarType e = (data[f][0] * o[0] +
+                            data[f][1] * o[1] +
+                            data[f][2] * o[2] ) / (area2*area2);
+
+            for (int i=0; i<3; i++) {
+                int j=(i+1)%3, k=(i+2)%3;
+                ScalarType p=(vj-vi)*(vk-vi);
+                ScalarType gy= e*(o[k]-p) - 2*data[f][j];
+                ScalarType gx= e*(o[j]-p) - 2*data[f][k];
+
+                // speed free mode: (a try!)
+                //sum[f->V(i)]+= ( (vj-vi) * gx + (vk-vi) * gy );// / area2;
+
+                // speed mode:
+                sum[f->V(i)]+= ( (vj-vi) * gx + (vk-vi) * gy ) / area2;
+            }
+        }
+
+        ScalarType max=0; // max displacement
+
+        for (VertexIterator v=Super::m.vert.begin(); v!=Super::m.vert.end(); v++) {
+            if (!Super::isFixed[v]) {
+                // speed free mode: (a try!)
+                //v->T().P()-=speed * sum[v] *totProjArea/totArea;
+
+                // speed mode:
+
+                ScalarType n=sum[v].Norm();
+                if ( n > 1 ) { sum[v]/=n; n=1.0; }
+                v->T().P()-=(sum[v] ) * speed ;
+                if (max<n) max=n;
+            }
+        }
+        return max;
+#undef v0
+#undef v1
+#undef v2
+#undef vi
+#undef vj
+#undef vk
+        //printf("rejected %d\n",rejected);
+    }
+/*
+    void TargetCurrentGeometry()
+    {
+        totArea = 0;
+        for (FaceIterator f=Super::m.face.begin(); f!=Super::m.face.end(); f++) {
+            double area2 = ((f->V(1)->P() - f->V(0)->P()) ^ (f->V(2)->P() - f->V(0)->P())).Norm();
+            totArea += area2;
+            for (int i=0; i<3; i++) {
+                data[f][i] = std::max(vcg::Angle(f->V1(i)->P() - f->V0(i)->P(),
+                                                 f->V2(i)->P() - f->V0(i)->P()),
+                                      float(1e-8));
+                // / area2;
+            }
+        }
+    }
+*/
+    void TargetCurrentGeometry()
+    {
+        /* Super::isFixed.Start();
+        data.Start();
+        sum.Start();*/
+        totArea = 0;
+        for (FaceIterator f=Super::m.face.begin(); f!=Super::m.face.end(); f++) {
+            double area2 = ((f->V(1)->P() - f->V(0)->P()) ^ (f->V(2)->P() - f->V(0)->P())).Norm();
+            totArea += area2;
+            for (int i=0; i<3; i++) {
+                //data[f][i]=((f->V1(i)->P() - f->V0(i)->P()) * (f->V2(i)->P() - f->V0(i)->P()));
+                data[f][i] = (VertexPos.V1(&*f, i) - VertexPos.V0(&*f, i)) * (VertexPos.V2(&*f, i) - VertexPos.V0(&*f, i));
+                // / area2;
+            }
+        }
+    }
+
 };
+
+/// Quadratic equation solver
+static float QuadraticRoots(float a, float b, float c, float *x1, float *x2)
+{
+    float delta = b*b - 4.0f*a*c;
+
+    if (delta >= 0) {
+        *x1 = (-b + std::sqrt(delta)) / (2*a);
+        *x2 = (-b - std::sqrt(delta)) / (2*a);
+    }
+
+/*
+    if (delta > 0) {
+        if (b >= 0) {
+            *x1 = (-b - std::sqrt(delta)) / 2.0f*a;
+            *x2 = 2.0f*c / (-b - std::sqrt(delta));
+        } else {
+            *x1 = 2.0f*c / (-b + std::sqrt(delta));
+            *x2 = (-b + std::sqrt(delta)) / 2.0f*a;
+        }
+    }
+    */
+    return delta;
+}
+
+// this functions takes the 2d base coordinates and the offsets for each vertex, and returns the smallest positive
+// step that prevents a triangle flip, or numeric_limits::max() if the step is unbounded
+/// Negli appunti pij = (u_ij, v_ij), uguale per pki
+static float ComputeStepSizeNoFlip(const Point2f& pi, const Point2f& pj, const Point2f& pk, const Point2f& di, const Point2f& dj, const Point2f& dk)
+{
+    Point2f dji = dj - di; Point2f dki = dk - di;
+    Point2f pji = pj - pi; Point2f pki = pk - pi;
+
+    float a = dji[0]*dki[1] - dji[1]*dki[0];
+    float b = pji[0]*dki[1] + pki[1]*dji[0] - pji[1]*dki[0] - pki[0]*dji[1];
+    float c = pji[0]*pki[1] - pji[1]*pki[0];
+
+    float x1, x2;
+    float delta = QuadraticRoots(a, b, c, &x1, &x2);
+    if (delta < 0) return std::numeric_limits<float>::max();
+    //assert(x1 != 0 && x2 != 0);
+    if (x2 < x1) std::swap(x1, x2);
+    if (x1 > 0) return x1;
+    else if (x2 > 0) return x2;
+    else return std::numeric_limits<float>::max();
+}
+
+
+template<class MESH_TYPE, class VertexPosFct = DefaultVertexPosition<MESH_TYPE>>
+class SymmetricDirichletTexCoordOptimization:public TexCoordOptimization<MESH_TYPE>{
+public:
+    /* Types */
+    typedef MESH_TYPE MeshType;
+    typedef typename MESH_TYPE::VertexIterator VertexIterator;
+    typedef typename MESH_TYPE::FaceIterator FaceIterator;
+    typedef typename MESH_TYPE::VertexType VertexType;
+    typedef typename MESH_TYPE::FaceType FaceType;
+    typedef typename MESH_TYPE::ScalarType ScalarType;
+
+
+protected:
+    typedef TexCoordOptimization<MESH_TYPE> Super; // superclass (commodity)
+
+    // extra data per face: [0..3] -> cotangents, 3D area
+    SimpleTempData<typename MESH_TYPE::FaceContainer, Point4<ScalarType> > data;
+    SimpleTempData<typename MESH_TYPE::VertContainer, Point2<ScalarType> > sum;
+
+    VertexPosFct VertexPos;
+
+public:
+
+    // constructor and destructor
+    SymmetricDirichletTexCoordOptimization(MeshType &_m, VertexPosFct vpf = VertexPosFct{}):Super(_m),data(_m.face),sum(_m.vert),VertexPos{vpf}
+    {
+    }
+
+    ~SymmetricDirichletTexCoordOptimization()
+    {
+    }
+
+    void IterateBlind()
+    {
+        /* todo: do as iterate, but without */
+        Iterate();
+    }
+
+
+    ScalarType Iterate()
+    {
+
+//#define p0 (VertexPos(&*f, 0))
+//#define p1 (VertexPos(&*f, 1))
+//#define p2 (VertexPos(&*f, 2))
+#define p0 (f.V(0)->P())
+#define p1 (f.V(1)->P())
+#define p2 (f.V(2)->P())
+#define q0 (f.V(0)->T().P())
+#define q1 (f.V(1)->T().P())
+#define q2 (f.V(2)->T().P())
+#define qi (f.V(i)->T().P())
+#define qj (f.V(j)->T().P())
+#define qk (f.V(k)->T().P())
+
+        for (VertexIterator v=Super::m.vert.begin(); v!=Super::m.vert.end(); v++) {
+            sum[v]=Point2<ScalarType>(0,0);
+        }
+
+        ScalarType totalEnergy = 0;
+        for (auto& f : Super::m.face) {
+            ScalarType o[3] = { // (opposite edge)^2
+                (   q1-q2).SquaredNorm(),
+                (q0   -q2).SquaredNorm(),
+                (q0-q1   ).SquaredNorm(),
+            };
+
+            ScalarType cotg[3] = {
+                std::tan(float(M_PI_2) - data[f][0]),
+                std::tan(float(M_PI_2) - data[f][1]),
+                std::tan(float(M_PI_2) - data[f][2]),
+            };
+
+            ScalarType area3D = data[f][3];
+            ScalarType areaUV = 0.5f * ((q1 - q0) ^ (q2 - q0));
+
+            // dirichlet energy at the current face
+            ScalarType e_d = cotg[0] * o[0] + cotg[1] * o[1] + cotg[2] * o[2];
+
+            ScalarType areaTermRatio = - (area3D*area3D) / (areaUV*areaUV*areaUV);
+            ScalarType e_a = (1 + (area3D*area3D) / (areaUV*areaUV));
+
+            //totalEnergy += e_d / (areaUV); // multiplied by the area in parameter space
+            totalEnergy += (1 + (area3D*area3D)/(areaUV*areaUV)) * (e_d);
+
+            assert(areaUV > 0);
+
+            for (int i = 0; i < 3; ++i) {
+                int j = (i+1)%3;
+                int k = (i+2)%3;
+
+                ScalarType gu_area = areaTermRatio * ( qj.Y() - qk.Y());
+                ScalarType gv_area = areaTermRatio * (-qj.X() + qk.X());
+
+                ScalarType gu_angle = (cotg[k]*(qi.X() - qj.X()) + cotg[j]*(qi.X() - qk.X()));
+                ScalarType gv_angle = (cotg[k]*(qi.Y() - qj.Y()) + cotg[j]*(qi.Y() - qk.Y()));
+
+                ScalarType gu = gu_area * e_d + e_a * gu_angle;
+                ScalarType gv = gv_area * e_d + e_a * gv_angle;
+
+                sum[f.V(i)].X() += gu;
+                sum[f.V(i)].Y() += gv;
+
+            }
+        }
+
+        // Compute descent step with inexact line search
+        float c = 0.1f;
+        float scalarTerm = 0;
+        float gamma = 0.8f;
+        float E_t = totalEnergy; // energy value for step t
+        // store current positions and precompute decrease factor (p_k.dot(grad_Ek) == -grad_Ek.SquaredNorm() since
+        // the descent direction p_k is -grad_Ek)
+
+        /// TO TRY normalize each direction
+        SimpleTempData<typename MESH_TYPE::VertContainer, Point2<ScalarType>> currentUV(Super::m.vert);
+        for (auto& v : Super::m.vert) {
+            currentUV[v] = v.T().P();
+            scalarTerm += sum[v].SquaredNorm();
+        }
+        scalarTerm = - c * scalarTerm;
+
+        // Compute max stepsize that guarantees no triangle inversion
+        float t = std::numeric_limits<float>::max();
+        for (auto& f : Super::m.face) {
+            float tFace = ComputeStepSizeNoFlip(q0, q1, q2, -sum[f.V(0)], -sum[f.V(1)], -sum[f.V(2)]);
+            if (tFace < t) t = tFace;
+        }
+        t = std::min(1.0f, t*0.8f);
+
+        int numIter = 0;
+        while (E_t > totalEnergy + t * scalarTerm) {
+            numIter++;
+            E_t = 0.0f;
+            for (auto& v : Super::m.vert) v.T().P() = currentUV[v] - t*sum[v];
+
+            // compute energy
+            for (auto& f : Super::m.face) {
+                ScalarType o[3] = { // (opposite edge)^2
+                    (   q1-q2).SquaredNorm(),
+                    (q0   -q2).SquaredNorm(),
+                    (q0-q1   ).SquaredNorm(),
+                };
+                ScalarType cotg[3] = {
+                    std::tan(float(M_PI_2) - data[f][0]),
+                    std::tan(float(M_PI_2) - data[f][1]),
+                    std::tan(float(M_PI_2) - data[f][2]),
+                };
+                ScalarType areaUV = 0.5f * ((q1 - q0) ^ (q2 - q0));
+                ScalarType area3D = data[f][3];
+                ScalarType e_d = cotg[0] * o[0] + cotg[1] * o[1] + cotg[2] * o[2];
+                E_t += (1 + (area3D*area3D)/(areaUV*areaUV)) * (e_d);
+            }
+
+            // update step size for next iteration
+            t *= gamma;
+        }
+
+        //std::cout << "Energy went from " << totalEnergy << " to " << E_t << " ITERATIONS=" << numIter
+        //          << " STEPSIZE=" << t << std::endl;
+
+        return std::sqrt((scalarTerm / (-c)));// returns the magnitude of the gradient
+
+        return max; */
+#undef p0
+#undef p1
+#undef p2
+#undef q0
+#undef q1
+#undef q2
+#undef qi
+#undef qj
+#undef qk
+    }
+
+    void TargetCurrentGeometry()
+    {
+        for (auto& f : Super::m.face) {
+            double area3D = ((VertexPos(&f, 1) - VertexPos(&f, 0)) ^ (VertexPos(&f, 2) - VertexPos(&f, 0))).Norm() / 2.0f;
+            data[f][3] = area3D;
+            for (int i=0; i<3; i++) {
+                data[f][i] = std::max(vcg::Angle(VertexPos.V1(&f, i) - VertexPos.V0(&f, i),
+                                                 VertexPos.V2(&f, i) - VertexPos.V0(&f, i)),
+                                      float(1e-8));
+            }
+        }
+    }
+};
+
+
+
+
 
 
 #if 0  // Temporarly commented out. It still have to be thoroughly tested...
 
-template<class MESH_TYPE> 
+template<class MESH_TYPE>
 class WachspressTexCoordOptimization:public TexCoordOptimization<MESH_TYPE>{
 public:
   /* Types */
@@ -688,6 +1081,8 @@ public:
 };
 
 #endif
+
+#if 0
 
 template<class MESH_TYPE> 
 class MeanValueTexCoordOptimization:public TexCoordOptimization<MESH_TYPE>{
@@ -851,7 +1246,7 @@ public:
   }
   
 };
-
+#endif
 
 /* texture coords general utility functions */
 /*++++++++++++++++++++++++++++++++++++++++++*/
