@@ -53,7 +53,8 @@ static bool ParameterizeChartFromInitialTexCoord(Mesh &m, GraphManager::ChartHan
     PMesh pm;
     std::unordered_map<Mesh::VertexPointer,PMesh::VertexPointer> mv_to_pmv;
 
-    CopyFaceGroupIntoMesh(pm, *ch, mv_to_pmv, [&WTCSh](Mesh::FacePointer fptr, int i) { return WTCSh[fptr].tc[i]; });
+    CopyFaceGroupIntoMesh(pm, *ch, mv_to_pmv);
+    WedgeTexCoordAttributePosition<PMesh> texcoordPosition{pm, "WedgeTexCoordStorage"};
 /*
     std::size_t vn = 0;
     for (auto fptr : ch->fpVec) {
@@ -88,7 +89,7 @@ static bool ParameterizeChartFromInitialTexCoord(Mesh &m, GraphManager::ChartHan
         if (strategy.geometry == VertexPosition)
             solved = solver.Solve(DefaultVertexPosition<PMesh>{});
         else
-            solved = solver.Solve(WedgeTexCoordVertexPosition<PMesh>{});
+            solved = solver.Solve(texcoordPosition);
     } else if (strategy.directParameterizer == DirectParameterizer::FixedBorderBijective) {
         UniformSolver<PMesh> solver(pm);
         solved = solver.Solve();
@@ -129,19 +130,19 @@ static bool ParameterizeChartFromInitialTexCoord(Mesh &m, GraphManager::ChartHan
             tri::TexCoordOptimization<PMesh> *opt;
             if (strategy.optimizer == TexCoordOptimizer::AreaPreserving) {
                 if (strategy.geometry == Geometry::WedgeTexCoord)
-                    opt = new tri::AreaPreservingTexCoordOptimization<PMesh,WedgeTexCoordVertexPosition<PMesh>>(pm);
+                    opt = new tri::AreaPreservingTexCoordOptimization<PMesh,WedgeTexCoordAttributePosition<PMesh>>(pm, texcoordPosition);
                 else
                     opt = new tri::AreaPreservingTexCoordOptimization<PMesh>(pm);
             }
             else if (strategy.optimizer == TexCoordOptimizer::MIPS) {
                 if (strategy.geometry == Geometry::WedgeTexCoord)
-                    opt = new tri::MIPSTexCoordOptimization<PMesh,WedgeTexCoordVertexPosition<PMesh>>(pm);
+                    opt = new tri::MIPSTexCoordOptimization<PMesh,WedgeTexCoordAttributePosition<PMesh>>(pm, texcoordPosition);
                 else
                     opt = new tri::MIPSTexCoordOptimization<PMesh>(pm);
             }
             else if (strategy.optimizer == TexCoordOptimizer::SymmetricDirichlet) {
                 if (strategy.geometry == Geometry::WedgeTexCoord)
-                    opt = new tri::SymmetricDirichletTexCoordOptimization<PMesh,WedgeTexCoordVertexPosition<PMesh>>(pm);
+                    opt = new tri::SymmetricDirichletTexCoordOptimization<PMesh,WedgeTexCoordAttributePosition<PMesh>>(pm, texcoordPosition);
                 else
                     opt = new tri::SymmetricDirichletTexCoordOptimization<PMesh>(pm);
             }

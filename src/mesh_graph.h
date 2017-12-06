@@ -161,12 +161,16 @@ struct FaceGroup {
 
 };
 
-template <typename MeshType, typename WedgeTextureMapper>
-void CopyFaceGroupIntoMesh(MeshType &m, const struct FaceGroup& fg, std::unordered_map<Mesh::VertexPointer, typename MeshType::VertexPointer> &vpmap, const WedgeTextureMapper& wtmapper)
+template <typename MeshType>
+void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg, std::unordered_map<Mesh::VertexPointer, typename MeshType::VertexPointer>& vpmap)
 {
     m.Clear();
     vpmap.clear();
     vpmap.reserve(fg.FN() * 3);
+
+    auto WTCSh = tri::Allocator<Mesh>::FindPerFaceAttribute<TexCoordStorage>(fg.mesh, "WedgeTexCoordStorage");
+    assert(tri::Allocator<Mesh>::IsValidHandle<TexCoordStorage>(fg.mesh, WTCSh));
+    auto WTCShNew = tri::Allocator<MeshType>::template GetPerFaceAttribute<TexCoordStorage>(m, "WedgeTexCoordStorage");
 
     std::size_t vn = 0;
     for (auto fptr : fg.fpVec) {
@@ -182,6 +186,7 @@ void CopyFaceGroupIntoMesh(MeshType &m, const struct FaceGroup& fg, std::unorder
 
     for (auto fptr : fg.fpVec) {
         typename MeshType::FacePointer mfp = &*mfi++;
+        WTCShNew[mfp] = WTCSh[fptr];
         for (int i = 0; i < 3; ++i) {
             Mesh::VertexPointer vp = fptr->V(i);
             typename MeshType::VertexPointer& mvp = vpmap[vp];
@@ -190,7 +195,7 @@ void CopyFaceGroupIntoMesh(MeshType &m, const struct FaceGroup& fg, std::unorder
                 mvp->P() = vp->P();
             }
             mfp->V(i) = mvp;
-            mfp->WT(i) = wtmapper(fptr, i);
+            mfp->WT(i) = mvp->T();
         }
     }
 }
@@ -222,7 +227,7 @@ struct MeshGraph {
         tri::Stat<Mesh>::ComputePerFaceQualityDistribution(mesh, qd);
         std::pair<float, float> range = DistortionRange();
         tri::UpdateColor<Mesh>::PerFaceQualityRamp(mesh, range.first, range.second);
-   }
+    }
 
     void MapDistortion(DistortionWedge::DistType distortionType)
     {
@@ -234,7 +239,7 @@ struct MeshGraph {
         tri::Stat<Mesh>::ComputePerFaceQualityDistribution(mesh, qd);
         std::pair<float, float> range = DistortionRange();
         tri::UpdateColor<Mesh>::PerFaceQualityRamp(mesh, range.first, range.second);
-   }
+    }
 
     std::pair<float,float> DistortionRange() const
     {

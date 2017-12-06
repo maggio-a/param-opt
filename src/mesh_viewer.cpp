@@ -982,8 +982,10 @@ void MeshViewer::SetupDetailView(ChartHandle chart)
 {
     Box2f bbox = chart->UVBox();
 
-    _detailCamera.Reset();
+    //_detailCamera.Reset();
     _detailView.uniforms.loc_projection = glGetUniformLocation(_detailView.program, "projectionMatrix");
+
+    std::cout << "UVBox = " << bbox.DimX() << " by " << bbox.DimY() << std::endl;
 
     float scale = 1.0f / std::max(bbox.Dim().X(), bbox.Dim().Y());
 
