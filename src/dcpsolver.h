@@ -88,7 +88,7 @@ public:
             VertexPointer v0 = nullptr;
             VertexPointer v1 = nullptr;
 
-            vcg::Box3f box;
+            vcg::Box3d box;
             for (auto& f : mesh.face) {
                 for (int i = 0; i < 3; ++i) box.Add(VertPos(&f, i));
             }

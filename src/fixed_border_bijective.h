@@ -111,7 +111,7 @@ public:
         constexpr float twoPi = 2 * M_PI;
         for (std::size_t i = 0; i < borderVertices.size(); ++i) {
             float angle = (cumulativeBorder[i] / totalBorderLength) * twoPi;
-            borderVertices[i]->T().P() = Point2f{std::sin(angle), std::cos(angle)};
+            borderVertices[i]->T().P() = Point2d{std::sin(angle), std::cos(angle)};
             AddConstraint(borderVertices[i], borderVertices[i]->T().P());
         }
 

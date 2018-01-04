@@ -126,6 +126,8 @@ private:
         int referenceCount;
     };
 
+    Mesh selectionMesh;
+
     std::unordered_map<RegionID, SelectionBufferInfo> selectedRegions;
     std::unordered_map<RegionID, int> primaryCharts;  // charts selected and ready for merge
 
@@ -163,10 +165,12 @@ private:
             struct {
                 GLint loc_position;
                 GLint loc_texcoord;
+                GLint loc_distcolor;
             } attributes;
             struct {
                 GLint loc_modelView;
                 GLint loc_projection;
+                GLint loc_colorMask;
                 GLint loc_weight;
             } uniforms;
         } selection;
@@ -246,6 +250,31 @@ private:
         int textureViewport[4];
         int detailViewport[4];
     } info;
+
+    /*
+    // ImGui state
+    // =======================================================
+
+    bool showInfoArea = true;
+
+    // distortion display
+    bool distortionFromTexture = false;
+    DistortionMetric::Type distortion[] = {
+        DistortionMetric::Area,
+        DistortionMetric::Angle,
+    };
+    int distortionIndex = 0;
+    int activeDistIndex = -1;
+
+    // parameterization strategy
+    DirectParameterizer parameterizer[] = { DCP, FixedBorderBijective };
+    TexCoordOptimizer optimizer[] = { AreaPreserving, SymmetricDirichletOpt, MIPS };
+    ParameterizationGeometry geometry[] = { Model, Texture };
+
+    int parameterizerInUse = 0;
+    int optimizerInUse = 0;
+    int geometryInUse = 1;
+    */
 
 public:
     MeshViewer(std::shared_ptr<MeshGraph> meshParamData_, std::size_t minRegionSize_, const std::string &fileName_);

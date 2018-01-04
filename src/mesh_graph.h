@@ -20,6 +20,7 @@
 #include "distortion_pos.h"
 #include "uv.h"
 
+
 /// TODO cache border and area state
 struct FaceGroup {
     Mesh& mesh;
@@ -66,9 +67,9 @@ struct FaceGroup {
         return borderUV;
     }
 
-    vcg::Box2f UVBox() const
+    vcg::Box2d UVBox() const
     {
-        vcg::Box2f box;
+        vcg::Box2d box;
         for (auto fptr : fpVec) {
             box.Add(fptr->WT(0).P());
             box.Add(fptr->WT(1).P());
@@ -77,65 +78,23 @@ struct FaceGroup {
         return box;
     }
 
-    void NotifyParameterizationChange() { borderChanged = true; }
+    void ParameterizationChanged() { borderChanged = true; }
 
     Mesh::FacePointer Fp() { assert(!fpVec.empty()); return fpVec[0]; }
 
     std::size_t FN() const { return fpVec.size(); }
     std::size_t NumAdj() const { return adj.size(); }
 
-    template <typename VP>
-    void MapDistortionFromTexCoord(DistortionWedge::DistType distortionType, float areaScale, float edgeScale, const VP& vp)
+    void MapDistortion(DistortionMetric::Type type, ParameterizationGeometry geometry, double areaScale)
     {
         minMappedFaceValue = std::numeric_limits<float>::max();
         maxMappedFaceValue = std::numeric_limits<float>::lowest();
         for (auto fptr : fpVec) {
-            if (distortionType == DistortionWedge::AreaDist) {
-
-                float areaUV = DistortionPos<Mesh>::AreaUV(fptr) * areaScale;
-                float area3D = DistortionPos<Mesh>::Area3D(fptr, vp);
-                assert(area3D > 0);
-                float diff = (areaUV - area3D) / area3D;
-                assert(!math::IsNAN(diff));
-                fptr->Q() = diff;
-                //fptr->Q() = DistortionWedge::AreaDistortion(fptr, areaScale);
+            if (type == DistortionMetric::Area) {
+                fptr->Q() = DistortionMetric::AreaDistortion(mesh, *fptr, areaScale, geometry);
             }
-            else if (distortionType == DistortionWedge::AngleDist) {
-                fptr->Q() = DistortionPos<Mesh>::AngleDistortion(fptr, vp);
-            }
-            else if (distortionType == DistortionWedge::EdgeDist) {
-                fptr->Q() = (DistortionPos<Mesh>::EdgeDistortion(fptr, 0, edgeScale, vp) +
-                             DistortionPos<Mesh>::EdgeDistortion(fptr, 1, edgeScale, vp) +
-                             DistortionPos<Mesh>::EdgeDistortion(fptr, 2, edgeScale, vp)) / 3.0f;
-            }
-            else assert(0 && "FaceGroup::MapDistortion");
-            minMappedFaceValue = std::min(minMappedFaceValue, fptr->Q());
-            maxMappedFaceValue = std::max(maxMappedFaceValue, fptr->Q());
-        }
-    }
-
-    void MapDistortion(DistortionWedge::DistType distortionType, float areaScale, float edgeScale)
-    {
-        minMappedFaceValue = std::numeric_limits<float>::max();
-        maxMappedFaceValue = std::numeric_limits<float>::lowest();
-        for (auto fptr : fpVec) {
-            if (distortionType == DistortionWedge::AreaDist) {
-
-                float areaUV = DistortionWedge::AreaUV(fptr) * areaScale;
-                float area3D = DistortionWedge::Area3D(fptr);
-                assert(area3D > 0);
-                float diff = (areaUV - area3D) / area3D;
-                assert(!math::IsNAN(diff));
-                fptr->Q() = diff;
-                //fptr->Q() = DistortionWedge::AreaDistortion(fptr, areaScale);
-            }
-            else if (distortionType == DistortionWedge::AngleDist) {
-                fptr->Q() = DistortionWedge::AngleDistortion(fptr);
-            }
-            else if (distortionType == DistortionWedge::EdgeDist) {
-                fptr->Q() = (DistortionWedge::EdgeDistortion(fptr, 0, edgeScale) +
-                             DistortionWedge::EdgeDistortion(fptr, 1, edgeScale) +
-                             DistortionWedge::EdgeDistortion(fptr, 2, edgeScale)) / 3.0f;
+            else if (type == DistortionMetric::Angle) {
+                fptr->Q() = DistortionMetric::AngleDistortion(mesh, *fptr, geometry);
             }
             else assert(0 && "FaceGroup::MapDistortion");
             minMappedFaceValue = std::min(minMappedFaceValue, fptr->Q());
@@ -210,35 +169,29 @@ struct MeshGraph {
 
     MeshGraph(Mesh& m) : mesh{m} {}
 
-    void MapDistortionFromTexCoord(DistortionWedge::DistType distortionType)
+    void MapDistortion(DistortionMetric::Type type, ParameterizationGeometry geometry)
     {
-        auto WTCSh = tri::Allocator<Mesh>::FindPerFaceAttribute<TexCoordStorage>(mesh, "WedgeTexCoordStorage");
-        assert(tri::Allocator<Mesh>::IsValidHandle<TexCoordStorage>(mesh, WTCSh));
+        double areaScale;
+        DistortionMetric::ComputeAreaScale(mesh, areaScale, geometry);
+        for (auto& c : charts) c.second->MapDistortion(type, geometry, areaScale);
 
-        float areaScale;
-        float edgeScale;
-        auto VertexPosMapper = [&WTCSh] (Mesh::ConstFacePointer fptr, int i) {
-            Point2f uv = WTCSh[fptr].tc[i].P(); return Point3f{uv[0], uv[1], 0};
-        };
-
-        DistortionPos<Mesh>::MeshScalingFactor(mesh, areaScale, edgeScale, VertexPosMapper);
-        for (auto& c : charts) c.second->MapDistortionFromTexCoord(distortionType, areaScale, edgeScale, VertexPosMapper);
-        Distribution<float> qd;
-        tri::Stat<Mesh>::ComputePerFaceQualityDistribution(mesh, qd);
+        // Map distortion to color
         std::pair<float, float> range = DistortionRange();
-        tri::UpdateColor<Mesh>::PerFaceQualityRamp(mesh, range.first, range.second);
-    }
-
-    void MapDistortion(DistortionWedge::DistType distortionType)
-    {
-        float areaScale;
-        float edgeScale;
-        DistortionWedge::MeshScalingFactor(mesh, areaScale, edgeScale);
-        for (auto& c : charts) c.second->MapDistortion(distortionType, areaScale, edgeScale);
-        Distribution<float> qd;
-        tri::Stat<Mesh>::ComputePerFaceQualityDistribution(mesh, qd);
-        std::pair<float, float> range = DistortionRange();
-        tri::UpdateColor<Mesh>::PerFaceQualityRamp(mesh, range.first, range.second);
+        for (auto& c : charts) {
+            for (auto fptr : c.second->fpVec) {
+                //float q = fptr->Q();
+                float q = fptr->Q() / std::max(std::abs(range.first), std::abs(range.second));
+                if (q < 0) {
+                    //float v = 1.0f - (q / range.first);
+                    float v = 1.0f + q;
+                    fptr->C().Import(Color4f{1.0f, v, v, 1.0f});
+                } else {
+                    //float v = 1.0f - (q / range.second);
+                    float v = 1.0f - q;
+                    fptr->C().Import(Color4f{v, v, 1.0f, 1.0f});
+                }
+            }
+        }
     }
 
     std::pair<float,float> DistortionRange() const
@@ -253,8 +206,10 @@ struct MeshGraph {
 
     std::shared_ptr<FaceGroup> GetChart(std::size_t i)
     {
-        assert(charts.find(i) != charts.end() && "Chart does not exist");
-        return charts[i];
+        //assert(charts.find(i) != charts.end() && "Chart does not exist");
+        auto e = charts.find(i);
+        if (e != charts.end()) return e->second;
+        else return nullptr;
     }
 
     std::shared_ptr<FaceGroup> GetChart_Insert(std::size_t i)
@@ -314,19 +269,19 @@ std::shared_ptr<MeshGraph> ComputeParameterizationGraph(
     std::shared_ptr<MeshGraph> paramData = std::make_shared<MeshGraph>(m);
     paramData->textureObject = textureObject;
     paramData->charts.reserve(numRegions);
-    auto CCIDh = tri::Allocator<MeshType>::template GetPerFaceAttribute<std::size_t>(m, "ConnectedComponentID");
+    auto CCIDh = tri::Allocator<MeshType>::template GetPerFaceAttribute<RegionID>(m, "ConnectedComponentID");
 
-    auto ICCIDh = tri::Allocator<MeshType>::template GetPerFaceAttribute<std::size_t>(m, "InitialConnectedComponentID");
+    auto ICCIDh = tri::Allocator<MeshType>::template GetPerFaceAttribute<RegionID>(m, "InitialConnectedComponentID");
     ICCIDh._handle->data.assign(CCIDh._handle->data.begin(), CCIDh._handle->data.end());
 
     // build parameterization graph
     tri::UpdateTopology<Mesh>::FaceFace(m);
     for (auto &f : m.face) {
-        std::size_t regionId = CCIDh[&f];
+        RegionID regionId = CCIDh[&f];
         paramData->GetChart_Insert(regionId)->AddFace(&f);
         // TODO this may be refactored into AddFace
         for (int i = 0; i < f.VN(); ++i) {
-            std::size_t adjId = CCIDh[f.FFp(i)];
+            RegionID adjId = CCIDh[f.FFp(i)];
             if (regionId != adjId) {
                 (paramData->GetChart_Insert(regionId)->adj).insert(paramData->GetChart_Insert(adjId));
             }
@@ -453,12 +408,7 @@ public:
         for (auto elem : g->charts) {
             ChartHandle c1 = elem.second;
             for (ChartHandle c2 : c1->adj) {
-                Edge e{c1, c2};
-                if (edges.find(e) == edges.end()) {
-                    auto weightedEdge = std::make_pair(e, wfct(e));
-                    edges.insert(weightedEdge);
-                    queue.push(weightedEdge);
-                }
+                AddEdge(c1, c2);
             }
         }
     }
@@ -536,19 +486,36 @@ public:
         return c1;
     }
 
+private:
+    bool AddEdge(ChartHandle c1, ChartHandle c2, bool replace = false)
+    {
+         Edge e{c1, c2};
+
+         if (replace) edges.erase(e);
+
+         if (edges.find(e) == edges.end()) {
+             auto weightedEdge = std::make_pair(e, wfct(e));
+             edges.insert(weightedEdge);
+             queue.push(weightedEdge);
+             return true;
+         }
+         else {
+             return false;
+         }
+    }
+
     // Merges c2 into c1
     /// TODO reorder interface properly
-private:
     void Merge(ChartHandle c1, ChartHandle c2)
     {
         assert(edges.find(Edge{c1,c2}) != edges.end());
 
-        auto CHIDh  = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(g->mesh, "ConnectedComponentID");
-        assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(g->mesh, CHIDh));
+        auto CCIDh  = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(g->mesh, "ConnectedComponentID");
+        assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(g->mesh, CCIDh));
 
         // Update ID and add faces
         for (auto fp : c2->fpVec) {
-            CHIDh[fp] = c1->id;
+            CCIDh[fp] = c1->id;
             c1->AddFace(fp);
         }
 
@@ -563,11 +530,14 @@ private:
                 c1->adj.insert(cn);
 
                 // Manage queue and edge map state
+                AddEdge(c1, cn, true); // replace edge
+                /*
                 Edge e1{c1, cn};
                 edges.erase(e1); // delete the edge if it already exists so it can be reweighted
                 auto weighted = std::make_pair(e1, wfct(e1));
                 edges.insert(weighted);
                 queue.push(weighted);
+                */
             }
         }
 
@@ -575,7 +545,57 @@ private:
 
         g->charts.erase(c2->id);
     }
+
 public:
+
+    void Split(const RegionID id)
+    {
+        assert(g->charts.count(id) == 1);
+
+        auto CCIDh  = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(g->mesh, "ConnectedComponentID");
+        assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(g->mesh, CCIDh));
+
+        auto ICCh  = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(g->mesh, "InitialConnectedComponentID");
+        assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(g->mesh, ICCh));
+
+        ChartHandle chart = g->GetChart(id);
+
+        // detach chart from the graph
+        g->charts.erase(chart->id);
+        for (auto cn : chart->adj) {
+            cn->adj.erase(chart); // remove reference in the neighbor
+            edges.erase(Edge{chart, cn}); // remove edge from support list
+        }
+
+        // restore original ids
+        for (auto fptr : chart->fpVec) {
+            CCIDh[fptr] = ICCh[fptr];
+        }
+
+        std::set<ChartHandle> newCharts;
+        // readd faces to the graph, creating the required nodes
+        for (auto fptr : chart->fpVec) {
+            RegionID regionId = CCIDh[fptr];
+            auto ch = g->GetChart_Insert(regionId);
+            newCharts.insert(ch);
+            ch->AddFace(fptr);
+            for (int i = 0; i < fptr->VN(); ++i) {
+                RegionID adjId = CCIDh[fptr->FFp(i)];
+                if (regionId != adjId) {
+                    // force symmetry
+                    (ch->adj).insert(g->GetChart_Insert(adjId));
+                    (g->GetChart_Insert(adjId)->adj).insert(ch);
+                }
+            }
+        }
+
+        // insert new edges in the support list
+        for (auto c1 : newCharts) {
+            for (auto c2 : c1->adj) {
+                AddEdge(c1, c2);
+            }
+        }
+    }
 
     int CloseMacroRegions(std::size_t minRegionSize)
     {

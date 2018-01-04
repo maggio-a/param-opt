@@ -8,10 +8,10 @@
 
 #include <QImage>
 
-#include "mesh_graph.h"
+//#include "mesh_graph.h"
 
 struct TexCoordStorage {
-    vcg::TexCoord2f tc[3];
+    vcg::TexCoord2d tc[3];
 };
 
 // Save a copy of the original texture coordinates (this will be used to render the new texture)

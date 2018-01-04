@@ -28,11 +28,13 @@ SOURCES += viewer.cpp \
     ../imgui/imgui.cpp \
     ../imgui/imgui_glfw_gl3/imgui_impl_glfw_gl3.cpp \
     ../../include/vcglib/wrap/gui/trackmode.cpp \
-    ../../include/vcglib/wrap/gui/trackball.cpp
+    ../../include/vcglib/wrap/gui/trackball.cpp \
+    ../src/energy.cpp
 
 SOURCES += \
     ../src/mesh_viewer.cpp \
-    ../src/mesh.cpp
+    ../src/mesh.cpp \
+    ../src/iterative.cpp
 
 SOURCES += $${VCGPATH}/wrap/ply/plylib.cpp $${VCGPATH}/wrap/qt/Outline2ToQImage.cpp $${VCGPATH}/wrap/qt/outline2_rasterizer.cpp
 
@@ -58,6 +60,9 @@ HEADERS += \
     ../imgui/stb_textedit.h \
     ../imgui/stb_truetype.h \
     ../imgui/imgui_glfw_gl3/imgui_impl_glfw_gl3.h \
+    ../src/iterative.h \
+    ../src/energy.h \
+    ../src/math_utils.h
 
 DISTFILES += \
     readme.txt

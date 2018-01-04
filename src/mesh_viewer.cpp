@@ -351,12 +351,12 @@ void MeshViewer::TexturePick()
     float dy = 0.5f - (_ypos / (info.height/2.0f));
     dy *= _textureCamera.viewSize;
 
-    Point2f p{_textureCamera.x + dx, _textureCamera.y + dy};
+    Point2d p{_textureCamera.x + dx, _textureCamera.y + dy};
 
     const Mesh& m = meshParamData->mesh;
     const MeshFace *fp = nullptr;
     for (auto &f : m.face) {
-        vcg::Triangle2<float> uvFace{f.cWT(0).P(), f.cWT(1).P(), f.cWT(2).P()};
+        vcg::Triangle2<double> uvFace{f.cWT(0).P(), f.cWT(1).P(), f.cWT(2).P()};
         if (vcg::IsInsideTrianglePoint(uvFace, p)) {
             fp = &f;
             break;
@@ -413,7 +413,7 @@ void MeshViewer::UpdateSelection(const RegionID id)
 {
     // Allocate new buffers if necessary
     std::set<ChartHandle> newCharts;
-    std::size_t  newElements = 0;
+    std::size_t newElements = 0;
 
     if (primaryCharts.count(id) == 1) {
         // de-select
@@ -498,7 +498,7 @@ void MeshViewer::UpdateSelection(const RegionID id)
         for (auto& chart : newCharts) {
             selectedRegions[chart->id].first_highlight = (buffptr - bufferBase) / 2;
 
-            Point2f center = chart->UVBox().Center();
+            Point2d center = chart->UVBox().Center();
             *buffptr++ = center.X(); *buffptr++ = center.Y() - 0.1f;
             *buffptr++ = center.X(); *buffptr++ = center.Y() + 0.1f;
             *buffptr++ = center.X() - 0.1f; *buffptr++ = center.Y();
@@ -560,7 +560,7 @@ void MeshViewer::UpdateSelection(const RegionID id)
         glBindFramebuffer(GL_FRAMEBUFFER, fbo);
         for (auto& chart : newCharts) {
             SelectionBufferInfo& sbi = selectedRegions[chart->id];
-            vcg::Box2f box = chart->UVBox();
+            vcg::Box2d box = chart->UVBox();
 
             mat4x4 projection;
             float halfsz = std::max(box.Dim().X(), box.Dim().Y()) / 2.0f;
@@ -751,17 +751,17 @@ bool MeshViewer::IntersectionMouseRayModel(Mesh::ConstFacePointer *fp, float &u,
     vec4 modelEye;
     mat4x4_mul_vec4(modelEye, invModel, eye);
 
-    Ray3f selectionRay {
-        Point3f{modelEye[0], modelEye[1], modelEye[2]},
-        Point3f{modelRay[0], modelRay[1], modelRay[2]}
+    Ray3d selectionRay {
+        Point3d(modelEye[0], modelEye[1], modelEye[2]),
+        Point3d(modelRay[0], modelRay[1], modelRay[2])
     };
 
     // Perform intersection tests
     const Mesh& m = meshParamData->mesh;
     *fp = nullptr;
-    float tMin = std::numeric_limits<float>::max();
+    double tMin = std::numeric_limits<double>::max();
     for (auto &f : m.face) {
-        float t, uface, vface;
+        double t, uface, vface;
         if (vcg::IntersectionRayTriangle(selectionRay, f.cP(0), f.cP(1), f.cP(2), t, uface, vface) && t < tMin) {
             *fp = &f;
             tMin = t;
@@ -769,7 +769,7 @@ bool MeshViewer::IntersectionMouseRayModel(Mesh::ConstFacePointer *fp, float &u,
             v = vface;
         }
     }
-    return tMin != std::numeric_limits<float>::max();
+    return tMin != std::numeric_limits<double>::max();
 }
 
 void MeshViewer::PerspectivePick()
@@ -800,7 +800,7 @@ void MeshViewer::CenterPerspectiveViewFromMouse()
         float u;
         float v;
         if (IntersectionMouseRayModel(&fp, u, v)) {
-            Point3f centerPoint = fp->cP(0) * (1.0f - u - v) + fp->cP(1) * u + fp->cP(2) * v;
+            Point3f centerPoint = Point3f::Construct(fp->cP(0) * (1.0f - u - v) + fp->cP(1) * u + fp->cP(2) * v);
             Matrix44f transform = trackball.Matrix();
             trackball.Translate(-(transform*centerPoint));
         }
@@ -968,6 +968,7 @@ void MeshViewer::SetupViews()
 
     _perspectiveView.selection.uniforms.loc_modelView = glGetUniformLocation(_perspectiveView.selection.program, "modelViewMatrix");
     _perspectiveView.selection.uniforms.loc_projection = glGetUniformLocation(_perspectiveView.selection.program, "projectionMatrix");
+    _perspectiveView.selection.uniforms.loc_colorMask = glGetUniformLocation(_perspectiveView.selection.program, "colorMask");
     _perspectiveView.selection.uniforms.loc_weight = glGetUniformLocation(_perspectiveView.selection.program, "weight");
 
     // Setup texture view
@@ -980,7 +981,7 @@ void MeshViewer::SetupViews()
 
 void MeshViewer::SetupDetailView(ChartHandle chart)
 {
-    Box2f bbox = chart->UVBox();
+    Box2d bbox = chart->UVBox();
 
     //_detailCamera.Reset();
     _detailView.uniforms.loc_projection = glGetUniformLocation(_detailView.program, "projectionMatrix");
@@ -1374,16 +1375,28 @@ void MeshViewer::ManageImGuiState()
 {
     static bool showInfoArea = true;
 
-    static DistortionWedge::DistType distortion[] = {
-        DistortionWedge::AreaDist,
-        DistortionWedge::EdgeDist,
-        DistortionWedge::AngleDist,
+    // distortion display
+    static bool distortionFromTexture = false;
+    static DistortionMetric::Type distortion[] = {
+        DistortionMetric::Area,
+        DistortionMetric::Angle,
     };
     static int distortionIndex = 0;
     static int activeDistIndex = -1;
 
+    // parameterization strategy
+    static DirectParameterizer parameterizer[] = { DCP, FixedBorderBijective };
+    static TexCoordOptimizer optimizer[] = { AreaPreserving, SymmetricDirichletOpt, MIPS };
+    static ParameterizationGeometry geometry[] = { Model, Texture };
+
+    static int parameterizerInUse = 0;
+    static int optimizerInUse = 0;
+    static int geometryInUse = 1;
+
+    // data to update
     bool updateTexcoord = false;
     bool updateColor = false;
+
     // draw main controls
     {
 
@@ -1455,11 +1468,12 @@ void MeshViewer::ManageImGuiState()
         if (ImGui::Button("Pack the atlas")) {
             ClearSelection();
             if (meshParamData->MergeCount() > 0) {
-                int c = ParameterizeGraph(meshParamData, strategy);
+                int c = ParameterizeGraph(*gm, strategy);
                 if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
                 updateTexcoord = true;
                 if (activeDistIndex != -1) {
-                    meshParamData->MapDistortion(distortion[activeDistIndex]);
+                    ParameterizationGeometry distGeom = distortionFromTexture ? Texture : Model;
+                    meshParamData->MapDistortion(distortion[activeDistIndex], distGeom);
                     updateColor = true;
                 }
                 _currentTexture->Release();
@@ -1471,12 +1485,12 @@ void MeshViewer::ManageImGuiState()
 
         if (primaryCharts.size() == 1) {
             if (ImGui::Button("Save current chart")) {
-                PMesh pm;
+                Mesh pm;
                 auto chart = meshParamData->GetChart(primaryCharts.begin()->first);
-                Box2f b = chart->UVBox();
+                Box2d b = chart->UVBox();
 
                 auto f = [&pm, &b](typename Mesh::FacePointer fptr) {
-                    auto f = tri::Allocator<PMesh>::AddFace(pm, fptr->P(0), fptr->P(1), fptr->P(2));
+                    auto f = tri::Allocator<Mesh>::AddFace(pm, fptr->P(0), fptr->P(1), fptr->P(2));
                     for (int i = 0; i < 3; ++i) {
                         f->WT(i) = fptr->WT(i);
                         f->WT(i).P() = (f->WT(i).P() - b.min) / std::max(b.DimX(), b.DimY());
@@ -1485,10 +1499,10 @@ void MeshViewer::ManageImGuiState()
 
                 std::for_each(chart->fpVec.begin(), chart->fpVec.end(), f);
 
-                tri::Clean<PMesh>::RemoveDuplicateVertex(pm);
-                tri::Allocator<PMesh>::CompactEveryVector(pm);
+                tri::Clean<Mesh>::RemoveDuplicateVertex(pm);
+                tri::Allocator<Mesh>::CompactEveryVector(pm);
 
-                tri::io::ExporterOBJ<PMesh>::Save(pm, "chart.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
+                tri::io::ExporterOBJ<Mesh>::Save(pm, "chart.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
             }
         }
 
@@ -1516,14 +1530,6 @@ void MeshViewer::ManageImGuiState()
         }
 
         ImGui::Separator();
-
-        static DirectParameterizer parameterizer[] = { DCP, FixedBorderBijective };
-        static TexCoordOptimizer optimizer[] = { AreaPreserving, SymmetricDirichlet, MIPS };
-        static Geometry geometry[] = { VertexPosition, WedgeTexCoord };
-
-        static int parameterizerInUse = 0;
-        static int optimizerInUse = 0;
-        static int geometryInUse = 1;
 
         ImGui::Text("Geometry");
         ImGui::RadioButton("Vertex position", &geometryInUse, 0);
@@ -1557,17 +1563,13 @@ void MeshViewer::ManageImGuiState()
 
         ImGui::Separator();
 
-        static bool distortionFromTexture = false;
         ImGui::Text("Distortion metric");
         bool clicked = ImGui::Checkbox("Target original texture", &distortionFromTexture);
         ImGui::RadioButton("Area Distortion", &distortionIndex, 0);
-        ImGui::RadioButton("Edge Distortion", &distortionIndex, 1);
-        ImGui::RadioButton("Angle Distortion", &distortionIndex, 2);
+        ImGui::RadioButton("Angle Distortion", &distortionIndex, 1);
         if (distortionIndex != activeDistIndex || clicked) {
-            if (distortionFromTexture)
-                meshParamData->MapDistortionFromTexCoord(distortion[distortionIndex]);
-            else
-                meshParamData->MapDistortion(distortion[distortionIndex]);
+            ParameterizationGeometry distGeom = distortionFromTexture ? Texture : Model;
+            meshParamData->MapDistortion(distortion[distortionIndex], distGeom);
             activeDistIndex = distortionIndex;
             updateColor = true;
         }
