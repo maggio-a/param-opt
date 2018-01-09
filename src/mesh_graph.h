@@ -17,11 +17,39 @@
 
 #include "mesh.h"
 #include "gl_util.h"
-#include "distortion_pos.h"
+#include "metric.h"
 #include "uv.h"
 
 
-/// TODO cache border and area state
+class MeshGraph;
+class FaceGroup;
+
+using ChartHandle = std::shared_ptr<FaceGroup>;
+
+void PrintParameterizationInfo(std::shared_ptr<MeshGraph> pdata);
+
+/*
+ * Constructs the MeshGraph for the given mesh, returning a smart pointer as the handle to the object
+ */
+template <class MeshType>
+std::shared_ptr<MeshGraph> ComputeParameterizationGraph(MeshType &m, TextureObjectHandle textureObject, float *uvMeshBorder = nullptr);
+
+/*
+ * Builds a mesh (into m) from a given FaceGroup. On exit, vpmap will contain the mappings from the vertex pointers
+ * of the FaceGroup faces to the vertex pointers of the newly constructed faces.
+ */
+template <typename MeshType>
+void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg, std::unordered_map<Mesh::VertexPointer, typename MeshType::VertexPointer>& vpmap);
+
+/* Computes the texture outlines of a given chart */
+template <typename ScalarType = float>
+void ChartOutlinesUV(Mesh& m, ChartHandle chart, std::vector<std::vector<Point2<ScalarType>>> &outline2Vec);
+
+/*
+ * FaceGroup class
+ *
+ * Used to store a mesh chart as an array of Face pointers
+ */
 struct FaceGroup {
     Mesh& mesh;
     const RegionID id;
@@ -33,133 +61,37 @@ struct FaceGroup {
     float minMappedFaceValue;
     float maxMappedFaceValue;
 
-    float borderUV;
-    bool borderChanged;
+    mutable float borderUV;
+    mutable bool borderChanged;
 
-    FaceGroup(Mesh& m, const RegionID id_) : mesh{m}, id{id_}, fpVec{}, adj{}, numMerges{0},
-        minMappedFaceValue{-1}, maxMappedFaceValue{-1}, borderUV{0}, borderChanged{false}
-    {
-    }
+    FaceGroup(Mesh& m, const RegionID id_);
 
-    void AddFace(const Mesh::FacePointer fptr)
-    {
-        fpVec.push_back(fptr);
-        borderChanged = true;
-    }
+    void AddFace(const Mesh::FacePointer fptr);
+    void ParameterizationChanged();
 
-    float AreaUV() const
-    {
-        float areaUV = 0;
-        for (auto fptr : fpVec) areaUV += std::abs(tri::Distortion<Mesh,true>::AreaUV(fptr));
-        return areaUV;
-    }
+    Mesh::FacePointer Fp();
 
-    float Area3D() const
-    {
-        float area3D = 0;
-        for (auto fptr : fpVec) area3D += tri::Distortion<Mesh,true>::Area3D(fptr);
-        return area3D;
-    }
+    std::size_t FN() const;
+    std::size_t NumAdj() const;
 
-    float BorderUV()
-    {
-        if (borderChanged) UpdateBorder();
-        return borderUV;
-    }
+    float AreaUV() const;
+    float Area3D() const;
+    float BorderUV() const;
+    vcg::Box2d UVBox() const;
 
-    vcg::Box2d UVBox() const
-    {
-        vcg::Box2d box;
-        for (auto fptr : fpVec) {
-            box.Add(fptr->WT(0).P());
-            box.Add(fptr->WT(1).P());
-            box.Add(fptr->WT(2).P());
-        }
-        return box;
-    }
 
-    void ParameterizationChanged() { borderChanged = true; }
-
-    Mesh::FacePointer Fp() { assert(!fpVec.empty()); return fpVec[0]; }
-
-    std::size_t FN() const { return fpVec.size(); }
-    std::size_t NumAdj() const { return adj.size(); }
-
-    void MapDistortion(DistortionMetric::Type type, ParameterizationGeometry geometry, double areaScale)
-    {
-        minMappedFaceValue = std::numeric_limits<float>::max();
-        maxMappedFaceValue = std::numeric_limits<float>::lowest();
-        for (auto fptr : fpVec) {
-            if (type == DistortionMetric::Area) {
-                fptr->Q() = DistortionMetric::AreaDistortion(mesh, *fptr, areaScale, geometry);
-            }
-            else if (type == DistortionMetric::Angle) {
-                fptr->Q() = DistortionMetric::AngleDistortion(mesh, *fptr, geometry);
-            }
-            else assert(0 && "FaceGroup::MapDistortion");
-            minMappedFaceValue = std::min(minMappedFaceValue, fptr->Q());
-            maxMappedFaceValue = std::max(maxMappedFaceValue, fptr->Q());
-        }
-    }
-
-    void UpdateBorder()
-    {
-        auto CCIDh = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(mesh, "ConnectedComponentID");
-        assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CCIDh));
-
-        borderUV = 0.0f;
-        for (auto fptr : fpVec) {
-            for (int i = 0; i < 3; ++i) {
-                if (face::IsBorder(*fptr, i) || CCIDh[fptr] != CCIDh[fptr->FFp(i)]) {
-                    borderUV += DistortionWedge::EdgeLenghtUV(fptr, i);
-                }
-            }
-        }
-        borderChanged = false;
-    }
+    void MapDistortion(DistortionMetric::Type type, ParameterizationGeometry geometry, double areaScale);
+    void UpdateBorder() const;
 
 };
 
-template <typename MeshType>
-void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg, std::unordered_map<Mesh::VertexPointer, typename MeshType::VertexPointer>& vpmap)
-{
-    m.Clear();
-    vpmap.clear();
-    vpmap.reserve(fg.FN() * 3);
 
-    auto WTCSh = tri::Allocator<Mesh>::FindPerFaceAttribute<TexCoordStorage>(fg.mesh, "WedgeTexCoordStorage");
-    assert(tri::Allocator<Mesh>::IsValidHandle<TexCoordStorage>(fg.mesh, WTCSh));
-    auto WTCShNew = tri::Allocator<MeshType>::template GetPerFaceAttribute<TexCoordStorage>(m, "WedgeTexCoordStorage");
-
-    std::size_t vn = 0;
-    for (auto fptr : fg.fpVec) {
-        for (int i = 0; i < 3; ++i) {
-            if (vpmap.count(fptr->V(i)) == 0) {
-                vn++;
-                vpmap[fptr->V(i)] = nullptr;
-            }
-        }
-    }
-    auto mvi = tri::Allocator<MeshType>::AddVertices(m, vn);
-    auto mfi = tri::Allocator<MeshType>::AddFaces(m, fg.FN());
-
-    for (auto fptr : fg.fpVec) {
-        typename MeshType::FacePointer mfp = &*mfi++;
-        WTCShNew[mfp] = WTCSh[fptr];
-        for (int i = 0; i < 3; ++i) {
-            Mesh::VertexPointer vp = fptr->V(i);
-            typename MeshType::VertexPointer& mvp = vpmap[vp];
-            if (mvp == nullptr) {
-                mvp = &*mvi++;
-                mvp->P() = vp->P();
-            }
-            mfp->V(i) = mvp;
-            mfp->WT(i) = mvp->T();
-        }
-    }
-}
-
-
+/*
+ * MeshGraph class
+ *
+ * The graph is actually stored as an associative array mapping each Region id to the relative FaceGroup, the adjacencies
+ * are recorded inside each FaceGroup
+ */
 struct MeshGraph {
 
     Mesh& mesh;
@@ -167,148 +99,50 @@ struct MeshGraph {
     std::unordered_map<std::size_t, std::shared_ptr<FaceGroup>> charts;
     TextureObjectHandle textureObject;
 
-    MeshGraph(Mesh& m) : mesh{m} {}
+    MeshGraph(Mesh& m);
 
-    void MapDistortion(DistortionMetric::Type type, ParameterizationGeometry geometry)
-    {
-        double areaScale;
-        DistortionMetric::ComputeAreaScale(mesh, areaScale, geometry);
-        for (auto& c : charts) c.second->MapDistortion(type, geometry, areaScale);
+    /* Map distortion values to the mesh graph, this essentially computes the distortion
+     * for each face of the mesh, and then computes the minmax pair at each chart
+     * param 'type' defines the type of distortion computed
+     * param 'geometry' is one of
+     *   ParameterizationGeometry::Model compute distortion wrt to the actual mesh geometry
+     *   ParameterizationGeometry::Texture compute distortion wrt the original texture coordinates
+     */
+    void MapDistortion(DistortionMetric::Type type, ParameterizationGeometry geometry);
 
-        // Map distortion to color
-        std::pair<float, float> range = DistortionRange();
-        for (auto& c : charts) {
-            for (auto fptr : c.second->fpVec) {
-                //float q = fptr->Q();
-                float q = fptr->Q() / std::max(std::abs(range.first), std::abs(range.second));
-                if (q < 0) {
-                    //float v = 1.0f - (q / range.first);
-                    float v = 1.0f + q;
-                    fptr->C().Import(Color4f{1.0f, v, v, 1.0f});
-                } else {
-                    //float v = 1.0f - (q / range.second);
-                    float v = 1.0f - q;
-                    fptr->C().Import(Color4f{v, v, 1.0f, 1.0f});
-                }
-            }
-        }
-    }
+    /* compute the minmax distortion of the graph */
+    std::pair<float,float> DistortionRange() const;
 
-    std::pair<float,float> DistortionRange() const
-    {
-        std::pair<float,float> range = std::make_pair(std::numeric_limits<float>::max(), std::numeric_limits<float>::lowest());
-        for (const auto& c : charts) {
-            range.first = std::min(c.second->minMappedFaceValue, range.first);
-            range.second = std::max(c.second->maxMappedFaceValue, range.second);
-        }
-        return range;
-    }
+    /* Retrieve region i (assert if not found) */
+    std::shared_ptr<FaceGroup> GetChart(RegionID i);
 
-    std::shared_ptr<FaceGroup> GetChart(std::size_t i)
-    {
-        //assert(charts.find(i) != charts.end() && "Chart does not exist");
-        auto e = charts.find(i);
-        if (e != charts.end()) return e->second;
-        else return nullptr;
-    }
+    /* Retrieve region i, creating if it is not found */
+    std::shared_ptr<FaceGroup> GetChart_Insert(RegionID i);
 
-    std::shared_ptr<FaceGroup> GetChart_Insert(std::size_t i)
-    {
-        if (charts.find(i) == charts.end()) charts.insert(std::make_pair(i, std::make_shared<FaceGroup>(mesh, i)));
-        return charts[i];
-    }
+    /* Number of regions */
+    std::size_t Count() const;
 
-    std::size_t Count() const
-    {
-        return charts.size();
-    }
+    /* Number of merges performed on the graph (is it used?) */
+    int MergeCount() const;
 
-    int MergeCount() const
-    {
-        int n = 0;
-        for (const auto& c : charts) n += c.second->numMerges;
-        return n;
-
-    }
-
-    float Area3D() const
-    {
-        float area3D = 0.0f;
-        for (const auto& c : charts) area3D += c.second->Area3D();
-        return area3D;
-    }
-
-    float AreaUV() const
-    {
-        float areaUV = 0.0f;
-        for (const auto& c : charts) areaUV += c.second->AreaUV();
-        return areaUV;
-    }
+    float Area3D() const;
+    float AreaUV() const;
 
     /// TODO remove useless parameters
-    float BorderUV(float *meshBorderLengthUV = nullptr, float *seamLengthUV = nullptr)
-    {
-        float borderUV = 0.0f;
-        for (const auto& c : charts) borderUV += c.second->BorderUV();
-        return borderUV;
-    }
+    float BorderUV(float *meshBorderLengthUV = nullptr, float *seamLengthUV = nullptr);
 };
-
-static void PrintParameterizationInfo(std::shared_ptr<MeshGraph> pdata)
-{
-    std::cout << pdata->charts.size() << " " << pdata->Area3D() << " "
-              << pdata->AreaUV() << " " << pdata->BorderUV() << std::endl;
-}
-
-template <class MeshType>
-std::shared_ptr<MeshGraph> ComputeParameterizationGraph(
-        MeshType &m, TextureObjectHandle textureObject, float *uvMeshBorder = nullptr)
-{
-    std::size_t numRegions = ComputePerFaceConnectedComponentIdAttribute<MeshType>(m);
-
-    std::shared_ptr<MeshGraph> paramData = std::make_shared<MeshGraph>(m);
-    paramData->textureObject = textureObject;
-    paramData->charts.reserve(numRegions);
-    auto CCIDh = tri::Allocator<MeshType>::template GetPerFaceAttribute<RegionID>(m, "ConnectedComponentID");
-
-    auto ICCIDh = tri::Allocator<MeshType>::template GetPerFaceAttribute<RegionID>(m, "InitialConnectedComponentID");
-    ICCIDh._handle->data.assign(CCIDh._handle->data.begin(), CCIDh._handle->data.end());
-
-    // build parameterization graph
-    tri::UpdateTopology<Mesh>::FaceFace(m);
-    for (auto &f : m.face) {
-        RegionID regionId = CCIDh[&f];
-        paramData->GetChart_Insert(regionId)->AddFace(&f);
-        // TODO this may be refactored into AddFace
-        for (int i = 0; i < f.VN(); ++i) {
-            RegionID adjId = CCIDh[f.FFp(i)];
-            if (regionId != adjId) {
-                (paramData->GetChart_Insert(regionId)->adj).insert(paramData->GetChart_Insert(adjId));
-            }
-        }
-    }
-
-    // compute uv mesh border if required
-    if (uvMeshBorder) {
-        *uvMeshBorder = 0.0f;
-        for (auto &f : m.face) {
-            for (int i = 0; i < f.VN(); ++i) {
-                if (face::IsBorder(f, i)) {
-                   *uvMeshBorder += (f.cWT((i+1)%f.VN()).P() - f.cWT(i).P()).Norm();
-                }
-            }
-        }
-    }
-
-    return paramData;
-}
-
 
 
 
 class GraphManager {
 
 public:
+
+    using ChartHandle = std::shared_ptr<FaceGroup>;
+
+    constexpr static int Collapse_OK = 0;
+    constexpr static int Collapse_ERR_DISCONNECTED = 1;
+    constexpr static int Collapse_ERR_UNFEASIBLE = 2;
 
     struct Edge {
         std::shared_ptr<FaceGroup> a;
@@ -336,7 +170,6 @@ public:
         }
     };
 
-    // TODO This will eventually become a template component
     struct EdgeWeightFunction {
         std::shared_ptr<MeshGraph> g;
 
@@ -371,7 +204,6 @@ public:
         }
     };
 
-    using ChartHandle = std::shared_ptr<FaceGroup>;
 
     struct EdgeWeightComparator {
         int operator()(const std::pair<Edge,double>& e1, const std::pair<Edge,double>& e2) const
@@ -380,269 +212,29 @@ public:
         }
     };
 
-    int Collapse_OK               = 0;
-    int Collapse_ERR_DISCONNECTED = 1;
-    int Collapse_ERR_UNFEASIBLE   = 2;
-
-private:
-
-    std::shared_ptr<MeshGraph> g;
-
-    // Edge set (map), this is always consistent with the state of the mesh graph (that is, an edge exists in this
-    // collection if and only if it exists in the mesh graph, and it is always mapped to the correct weight)
-    std::unordered_map<Edge, double, EdgeHasher> edges;
-
-    // Priority queue for the weighted edges. Elements in this queue may be no longer valid due to merge operations
-    // (their weight might have changed, or the edge itself may no longer exist if it references a region that was
-    // absorbed by another), so an edge in this queue is valid only if it exists in the collection _edges_ and the
-    // weights are consistent
-    std::priority_queue<std::pair<Edge,double>, std::vector<std::pair<Edge,double>>, EdgeWeightComparator> queue;
-
-    EdgeWeightFunction wfct;
-
-public:
-
-    GraphManager(std::shared_ptr<MeshGraph> gptr) : g{gptr}, wfct{gptr}
-    {
-        tri::UpdateTopology<Mesh>::FaceFace(g->mesh);
-        for (auto elem : g->charts) {
-            ChartHandle c1 = elem.second;
-            for (ChartHandle c2 : c1->adj) {
-                AddEdge(c1, c2);
-            }
-        }
-    }
-
+    GraphManager(std::shared_ptr<MeshGraph> gptr);
 
     /// TODO replace with a proper interface to the graph instance
-    std::shared_ptr<MeshGraph> Graph()
-    {
-        return g;
-    }
+    std::shared_ptr<MeshGraph> Graph();
 
-    bool Valid(std::pair<Edge,double> weightedEdge)
-    {
-        auto e = edges.find(weightedEdge.first);
-        return e != edges.end() && e->second == weightedEdge.second;
-    }
+    bool Valid(std::pair<Edge,double> weightedEdge);
 
-    const std::pair<Edge,double>& PeekNextEdge()
-    {
-        assert(HasNextEdge());
-        return queue.top();
-    }
+    const std::pair<Edge,double>& PeekNextEdge();
 
-    void RemoveNextEdge()
-    {
-        assert(HasNextEdge());
-        queue.pop();
-    }
+    void RemoveNextEdge();
 
-    bool HasNextEdge()
-    {
-        constexpr double infinity = std::numeric_limits<double>::infinity();
-        while (queue.size() > 0)
-        {
-            auto we = queue.top();
-            if (Valid(we)) {
-                if (we.second == infinity) { // The remaining edges cannot be collapsed due to infeasibility
-                    return false;
-                }
-                else {
-                    PMesh test;
-                    Edge e = we.first;
-                    BuildPMeshFromFacePointers<Mesh>(test, {&(e.a->fpVec), &(e.b->fpVec)});
-                    if (Parameterizable(test)) {
-                        return true;
-                    }
-                    else { // Cannot collapse the edge, reinsert with infinite weight
-                        queue.pop();
-                        we.second = infinity;
-                        edges[we.first] = infinity;
-                        queue.push(we);
-                    }
-                }
-            }
-            else { // Invalid edge, throw it away
-                queue.pop();
-            }
-        }
-        return false;
-    }
+    bool HasNextEdge();
 
     /// TODO this is not robust if a client tries to collapse an arbitrary edge rather than the one returned
     /// by *NextEdge() since feasibility is lazily evaluated (unfeasible edges may be present in the edge set)
-    ChartHandle Collapse(const Edge& e)
-    {
-        ChartHandle c1, c2;
-        if (e.a->FN() > e.b->FN()) {
-            c1 = e.a; c2 = e.b;
-        }
-        else {
-            c1 = e.b; c2 = e.a;
-        }
+    ChartHandle Collapse(const Edge& e);
 
-        Merge(c1, c2);
-        return c1;
-    }
+    void Split(const RegionID id);
 
-private:
-    bool AddEdge(ChartHandle c1, ChartHandle c2, bool replace = false)
-    {
-         Edge e{c1, c2};
-
-         if (replace) edges.erase(e);
-
-         if (edges.find(e) == edges.end()) {
-             auto weightedEdge = std::make_pair(e, wfct(e));
-             edges.insert(weightedEdge);
-             queue.push(weightedEdge);
-             return true;
-         }
-         else {
-             return false;
-         }
-    }
-
-    // Merges c2 into c1
-    /// TODO reorder interface properly
-    void Merge(ChartHandle c1, ChartHandle c2)
-    {
-        assert(edges.find(Edge{c1,c2}) != edges.end());
-
-        auto CCIDh  = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(g->mesh, "ConnectedComponentID");
-        assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(g->mesh, CCIDh));
-
-        // Update ID and add faces
-        for (auto fp : c2->fpVec) {
-            CCIDh[fp] = c1->id;
-            c1->AddFace(fp);
-        }
-
-        // Update adjacencies - Note that obsolete edges remain in the priority queue
-        c1->adj.erase(c2);
-        for (auto cn : c2->adj) {
-            Edge e2{c2, cn};
-            edges.erase(e2);
-            if (cn != c1) { // c1 is now (if it wasn't already) adjacent to cn
-                cn->adj.erase(c2);
-                cn->adj.insert(c1);
-                c1->adj.insert(cn);
-
-                // Manage queue and edge map state
-                AddEdge(c1, cn, true); // replace edge
-                /*
-                Edge e1{c1, cn};
-                edges.erase(e1); // delete the edge if it already exists so it can be reweighted
-                auto weighted = std::make_pair(e1, wfct(e1));
-                edges.insert(weighted);
-                queue.push(weighted);
-                */
-            }
-        }
-
-        c1->numMerges += c2->numMerges + 1;
-
-        g->charts.erase(c2->id);
-    }
-
-public:
-
-    void Split(const RegionID id)
-    {
-        assert(g->charts.count(id) == 1);
-
-        auto CCIDh  = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(g->mesh, "ConnectedComponentID");
-        assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(g->mesh, CCIDh));
-
-        auto ICCh  = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(g->mesh, "InitialConnectedComponentID");
-        assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(g->mesh, ICCh));
-
-        ChartHandle chart = g->GetChart(id);
-
-        // detach chart from the graph
-        g->charts.erase(chart->id);
-        for (auto cn : chart->adj) {
-            cn->adj.erase(chart); // remove reference in the neighbor
-            edges.erase(Edge{chart, cn}); // remove edge from support list
-        }
-
-        // restore original ids
-        for (auto fptr : chart->fpVec) {
-            CCIDh[fptr] = ICCh[fptr];
-        }
-
-        std::set<ChartHandle> newCharts;
-        // readd faces to the graph, creating the required nodes
-        for (auto fptr : chart->fpVec) {
-            RegionID regionId = CCIDh[fptr];
-            auto ch = g->GetChart_Insert(regionId);
-            newCharts.insert(ch);
-            ch->AddFace(fptr);
-            for (int i = 0; i < fptr->VN(); ++i) {
-                RegionID adjId = CCIDh[fptr->FFp(i)];
-                if (regionId != adjId) {
-                    // force symmetry
-                    (ch->adj).insert(g->GetChart_Insert(adjId));
-                    (g->GetChart_Insert(adjId)->adj).insert(ch);
-                }
-            }
-        }
-
-        // insert new edges in the support list
-        for (auto c1 : newCharts) {
-            for (auto c2 : c1->adj) {
-                AddEdge(c1, c2);
-            }
-        }
-    }
-
-    int CloseMacroRegions(std::size_t minRegionSize)
-    {
-        int mergeCount = 0;
-
-        auto& regions = g->charts;
-
-        std::unordered_map<RegionID, std::vector<RegionID>> mergeLists;
-        std::unordered_map<RegionID, RegionID> invertedIndex;
-
-        for (const auto& entry : regions) {
-            auto chart = entry.second;
-            if (invertedIndex.count(chart->id) == 1) continue; // skip if this region is already going to be merged to something else
-            for (auto& adjRegion : chart->adj)
-                if (adjRegion->NumAdj() == 1 && adjRegion->FN() < minRegionSize) {
-                    assert(invertedIndex.count(adjRegion->id) == 0);
-                    mergeLists[chart->id].push_back(adjRegion->id);
-                    invertedIndex[adjRegion->id] = chart->id;
-                }
-        }
-
-        for (auto& entry : mergeLists) {
-            PMesh probe;
-            std::vector<std::vector<Mesh::FacePointer>* > fpVecp;
-            fpVecp.reserve(entry.second.size()+1);
-            fpVecp.push_back(&(regions[entry.first]->fpVec));
-            for (auto id : entry.second) {
-                fpVecp.push_back(&(regions[id]->fpVec));
-            }
-            BuildPMeshFromFacePointers<Mesh>(probe, fpVecp);
-            if (Parameterizable(probe)) {
-                std::cout << "Merging " << entry.second.size() << " islands from macro region " << entry.first << std::endl;
-                for (auto id : entry.second) {
-                    // don't bother checking feasibility of each merge since we already know that the union of all the charts is
-                    Merge(regions[entry.first], regions[id]);
-                    mergeCount++;
-                }
-            } else {
-                //tri::io::ExporterOBJ<PMesh>::Save(probe, "fail.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
-            }
-        }
-
-        return mergeCount;
-    }
+    int CloseMacroRegions(std::size_t minRegionSize);
 
     /*
-     * Test if a range of chart can be merged together
+     * Test if a range of charts can be merged together
      * If the range can be merged together, it returns a queue defining a sequence of merges that result in the union of the chart range.
      * The merges can be performed by extracting the first chart, and iteratively merging it with the following charts in the queue.
      * If the range cannot be merged (either because it is disconnected or unfeasible) it returns a proper error code and an empty queue.
@@ -702,9 +294,11 @@ public:
         }
     }
 
-    // Collapse multiple charts in one go
-    // if the merge cannot happen (either due to infeasibility of the resulting surface or because the charts are
-    // not contiguous) it returns a proper error code
+    /*
+     * Collapse multiple charts in one go
+     * if the merge cannot happen (either due to infeasibility of the resulting surface or because the charts are
+     * not contiguous) it returns a proper error code
+     */
     template <typename ChartInputIterator>
     std::pair<int,ChartHandle> Collapse(ChartInputIterator first, ChartInputIterator last)
     {
@@ -722,7 +316,178 @@ public:
 
         } else return std::make_pair(p.first, nullptr);
     }
+
+private:
+
+    std::shared_ptr<MeshGraph> g;
+
+    // Edge set (map), this is always consistent with the state of the mesh graph (that is, an edge exists in this
+    // collection if and only if it exists in the mesh graph, and it is always mapped to the correct weight)
+    std::unordered_map<Edge, double, EdgeHasher> edges;
+
+    // Priority queue for the weighted edges. Elements in this queue may be no longer valid due to merge operations
+    // (their weight might have changed, or the edge itself may no longer exist if it references a region that was
+    // absorbed by another), so an edge in this queue is valid only if it exists in the collection _edges_ and the
+    // weights are consistent
+    std::priority_queue<std::pair<Edge,double>, std::vector<std::pair<Edge,double>>, EdgeWeightComparator> queue;
+
+    EdgeWeightFunction wfct;
+
+    bool AddEdge(ChartHandle c1, ChartHandle c2, bool replace = false);
+    void Merge(ChartHandle c1, ChartHandle c2);
 };
+
+
+// Template functions implementation
+// =================================
+
+template <class MeshType>
+std::shared_ptr<MeshGraph> ComputeParameterizationGraph(MeshType &m, TextureObjectHandle textureObject, float *uvMeshBorder)
+{
+    std::size_t numRegions = ComputePerFaceConnectedComponentIdAttribute<MeshType>(m);
+
+    std::shared_ptr<MeshGraph> paramData = std::make_shared<MeshGraph>(m);
+    paramData->textureObject = textureObject;
+    paramData->charts.reserve(numRegions);
+    auto CCIDh = tri::Allocator<MeshType>::template GetPerFaceAttribute<RegionID>(m, "ConnectedComponentID");
+
+    auto ICCIDh = tri::Allocator<MeshType>::template GetPerFaceAttribute<RegionID>(m, "InitialConnectedComponentID");
+    ICCIDh._handle->data.assign(CCIDh._handle->data.begin(), CCIDh._handle->data.end());
+
+    // build parameterization graph
+    tri::UpdateTopology<Mesh>::FaceFace(m);
+    for (auto &f : m.face) {
+        RegionID regionId = CCIDh[&f];
+        paramData->GetChart_Insert(regionId)->AddFace(&f);
+        // TODO this may be refactored into AddFace
+        for (int i = 0; i < f.VN(); ++i) {
+            RegionID adjId = CCIDh[f.FFp(i)];
+            if (regionId != adjId) {
+                (paramData->GetChart_Insert(regionId)->adj).insert(paramData->GetChart_Insert(adjId));
+            }
+        }
+    }
+
+    // compute uv mesh border if required
+    if (uvMeshBorder) {
+        *uvMeshBorder = 0.0f;
+        for (auto &f : m.face) {
+            for (int i = 0; i < f.VN(); ++i) {
+                if (face::IsBorder(f, i)) {
+                   *uvMeshBorder += (f.cWT((i+1)%f.VN()).P() - f.cWT(i).P()).Norm();
+                }
+            }
+        }
+    }
+
+    return paramData;
+}
+
+
+template <typename MeshType>
+void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg, std::unordered_map<Mesh::VertexPointer, typename MeshType::VertexPointer>& vpmap)
+{
+    m.Clear();
+    vpmap.clear();
+    vpmap.reserve(fg.FN() * 3);
+
+    auto WTCSh = tri::Allocator<Mesh>::FindPerFaceAttribute<TexCoordStorage>(fg.mesh, "WedgeTexCoordStorage");
+    assert(tri::Allocator<Mesh>::IsValidHandle<TexCoordStorage>(fg.mesh, WTCSh));
+    auto WTCShNew = tri::Allocator<MeshType>::template GetPerFaceAttribute<TexCoordStorage>(m, "WedgeTexCoordStorage");
+
+    std::size_t vn = 0;
+    for (auto fptr : fg.fpVec) {
+        for (int i = 0; i < 3; ++i) {
+            if (vpmap.count(fptr->V(i)) == 0) {
+                vn++;
+                vpmap[fptr->V(i)] = nullptr;
+            }
+        }
+    }
+    auto mvi = tri::Allocator<MeshType>::AddVertices(m, vn);
+    auto mfi = tri::Allocator<MeshType>::AddFaces(m, fg.FN());
+
+    for (auto fptr : fg.fpVec) {
+        typename MeshType::FacePointer mfp = &*mfi++;
+        WTCShNew[mfp] = WTCSh[fptr];
+        for (int i = 0; i < 3; ++i) {
+            Mesh::VertexPointer vp = fptr->V(i);
+            typename MeshType::VertexPointer& mvp = vpmap[vp];
+            if (mvp == nullptr) {
+                mvp = &*mvi++;
+                mvp->P() = vp->P();
+            }
+            mfp->V(i) = mvp;
+            mfp->WT(i) = mvp->T();
+        }
+    }
+}
+
+
+/// FIXME if the chart is an aggregate that has not been reparameterized this breaks...
+template <typename ScalarType = float>
+void ChartOutlinesUV(Mesh& m, ChartHandle chart, std::vector<std::vector<Point2<ScalarType>>> &outline2Vec)
+{
+    struct FaceAdjacency {
+        bool changed[3] = {false, false, false};
+        Mesh::FacePointer FFp[3];
+        char FFi[3];
+    };
+
+    auto CCIDh = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(m, "ConnectedComponentID");
+    assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(m, CCIDh));
+
+    std::unordered_map<Mesh::FacePointer,FaceAdjacency> savedAdj;
+    for (auto fptr : chart->fpVec) {
+        fptr->ClearV();
+        for (int i = 0; i < 3; ++i) {
+            if (CCIDh[fptr] != CCIDh[fptr->FFp(i)]) {
+                savedAdj[fptr].changed[i] = true;
+                savedAdj[fptr].FFp[i] = fptr->FFp(i);
+                savedAdj[fptr].FFi[i] = fptr->FFi(i);
+                fptr->FFp(i) = fptr;
+                fptr->FFi(i) = i;
+            }
+        }
+    }
+
+    outline2Vec.clear();
+    std::vector<Point2<ScalarType>> outline;
+
+    for (auto fptr : chart->fpVec) {
+        for (int i = 0; i < 3; ++i) {
+            if (!fptr->IsV() && face::IsBorder(*fptr, i)) {
+                face::Pos<Mesh::FaceType> p(fptr, i);
+                face::Pos<Mesh::FaceType> startPos = p;
+                assert(p.IsBorder());
+                do {
+                    assert(p.IsManifold());
+                    p.F()->SetV();
+                    //outline.push_back(Point2<ScalarType>(p.V()->P()));
+                    Point2d uv = p.F()->WT(p.VInd()).P();
+                    outline.push_back(Point2<ScalarType>{ScalarType(uv[0]), ScalarType(uv[1])});
+                    p.NextB();
+                }
+                while (p != startPos);
+                outline2Vec.push_back(outline);
+                outline.clear();
+            }
+        }
+    }
+
+    for (auto& entry : savedAdj) {
+        for (int i = 0; i < 3; ++i) {
+            if (entry.second.changed[i]) {
+                entry.first->FFp(i) = entry.second.FFp[i];
+                entry.first->FFi(i) = entry.second.FFi[i];
+            }
+        }
+    }
+}
+
+
+
+
 
 /*
 void ReparameterizeZeroAreaRegions(Mesh &m, ParameterizationData& pdata)

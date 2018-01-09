@@ -8,7 +8,7 @@
 #include <GL/glew.h>
 
 #include "mesh_graph.h"
-#include "optimizer.h"
+#include "texture_optimization.h"
 #include "linmath.h"
 
 class GLFWwindow;

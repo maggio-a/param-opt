@@ -29,7 +29,9 @@ SOURCES += viewer.cpp \
     ../imgui/imgui_glfw_gl3/imgui_impl_glfw_gl3.cpp \
     ../../include/vcglib/wrap/gui/trackmode.cpp \
     ../../include/vcglib/wrap/gui/trackball.cpp \
-    ../src/energy.cpp
+    ../src/energy.cpp \
+    ../src/texture_optimization.cpp \
+    ../src/mesh_graph.cpp
 
 SOURCES += \
     ../src/mesh_viewer.cpp \
@@ -46,8 +48,6 @@ HEADERS += \
     ../src/uv.h \
     ../src/mesh_graph.h \
     ../src/mesh_viewer.h \
-    ../src/distortion_pos.h \
-    ../src/optimizer.h \
     ../src/vertex_position.h \
     ../src/dcpsolver.h \
     ../src/fixed_border_bijective.h \
@@ -62,7 +62,9 @@ HEADERS += \
     ../imgui/imgui_glfw_gl3/imgui_impl_glfw_gl3.h \
     ../src/iterative.h \
     ../src/energy.h \
-    ../src/math_utils.h
+    ../src/math_utils.h \
+    ../src/texture_optimization.h \
+    ../src/metric.h
 
 DISTFILES += \
     readme.txt

@@ -1,4 +1,5 @@
 #include "energy.h"
+#include "math_utils.h"
 
 #include <Eigen/Core>
 
@@ -12,10 +13,6 @@
 #define ui (f.cV(i)->T().P())
 #define uj (f.cV(j)->T().P())
 #define uk (f.cV(k)->T().P())
-
-/// PASSARE TUTTO A DOUBLE (ANCHE LE COORDINATE VERTICE)
-/// ////////////////////////////////////////////////////
-/// ////////////////////////////////////////////////////
 
 
 using Eigen::MatrixXd;
@@ -44,8 +41,12 @@ Mesh::CoordType Energy::P0(Mesh::ConstFacePointer fp, int i) { return P(fp, i); 
 Mesh::CoordType Energy::P1(Mesh::ConstFacePointer fp, int i) { return P(fp, (i+1)%3); }
 Mesh::CoordType Energy::P2(Mesh::ConstFacePointer fp, int i) { return P(fp, (i+2)%3); }
 
-double Energy::SurfaceArea() { return surfaceArea; }
-double Energy::ParameterArea() {
+double Energy::SurfaceArea() {
+    return surfaceArea;
+}
+
+double Energy::ParameterArea()
+{
     double parameterArea = 0.0;
     for (auto& f : m.face) {
         parameterArea += 0.5 * ((u1 - u0) ^ (u2 - u0));
@@ -62,40 +63,34 @@ void Energy::CorrectScale()
 }
 
 
-
 // Symmetric Dirichlet energy implementation
 // =========================================
 
 SymmetricDirichlet::SymmetricDirichlet(Mesh& mesh, Geometry geometryMode = Geometry::Model) : Energy{mesh, geometryMode}, data{m.face}
 {
-    //double modelArea = 0.0f;
-    //double parameterArea = 0.5*0.5*M_PI;
     for (auto&f : m.face) {
         data[f][3] = (((P(&f, 1) - P(&f, 0)) ^ (P(&f, 2) - P(&f, 0))).Norm() / 2.0f);
-        //modelArea += data[f][3];
     }
-    double areaScale = ParameterArea() / SurfaceArea();
+
+    /*
+     * Hack to speed up the convergence of iterative methods
+     *
+     * Scale the parameterization so that its area matches the total area of the model (either the actual 3D area or
+     * the area of the original parameterized face, according to the geometryMode parameter).
+     * This somewhat speeds up the convergence by mitigating the need for iterative methods to scale the parameterization
+     * when optimizing, since this energy penalizes area distortion.
+     */
+    CorrectScale();
+
     for (auto& f : m.face) {
-        //data[f][3] = ((f.P(1) - f.P(0)) ^ (f.P(2) - f.P(0))).Norm() / 2.0f;
-        //data[f][3] = ((P(&f, 1) - P(&f, 0)) ^ (P(&f, 2) - P(&f, 0))).Norm() / 2.0f;
-        data[f][3] *= areaScale;
         for (int i=0; i<3; i++) {
-            //double angle = std::max(vcg::Angle(f.cP1(i) - f.cP0(i), f.cP2(i) - f.cP0(i)), float(1e-8));
-            //double angle = std::max(vcg::Angle(P1(&f, i) - P0(&f, i), P2(&f, i) - P0(&f, i)), float(1e-8));
-            //data[f][i] = std::tan(M_PI_2 - angle);
-            //data[f][i] = std::max(vcg::Angle(VertexPos.V1(&f, i) - VertexPos.V0(&f, i),
-            //                                     VertexPos.V2(&f, i) - VertexPos.V0(&f, i)),
-            //                          float(1e-8));
-
-
             // Numerically stable (?) cotangents
             Point3d a = P1(&f, i) - P0(&f, i);
-            Point3d b = P2(&f, i) - P1(&f, i);
+            //Point3d b = P2(&f, i) - P1(&f, i);
             Point3d c = P2(&f, i) - P0(&f, i);
-            double cotg = (a.SquaredNorm() + c.SquaredNorm() - b.SquaredNorm())/(2.0*data[f][3])/2.0;
-            data[f][i] = cotg;
-
-
+            //double cotg = (a.SquaredNorm() + c.SquaredNorm() - b.SquaredNorm())/(2.0*data[f][3])/2.0;
+            //data[f][i] = cotg;
+            data[f][i] = VecCotg(a, c);
         }
     }
 }

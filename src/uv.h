@@ -1,6 +1,7 @@
 #ifndef UV_H
 #define UV_H
 
+#include <vcg/complex/complex.h>
 #include <vcg/space/texcoord2.h>
 
 #include <vector>
@@ -8,11 +9,14 @@
 
 #include <QImage>
 
-//#include "mesh_graph.h"
+
+using namespace vcg;
+
 
 struct TexCoordStorage {
     vcg::TexCoord2d tc[3];
 };
+
 
 // Save a copy of the original texture coordinates (this will be used to render the new texture)
 template <class MeshType>
@@ -29,13 +33,14 @@ void StoreWedgeTexCoordAsAttribute(MeshType &m)
     }
 }
 
-// Computes per face connected component ids. Two face with the same id belong
+
+// Computes per face connected component ids. Two faces with the same id belong
 // to the same connected component. Assumes the topology is already updated.
 template <class MeshType>
 std::size_t ComputePerFaceConnectedComponentIdAttribute(MeshType &m)
 {
     typename MeshType::template PerFaceAttributeHandle<RegionID> CCIDh
-            = tri::Allocator<MeshType>::template GetPerFaceAttribute<std::size_t>(m, "ConnectedComponentID");
+            = tri::Allocator<MeshType>::template GetPerFaceAttribute<RegionID>(m, "ConnectedComponentID");
 
     tri::UpdateFlags<MeshType>::FaceClearV(m);
     tri::UpdateTopology<MeshType>::FaceFaceFromTexCoord(m);
@@ -67,6 +72,7 @@ std::size_t ComputePerFaceConnectedComponentIdAttribute(MeshType &m)
     }
     return regionCounter;
 }
+
 
 template<class ScalarType, class MeshType>
 static std::size_t ConvertTextureBoundaryToOutline2Vec(MeshType &m, std::vector<std::vector<Point2<ScalarType>>> &outline2Vec)
@@ -105,5 +111,39 @@ static std::size_t ConvertTextureBoundaryToOutline2Vec(MeshType &m, std::vector<
     return outline2Vec.size();
 }
 
-#endif // UV_H
+/*
+template <typename ScalarType = float>
+void MeshOutlinesUV(Mesh& m, std::vector<std::vector<Point2<ScalarType>>> &outline2Vec)
+{
+    tri::UpdateFlags<Mesh>::FaceClearV(m);
+    tri::UpdateFlags<Mesh>::VertexClearV(m);
+    tri::UpdateTopology<Mesh>::FaceFace(m);
 
+    outline2Vec.clear();
+    std::vector<Point2<ScalarType>> outline;
+
+    for (auto& f : m.face) {
+        auto fptr = &f;
+        for (int i = 0; i < 3; ++i) {
+            if (!fptr->IsV() && face::IsBorder(*fptr, i)) {
+                face::Pos<Mesh::FaceType> p(fptr, i);
+                face::Pos<Mesh::FaceType> startPos = p;
+                assert(p.IsBorder());
+                do {
+                    assert(p.IsManifold());
+                    p.F()->SetV();
+                    //outline.push_back(Point2<ScalarType>(p.V()->P()));
+                    Point2d uv = p.F()->WT(p.VInd()).P();
+                    outline.push_back(Point2<ScalarType>{ScalarType(uv[0]), ScalarType(uv[1])});
+                    p.NextB();
+                }
+                while (p != startPos);
+                outline2Vec.push_back(outline);
+                outline.clear();
+            }
+        }
+    }
+}
+*/
+
+#endif // UV_H

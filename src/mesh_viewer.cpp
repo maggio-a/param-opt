@@ -24,8 +24,9 @@
 #include "mesh.h"
 #include "mesh_viewer.h"
 #include "gl_util.h"
-#include "optimizer.h"
+#include "texture_optimization.h"
 #include "texture_rendering.h"
+#include "timer.h"
 
 #include "linmath.h"
 
@@ -1390,7 +1391,7 @@ void MeshViewer::ManageImGuiState()
     static ParameterizationGeometry geometry[] = { Model, Texture };
 
     static int parameterizerInUse = 0;
-    static int optimizerInUse = 0;
+    static int optimizerInUse = 1;
     static int geometryInUse = 1;
 
     // data to update
@@ -1536,19 +1537,20 @@ void MeshViewer::ManageImGuiState()
         ImGui::RadioButton("Texture coords", &geometryInUse, 1);
 
         ImGui::Text("Parameterizer");
-        ImGui::RadioButton("DCP", &parameterizerInUse, 0);
-        ImGui::RadioButton("Fixed border Bijective", &parameterizerInUse, 1);
-        ImGui::Text("Optimizer");
-        ImGui::RadioButton("Area preserving", &optimizerInUse, 0);
+        ImGui::RadioButton("Discrete Conformal", &parameterizerInUse, 0);
+        ImGui::RadioButton("Circular border bijective", &parameterizerInUse, 1);
+        ImGui::Text("Descent method energy");
+        //ImGui::RadioButton("Area preserving", &optimizerInUse, 0);
         ImGui::RadioButton("Symmetric Dirichlet", &optimizerInUse, 1);
-        ImGui::RadioButton("MIPS", &optimizerInUse, 2);
+        //ImGui::RadioButton("MIPS", &optimizerInUse, 2);
 
         strategy.directParameterizer = parameterizer[parameterizerInUse];
         strategy.optimizer = optimizer[optimizerInUse];
         strategy.geometry = geometry[geometryInUse];
 
-        ImGui::Text("Optimizer iterations");
+        ImGui::Text("Max descent iterations");
         ImGui::InputInt("##Optimizer iterations", &strategy.optimizerIterations, 1, 100);
+        if (strategy.optimizerIterations < 0) strategy.optimizerIterations = 0;
         if (ImGui::Button("Reselect")) {
             std::unordered_map<RegionID,int> savedPrimary = primaryCharts;
             int numIter = strategy.optimizerIterations; strategy.optimizerIterations = 0;
@@ -1602,14 +1604,14 @@ void MeshViewer::ManageImGuiState()
                 ImGui::Text("Chart %lu (%lu faces, %lu adjacencies)", chart->id, chart->FN(), chart->NumAdj());
                 ImGui::Text("Aggregate count: %d", chart->numMerges + 1);
                 ImGui::Text("Area 3D: %.4f", chart->Area3D());
-                ImGui::Text("Area UV: %.4f Border UV: %.6f", chart->AreaUV(), chart->BorderUV());
+                ImGui::Text("Area UV: %.4f | Border UV: %.6f", chart->AreaUV(), chart->BorderUV());
                 ImGui::Text("Distortion range: %.4f , %.4f", chart->minMappedFaceValue, chart->maxMappedFaceValue);
             } else {
                 // display info about the whole graph
                 ImGui::Text("Filename: %s", fileName.c_str());
                 ImGui::Text("Parameterization charts: %lu", meshParamData->Count());
                 ImGui::Text("Area 3D: %.4f", meshParamData->Area3D());
-                ImGui::Text("Area UV: %.4f Border UV: %.6f", meshParamData->AreaUV(), meshParamData->BorderUV());
+                ImGui::Text("Area UV: %.4f | Border UV: %.6f", meshParamData->AreaUV(), meshParamData->BorderUV());
                 auto range = meshParamData->DistortionRange();
                 ImGui::Text("Distortion range: %.4f , %.4f", range.first, range.second);
             }

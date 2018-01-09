@@ -21,73 +21,17 @@ static double QuadraticRoots(double a, double b, double c, double *x1, double *x
     return delta;
 }
 
-
-double get_smallest_pos_quad_zero(double a,double b, double c) {
-  double t1,t2;
-  if (a != 0) {
-    double delta_in = pow(b,2) - 4*a*c;
-    if (delta_in < 0) {
-      return INFINITY;
-    }
-    double delta = sqrt(delta_in);
-    t1 = (-b + delta)/ (2*a);
-    t2 = (-b - delta)/ (2*a);
-  } else {
-    t1 = t2 = -b/c;
-  }
-  assert (std::isfinite(t1));
-  assert (std::isfinite(t2));
-
-  double tmp_n = min(t1,t2);
-  t1 = max(t1,t2); t2 = tmp_n;
-  if (t1 == t2) {
-    return INFINITY; // means the orientation flips twice = doesn't flip?
-  }
-  // return the smallest negative root if it exists, otherwise return infinity
-  if (t1 > 0) {
-    if (t2 > 0) {
-      return t2;
-    } else {
-      return t1;
-    }
-  } else {
-    return INFINITY;
-  }
-}
-
 // this functions takes the 2d base coordinates and the offsets for each vertex, and returns the smallest positive
 // step that prevents a triangle flip, or numeric_limits::max() if the step is unbounded
 // Negli appunti pij = (u_ij, v_ij), uguale per pki
 static double ComputeStepSizeNoFlip(const Vector2d& pi, const Vector2d& pj, const Vector2d& pk, const Vector2d& di, const Vector2d& dj, const Vector2d& dk)
 {
-//    Vector2d dji = dj - di; Vector2d dki = dk - di;
-//    Vector2d pji = pj - pi; Vector2d pki = pk - pi;
+    Vector2d dji = dj - di; Vector2d dki = dk - di;
+    Vector2d pji = pj - pi; Vector2d pki = pk - pi;
 
-//    double a = dji[0]*dki[1] - dji[1]*dki[0];
-//    double b = pji[0]*dki[1] + pki[1]*dji[0] - pji[1]*dki[0] - pki[0]*dji[1];
-//    double c = pji[0]*pki[1] - pji[1]*pki[0];
-
-#define U11 pi[0]
-#define U12 pi[1]
-#define U21 pj[0]
-#define U22 pj[1]
-#define U31 pk[0]
-#define U32 pk[1]
-
-#define V11 di[0]
-#define V12 di[1]
-#define V21 dj[0]
-#define V22 dj[1]
-#define V31 dk[0]
-#define V32 dk[1]
-
-
-double a = V11*V22 - V12*V21 - V11*V32 + V12*V31 + V21*V32 - V22*V31;
-double b = U11*V22 - U12*V21 - U21*V12 + U22*V11 - U11*V32 + U12*V31 + U31*V12 - U32*V11 + U21*V32 - U22*V31 - U31*V22 + U32*V21;
-double c = U11*U22 - U12*U21 - U11*U32 + U12*U31 + U21*U32 - U22*U31;
-
-return get_smallest_pos_quad_zero(a, b, c);
-
+    double a = dji[0]*dki[1] - dji[1]*dki[0];
+    double b = pji[0]*dki[1] + pki[1]*dji[0] - pji[1]*dki[0] - pki[0]*dji[1];
+    double c = pji[0]*pki[1] - pji[1]*pki[0];
 
     double x1, x2;
     double delta = QuadraticRoots(a, b, c, &x1, &x2);
@@ -348,7 +292,5 @@ double LBFGS::Iterate(double& gradientNorm, double& objValDiff)
 
     return energyCurr;
 }
-
-
 
 
