@@ -80,6 +80,7 @@ SymmetricDirichlet::SymmetricDirichlet(Mesh& mesh, Geometry geometryMode = Geome
      * This somewhat speeds up the convergence by mitigating the need for iterative methods to scale the parameterization
      * when optimizing, since this energy penalizes area distortion.
      */
+    /// TODO move this to the iterative methods implementation, it makes no sense here
     CorrectScale();
 
     for (auto& f : m.face) {

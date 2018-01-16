@@ -10,6 +10,8 @@
 class Energy {
 
     friend class DescentMethod;
+    friend class SLIM;
+
     Mesh::PerFaceAttributeHandle<TexCoordStorage> tcsattr;
 
 public:

@@ -5,6 +5,7 @@
 #include "energy.h"
 
 #include <Eigen/Core>
+#include <Eigen/Sparse>
 
 #include <memory>
 
@@ -28,7 +29,6 @@ public:
 
     Eigen::MatrixXd X();
     void SetX(const Eigen::MatrixXd& x);
-
 };
 
 
@@ -38,8 +38,7 @@ public:
 
     GradientDescent(std::shared_ptr<Energy> energy) : DescentMethod(energy) {}
 
-    Eigen::MatrixXd ComputeDescentDirection();
-
+    virtual Eigen::MatrixXd ComputeDescentDirection();
 };
 
 
@@ -55,7 +54,37 @@ public:
     LBFGS(std::shared_ptr<Energy> energy, std::size_t memory) : DescentMethod(energy), m{memory} {}
 
     Eigen::MatrixXd ComputeDescentDirection();
-    double Iterate(double& gradientNorm, double& objValDiff);
+    virtual double Iterate(double& gradientNorm, double& objValDiff);
+};
+
+
+/*
+ * Implementation of Rabinovich et al. (2017) 'Scalable Locally Injective Mappings'
+ */
+class SLIM : public DescentMethod {
+
+    SimpleTempData<Mesh::FaceContainer, Eigen::Matrix2d> fm_inv; // 2by2 map from mesh face to canonical triangle
+    SimpleTempData<Mesh::FaceContainer, Eigen::Matrix2d> J; // per face jacobians
+    SimpleTempData<Mesh::FaceContainer, Eigen::Matrix2d> R; // per face closest rotations
+    SimpleTempData<Mesh::FaceContainer, Eigen::Matrix2d> W; // per face weight coefficients
+
+    Eigen::SparseMatrix<double> D1; // Dx in paper appendix
+    Eigen::SparseMatrix<double> D2; // Dy in paper appendix
+    Eigen::VectorXd diagAreaVector; // Vector of face areas repeated 4 times (used as diagonal matrix)
+    const double lambda; // the 'proximal penalty' term in the paper
+
+public:
+
+    SLIM(std::shared_ptr<SymmetricDirichlet> sd);
+
+    virtual Eigen::MatrixXd ComputeDescentDirection();
+
+private:
+
+    void UpdateJRW();
+    void BuildA(Eigen::SparseMatrix<double>& A);
+    void BuildRhs(const Eigen::SparseMatrix<double>& At, Eigen::VectorXd &rhs);
+    Eigen::MatrixXd MinimizeProxyEnergy();
 };
 
 #endif // ITERATIVE_H
