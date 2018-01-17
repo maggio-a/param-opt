@@ -18,6 +18,9 @@
 
 #include <QImage>
 
+int GraphManager::Collapse_OK = 0;
+int GraphManager::Collapse_ERR_DISCONNECTED = 1;
+int GraphManager::Collapse_ERR_UNFEASIBLE = 2;
 
 void PrintParameterizationInfo(std::shared_ptr<MeshGraph> pdata)
 {

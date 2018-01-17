@@ -140,9 +140,9 @@ public:
 
     using ChartHandle = std::shared_ptr<FaceGroup>;
 
-    constexpr static int Collapse_OK = 0;
-    constexpr static int Collapse_ERR_DISCONNECTED = 1;
-    constexpr static int Collapse_ERR_UNFEASIBLE = 2;
+    static int Collapse_OK;
+    static int Collapse_ERR_DISCONNECTED;
+    static int Collapse_ERR_UNFEASIBLE;
 
     struct Edge {
         std::shared_ptr<FaceGroup> a;
