@@ -257,13 +257,13 @@ bool GraphManager::Valid(std::pair<GraphManager::Edge,double> weightedEdge)
 
 const std::pair<GraphManager::Edge,double>& GraphManager::PeekNextEdge()
 {
-    assert(HasNextEdge());
+    //assert(HasNextEdge());
     return queue.top();
 }
 
 void GraphManager::RemoveNextEdge()
 {
-    assert(HasNextEdge());
+    //assert(HasNextEdge());
     queue.pop();
 }
 

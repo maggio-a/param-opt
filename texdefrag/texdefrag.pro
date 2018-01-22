@@ -10,6 +10,8 @@ QT = core gui svg
 
 TEMPLATE = app
 
+QMAKE_CXXFLAGS += -g
+
 INCLUDEPATH += ../src $$VCGPATH $$VCGPATH/eigenlib
 
 unix {
@@ -19,22 +21,30 @@ unix {
 
 LIBS += -lGL -lGLEW
 
-SOURCES += texdefrag.cpp
-
-SOURCES += \
-    ../src/mesh.cpp
+SOURCES += texdefrag.cpp \
+    ../src/energy.cpp \
+    ../src/texture_optimization.cpp \
+    ../src/mesh_graph.cpp \
+    ../src/mesh.cpp \
+    ../src/iterative.cpp
 
 SOURCES += $${VCGPATH}/wrap/ply/plylib.cpp $${VCGPATH}/wrap/qt/Outline2ToQImage.cpp $${VCGPATH}/wrap/qt/outline2_rasterizer.cpp
 
 HEADERS += \
-    ../src/texture_rendering.h \
     ../src/mesh.h \
-    ../src/optimizer.h \
-    ../src/pushpull.h \
     ../src/linmath.h \
     ../src/gl_util.h \
     ../src/timer.h \
     ../src/uv.h \
     ../src/mesh_graph.h \
+    ../src/vertex_position.h \
     ../src/dcpsolver.h \
+    ../src/fixed_border_bijective.h \
+    ../src/ext/texcoord_optimization.h \
+    ../src/texture_rendering.h \
+    ../src/iterative.h \
+    ../src/energy.h \
+    ../src/math_utils.h \
+    ../src/texture_optimization.h \
+    ../src/metric.h
 

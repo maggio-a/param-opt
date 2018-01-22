@@ -10,6 +10,8 @@
 #include "math_utils.h"
 #include "metric.h"
 
+#include "timer.h"
+
 using Eigen::MatrixXd;
 using Eigen::Vector2d;
 
@@ -191,8 +193,8 @@ double DescentMethod::Search(const MatrixXd& uv, const MatrixXd& grad, const Mat
         numIter++;
     }
 
-    std::cout << "t = " << t << std::endl << "descentCoeff = " << descentCoeff << std::endl;
-    std::cout << "Descent took " << numIter << " iterations to decrease function" << std::endl;
+//    std::cout << "t = " << t << std::endl << "descentCoeff = " << descentCoeff << std::endl;
+//    std::cout << "Descent took " << numIter << " iterations to decrease function" << std::endl;
 
     return E_t;
 }
@@ -238,6 +240,12 @@ void DescentMethod::SetX(const MatrixXd& x)
 // Gradient Descent
 // ================
 
+GradientDescent::GradientDescent(std::shared_ptr<Energy> energy)
+    : DescentMethod(energy)
+{
+    energy->CorrectScale();
+}
+
 MatrixXd GradientDescent::ComputeDescentDirection()
 {
     return - energy->Grad();
@@ -245,6 +253,13 @@ MatrixXd GradientDescent::ComputeDescentDirection()
 
 // L-BFGS
 // ======
+
+LBFGS::LBFGS(std::shared_ptr<Energy> energy, std::size_t memory)
+    : DescentMethod(energy),
+      m{memory}
+{
+    energy->CorrectScale();
+}
 
 MatrixXd LBFGS::ComputeDescentDirection()
 {
@@ -315,8 +330,6 @@ double LBFGS::Iterate(double& gradientNorm, double& objValDiff)
  *
  * */
 
-static void PrecomputeD12(const Mesh& m, Eigen::SparseMatrix<double>& D1, Eigen::SparseMatrix<double>& D2);
-
 SLIM::SLIM(std::shared_ptr<SymmetricDirichlet> sd)
     : DescentMethod(sd),
       fm_inv{sd->m.face},
@@ -326,7 +339,9 @@ SLIM::SLIM(std::shared_ptr<SymmetricDirichlet> sd)
       D1{},
       D2{},
       diagAreaVector{},
-      lambda{0.0001}
+      lambda{0.0001},
+      solver{},
+      firstSolve{false}
 {
     for (auto& f : m.face) {
         /*
@@ -342,16 +357,17 @@ SLIM::SLIM(std::shared_ptr<SymmetricDirichlet> sd)
         double ct = std::cos(theta);
         Eigen::Matrix2d rt;
         rt << ct, -st, st, ct;
-        Eigen::Vector2d x2 = rt * Eigen::Vector2d{p20.Norm(), 0}; // rotation after scaling
+        Eigen::Vector2d x2 = p20.Norm() * (rt * Eigen::Vector2d{1, 0}); // rotate and scale
 
         /*
          * at this point the transformation from the canonical triangle (0,0) (1,0), (0,1) to the
          * mesh face is encoded in the matrix [x1 | x2], and we want the inverse
          * inverse = (1/det) * adjugate
          * */
-        double a = x1(0), b = x2(0), c = x1(1), d = x2(1);
-        fm_inv[f] << d, -b, -c, a;
-        fm_inv[f] *= 1.0 / (b*d - a*c);
+        Eigen::Matrix2d fm;
+        fm.col(0) = x1;
+        fm.col(1) = x2;
+        fm_inv[f] = fm.inverse();
     }
 
     PrecomputeD12(m, D1, D2);
@@ -372,17 +388,18 @@ SLIM::SLIM(std::shared_ptr<SymmetricDirichlet> sd)
     }
 }
 
-static void PrecomputeD12(const Mesh& m, Eigen::SparseMatrix<double>& D1, Eigen::SparseMatrix<double>& D2)
+void SLIM::PrecomputeD12(const Mesh& m, Eigen::SparseMatrix<double>& D1, Eigen::SparseMatrix<double>& D2)
 {
     Eigen::Matrix<double, Eigen::Dynamic, 3> eperp21(m.FN(), 3), eperp13(m.FN(), 3);
     Eigen::Matrix<double, Eigen::Dynamic, 3> F1(m.FN(), 3), F2(m.FN(), 3); // basis vectors for the tangent plane at each face
 
     //for (int i=0;i<F.rows();++i)
-    for (auto const& f : m.face) {
+    for (auto const& f : m.face)
+    {
         // #F x 3 matrices of triangle edge vectors, named after opposite vertices
-        Eigen::Matrix<double, 1, 3> v32; (f.cP(2) - f.cP(1)).ToEigenVector(v32); // V.row(i3) - V.row(i2);
-        Eigen::Matrix<double, 1, 3> v13; (f.cP(0) - f.cP(2)).ToEigenVector(v13); // V.row(i1) - V.row(i3);
-        Eigen::Matrix<double, 1, 3> v21; (f.cP(1) - f.cP(0)).ToEigenVector(v21); // V.row(i2) - V.row(i1);
+        Eigen::Matrix<double, 1, 3> v32; (energy->P(&f, 2) - energy->P(&f, 1)).ToEigenVector(v32); // V.row(i3) - V.row(i2);
+        Eigen::Matrix<double, 1, 3> v13; (energy->P(&f, 0) - energy->P(&f, 2)).ToEigenVector(v13); // V.row(i1) - V.row(i3);
+        Eigen::Matrix<double, 1, 3> v21; (energy->P(&f, 1) - energy->P(&f, 0)).ToEigenVector(v21); // V.row(i2) - V.row(i1);
         Eigen::Matrix<double, 1, 3> n = v32.cross(v13);
         // area of parallelogram is twice area of triangle
         // area of parallelogram is || v1 x v2 ||
@@ -402,7 +419,7 @@ static void PrecomputeD12(const Mesh& m, Eigen::SparseMatrix<double>& D1, Eigen:
         //eperp21.row(i) = u.cross(v21);
         //eperp21.row(i) = eperp21.row(i) / std::sqrt(eperp21.row(i).dot(eperp21.row(i)));
         eperp21.row(i) = F2.row(i);
-        eperp21.row(i) *= norm21 / 0.5*dblA;
+        eperp21.row(i) *= norm21 / dblA;
         eperp13.row(i) = u.cross(v13);
         eperp13.row(i) = eperp13.row(i) / std::sqrt(eperp13.row(i).dot(eperp13.row(i)));
         eperp13.row(i) *= norm13 / dblA;
@@ -447,6 +464,7 @@ static void PrecomputeD12(const Mesh& m, Eigen::SparseMatrix<double>& D1, Eigen:
     // create sparse gradient operator matrix
     Eigen::SparseMatrix<double> G(3*m.FN(), m.VN());
     std::vector<Eigen::Triplet<double>> triplets;
+    triplets.reserve(vs.size());
     for (int i = 0; i < (int) vs.size(); ++i) {
         triplets.push_back(Eigen::Triplet<double>(rs[i],cs[i],vs[i]));
     }
@@ -468,39 +486,13 @@ static void PrecomputeD12(const Mesh& m, Eigen::SparseMatrix<double>& D1, Eigen:
 
 void SLIM::UpdateJRW()
 {
-    Mesh& m = energy->m;
-
-    MatrixXd Ji(m.FN(), 4);
-    MatrixXd uv = X();
-
-    Ji.col(0) = D1 * uv.col(0);
-    Ji.col(1) = D2 * uv.col(0);
-    Ji.col(2) = D1 * uv.col(1);
-    Ji.col(3) = D2 * uv.col(1);
-
     for (auto& f : m.face) {
         // Compute jacobian matrix by combining the inverse of the map from T_e to 3D and the map from T_e to uv
         Point2d u10 = (f.V(1)->T().P() - f.V(0)->T().P());
         Point2d u20 = (f.V(2)->T().P() - f.V(0)->T().P());
         Eigen::Matrix2d fp;
         fp << u10[0], u20[0], u10[1], u20[1];
-
-        Eigen::Matrix2d ji;
-        int k = tri::Index(m, f);
-        ji(0, 0) = Ji(k, 0);
-        ji(0, 1) = Ji(k, 1);
-        ji(1, 0) = Ji(k, 2);
-        ji(1, 1) = Ji(k, 3);
-
         J[f] = fp * fm_inv[f];
-
-        std::cout << "=============" << std::endl;
-        std::cout << J[f] << std::endl;
-        std::cout << "+++++++++++++" << std::endl;
-        std::cout << ji << std::endl;
-        std::cout << "=============" << std::endl;
-
-        J[f] = ji;
 
         // Now find closest rotation for this face
         Eigen::Matrix2d U, V;
@@ -508,29 +500,23 @@ void SLIM::UpdateJRW()
         Eigen::JacobiSVD<Eigen::Matrix2d> svd;
         svd.compute(J[f], Eigen::ComputeFullU | Eigen::ComputeFullV);
         U = svd.matrixU(); V = svd.matrixV(); sigma = svd.singularValues();
-        // Make sure U * V^{T} is a proper rotation (https://mathoverflow.net/questions/86539/closest-3d-rotation-matrix-in-the-frobenius-norm-sense)
-        //bool reflected = false;
-        //if (U.determinant() * V.determinant() < 0) {
-        //    U.col(U.cols() - 1) *= -1;
-        //    reflected = true;
-        //}
+
+        // Make sure U * V^T is a proper rotation (https://mathoverflow.net/questions/86539/closest-3d-rotation-matrix-in-the-frobenius-norm-sense)
         R[f] = U * V.transpose();
         if (R[f].determinant() < 0) {
-            V.col(V.cols() - 1) *= -1;
+            U.col(U.cols() - 1) *= -1;
             R[f] = U * V.transpose();
-            V.col(V.cols() - 1) *= -1;
+            U.col(U.cols() - 1) *= -1;
         }
-
-        //if (reflected) U.col(U.cols() - 1) *= -1;
 
         // Update weights (eq 28 in the paper)
         Eigen::Vector2d Sw;
         for (int i = 0; i < 2; ++i) {
             double den = sigma[i] - 1;
-            if (std::abs(den) < 1e8) {
+            if (std::abs(den) < 1e-8) {
                 Sw[i] = 1;
             } else {
-                Sw[i] = std::sqrt((sigma[i] - std::pow(sigma[i], 3)) / den);
+                Sw[i] = std::sqrt((sigma[i] - std::pow(sigma[i], -3)) / den);
             }
         }
         W[f] = U * Sw.asDiagonal() * U.transpose();
@@ -542,14 +528,18 @@ Eigen::MatrixXd SLIM::ComputeDescentDirection()
     // Update jacobians, rotations and weights for each face
     UpdateJRW();
 
-    // Find solution to the proxy energy
-    Eigen::MatrixXd p_k = MinimizeProxyEnergy();
+    // Find solution to the proxy energy minimization
+    Eigen::MatrixXd p_k;
+    MinimizeProxyEnergy(p_k);
 
     // The descent direction is the one that points towards the proxy solution from the current point
-    return p_k - X();
+    for (auto const& v : m.vert) {
+        p_k.row(tri::Index(m, v)) -= Eigen::Vector2d{v.T().U(), v.T().V()};
+    }
+    return p_k;
 }
 
-Eigen::MatrixXd SLIM::MinimizeProxyEnergy()
+void SLIM::MinimizeProxyEnergy(Eigen::MatrixXd& p_k)
 {
     // solves using least squares (so build the normal equations system)
     Eigen::SparseMatrix<double> A(4 * m.FN(), 2 * m.VN());
@@ -566,15 +556,19 @@ Eigen::MatrixXd SLIM::MinimizeProxyEnergy()
     L.makeCompressed();
 
     Eigen::VectorXd sol;
-    Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> solver;
-    sol = solver.compute(L).solve(rhs);
+
+    if (firstSolve) {
+        solver.analyzePattern(L);
+        firstSolve = false;
+    }
+    solver.compute(L);
+    sol = solver.solve(rhs);
 
     assert((solver.info() == Eigen::Success) && "SLIM::MinimizeProxyEnergy solve failed");
 
-    Eigen::MatrixXd solM(m.VN(), 2);
-    solM.col(0) = sol.block(0, 0, m.VN(), 1);
-    solM.col(1) = sol.block(m.VN(), 0, m.VN(), 1);
-    return solM;
+    p_k.resize(m.VN(), 2);
+    p_k.col(0) = sol.block(0, 0, m.VN(), 1);
+    p_k.col(1) = sol.block(m.VN(), 0, m.VN(), 1);
 }
 
 void SLIM::BuildA(Eigen::SparseMatrix<double>& A)
@@ -595,12 +589,6 @@ void SLIM::BuildA(Eigen::SparseMatrix<double>& A)
 
             const Eigen::Matrix2d& W_f = W[m.face[dx_r]];
 
-            //IJV.push_back(Eigen::Triplet<double>(dx_r, dx_c, val * s.W_11(dx_r)));
-            //IJV.push_back(Eigen::Triplet<double>(dx_r, s.v_n + dx_c, val * s.W_12(dx_r)));
-
-            //IJV.push_back(Eigen::Triplet<double>(2 * s.f_n + dx_r, dx_c, val * s.W_21(dx_r)));
-            //IJV.push_back(Eigen::Triplet<double>(2 * s.f_n + dx_r, s.v_n + dx_c, val * s.W_22(dx_r)));
-
             IJV.push_back(Eigen::Triplet<double>(dx_r, dx_c, val * W_f(0,0)));
             IJV.push_back(Eigen::Triplet<double>(dx_r, m.VN() + dx_c, val * W_f(0,1)));
 
@@ -617,17 +605,11 @@ void SLIM::BuildA(Eigen::SparseMatrix<double>& A)
 
             const Eigen::Matrix2d& W_f = W[m.face[dy_r]];
 
-            //IJV.push_back(Eigen::Triplet<double>(s.f_n + dy_r, dy_c, val * s.W_11(dy_r)));
-            //IJV.push_back(Eigen::Triplet<double>(s.f_n + dy_r, s.v_n + dy_c, val * s.W_12(dy_r)));
-
-            //IJV.push_back(Eigen::Triplet<double>(3 * s.f_n + dy_r, dy_c, val * s.W_21(dy_r)));
-            //IJV.push_back(Eigen::Triplet<double>(3 * s.f_n + dy_r, s.v_n + dy_c, val * s.W_22(dy_r)));
-
             IJV.push_back(Eigen::Triplet<double>(m.FN() + dy_r, dy_c, val * W_f(0,0)));
             IJV.push_back(Eigen::Triplet<double>(m.FN() + dy_r, m.VN() + dy_c, val * W_f(0,1)));
 
-            IJV.push_back(Eigen::Triplet<double>(3 * m.VN() + dy_r, dy_c, val * W_f(1,0)));
-            IJV.push_back(Eigen::Triplet<double>(3 * m.VN() + dy_r, m.VN() + dy_c, val * W_f(1,1)));
+            IJV.push_back(Eigen::Triplet<double>(3 * m.FN() + dy_r, dy_c, val * W_f(1,0)));
+            IJV.push_back(Eigen::Triplet<double>(3 * m.FN() + dy_r, m.VN() + dy_c, val * W_f(1,1)));
         }
     }
 
@@ -647,11 +629,6 @@ void SLIM::BuildRhs(const Eigen::SparseMatrix<double>& At, Eigen::VectorXd& rhs)
         const Eigen::Matrix2d& W_f = W[f];
         const Eigen::Matrix2d& R_f = R[f];
 
-        //f_rhs(i + 0 * m.FN()) = s.W_11(i) * s.Ri(i, 0) + s.W_12(i) * s.Ri(i, 1);
-        //f_rhs(i + 1 * m.FN()) = s.W_11(i) * s.Ri(i, 2) + s.W_12(i) * s.Ri(i, 3);
-        //f_rhs(i + 2 * m.FN()) = s.W_21(i) * s.Ri(i, 0) + s.W_22(i) * s.Ri(i, 1);
-        //f_rhs(i + 3 * m.FN()) = s.W_21(i) * s.Ri(i, 2) + s.W_22(i) * s.Ri(i, 3);
-
         f_rhs(i + 0 * m.FN()) = W_f(0,0) * R_f(0,0) + W_f(0,1) * R_f(1,0);
         f_rhs(i + 1 * m.FN()) = W_f(0,0) * R_f(0,1) + W_f(0,1) * R_f(1,1);
         f_rhs(i + 2 * m.FN()) = W_f(1,0) * R_f(0,0) + W_f(1,1) * R_f(1,0);
@@ -666,7 +643,3 @@ void SLIM::BuildRhs(const Eigen::SparseMatrix<double>& At, Eigen::VectorXd& rhs)
 
     rhs = (At * diagAreaVector.asDiagonal() * f_rhs + lambda * uv_flat);
 }
-
-
-
-

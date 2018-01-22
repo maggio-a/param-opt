@@ -60,24 +60,4 @@ int main(int argc, char *argv[])
             f.V(i)->T() = f.WT(i);
         }
     }
-
-/*
-    tri::UpdateTopology<Mesh>::FaceFace(m);
-    tri::UpdateFlags<Mesh>::VertexBorderFromFaceAdj(m);
-    tri::AreaPreservingTextureOptimizer<Mesh> opt(m);
-
-    opt.TargetCurrentGeometry();
-    opt.SetBorderAsFixed();
-
-    for (int i = 0; i < 100; ++i) {
-        Timer t;
-        opt.Iterate();
-        tri::io::ExporterOBJ<Mesh>::Save(m, "opt.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
-        tri::UpdateTexture<Mesh>::WedgeTexFromVertexTex(m);
-        std::cout << "Iteration took " << t.TimeSinceLastCheck() << " seconds";
-        std::cout << std::endl;
-    }
-
-    return 0; */
-
 }

@@ -1388,11 +1388,13 @@ void MeshViewer::ManageImGuiState()
     // parameterization strategy
     static DirectParameterizer parameterizer[] = { DCP, FixedBorderBijective };
     static TexCoordOptimizer optimizer[] = { AreaPreserving, SymmetricDirichletOpt, MIPS };
+    static DescentType descent[] = { Gradient, LimitedMemoryBFGS, ScalableLocallyInjectiveMappings };
     static ParameterizationGeometry geometry[] = { Model, Texture };
 
     static int parameterizerInUse = 0;
     static int optimizerInUse = 1;
-    static int geometryInUse = 1;
+    static int descentTypeInUse = 1;
+    static int geometryInUse = 0;
 
     // data to update
     bool updateTexcoord = false;
@@ -1478,7 +1480,8 @@ void MeshViewer::ManageImGuiState()
                     updateColor = true;
                 }
                 _currentTexture->Release();
-                _currentTexture = RenderTexture(meshParamData->mesh, meshParamData->textureObject, true, _window);
+                //_currentTexture = RenderTexture(meshParamData->mesh, meshParamData->textureObject, true, _window);
+                _currentTexture = RenderTexture(meshParamData->mesh, meshParamData->textureObject, false, _window);
            } else {
                std::cout << "No merges, nothing to do" << std::endl;
            }
@@ -1539,14 +1542,21 @@ void MeshViewer::ManageImGuiState()
         ImGui::Text("Parameterizer");
         ImGui::RadioButton("Discrete Conformal", &parameterizerInUse, 0);
         ImGui::RadioButton("Circular border bijective", &parameterizerInUse, 1);
-        ImGui::Text("Descent method energy");
+
+        //ImGui::Text("Descent method energy");
         //ImGui::RadioButton("Area preserving", &optimizerInUse, 0);
-        ImGui::RadioButton("Symmetric Dirichlet", &optimizerInUse, 1);
+        //ImGui::RadioButton("Symmetric Dirichlet", &optimizerInUse, 1);
         //ImGui::RadioButton("MIPS", &optimizerInUse, 2);
+
+        ImGui::Text("Descent method");
+        ImGui::RadioButton("Gradient descent", &descentTypeInUse, 0);
+        ImGui::RadioButton("LBFGS", &descentTypeInUse, 1);
+        ImGui::RadioButton("SLIM", &descentTypeInUse, 2);
 
         strategy.directParameterizer = parameterizer[parameterizerInUse];
         strategy.optimizer = optimizer[optimizerInUse];
         strategy.geometry = geometry[geometryInUse];
+        strategy.descent = descent[descentTypeInUse];
 
         ImGui::Text("Max descent iterations");
         ImGui::InputInt("##Optimizer iterations", &strategy.optimizerIterations, 1, 100);

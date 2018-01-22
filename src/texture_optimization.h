@@ -19,7 +19,7 @@ struct Point2iHasher {
     }
 };
 
-/// TODO REFACTOR
+/// TODO REFACTOR (these enums should be each in their respective headers)
 enum DirectParameterizer {
     DCP, FixedBorderBijective
 };
@@ -28,10 +28,15 @@ enum TexCoordOptimizer {
     AreaPreserving, SymmetricDirichletOpt, MIPS
 };
 
+enum DescentType {
+    Gradient, LimitedMemoryBFGS, ScalableLocallyInjectiveMappings
+};
+
 struct ParameterizationStrategy {
     DirectParameterizer directParameterizer = DCP;
     TexCoordOptimizer optimizer = AreaPreserving;
     ParameterizationGeometry geometry = Model;
+    DescentType descent = Gradient;
     int optimizerIterations = 0;
 };
 

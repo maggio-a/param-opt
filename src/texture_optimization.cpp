@@ -129,9 +129,16 @@ bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy)
     } else if (strategy.directParameterizer == DirectParameterizer::FixedBorderBijective) {
         UniformSolver<Mesh> solver(m);
         solved = solver.Solve();
+        // check for inverted faces
+        for (auto& f : m.face) {
+            double areaUV = (f.V(1)->T().P() - f.V(0)->T().P()) ^ (f.V(2)->T().P() - f.V(0)->T().P());
+            assert(areaUV > 0 && "Parameterization is not bijective");
+        }
     } else {
         assert(0 && "Solver not supported");
     }
+
+
 
     if (solved) { // optimize and Copy texture coords back
 
@@ -141,33 +148,47 @@ bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy)
             Energy::Geometry mode = Energy::Geometry::Model;
             if (strategy.geometry == ParameterizationGeometry::Texture) mode = Energy::Geometry::Texture;
 
-            LBFGS opt(std::make_shared<SymmetricDirichlet>(m, mode), 10);
-            //GradientDescent opt(std::make_shared<SymmetricDirichlet>(m, mode));
+            DescentMethod *opt;
+            switch(strategy.descent) {
+            case DescentType::Gradient:
+                opt = new GradientDescent{std::make_shared<SymmetricDirichlet>(m, mode)};
+                break;
+            case DescentType::LimitedMemoryBFGS:
+                opt = new LBFGS{std::make_shared<SymmetricDirichlet>(m, mode), 10};
+                break;
+            case DescentType::ScalableLocallyInjectiveMappings:
+                opt = new SLIM{std::make_shared<SymmetricDirichlet>(m, mode)};
+                break;
+            }
 
             Timer t;
-            if (strategy.optimizerIterations < 0) {
-                std::abort();
-            } else {
-                int i;
-                double energyVal, gradientNorm, energyDiff;
-                for (i = 0; i < strategy.optimizerIterations; ++i) {
-                    energyVal = opt.Iterate(gradientNorm, energyDiff);
-                    if (gradientNorm < 1e-3) {
-                        std::cout << "Stopping because gradient magnitude is small enough (" << gradientNorm << ")" << std::endl;
-                        break;
-                    }
-                    if (energyDiff < 1e-9) {
-                        std::cout << "Stopping because energy improvement is too small (" << energyDiff << ")" << std::endl;
-                        break;
-                    }
+            int i;
+            double energyVal, gradientNorm, energyDiff;
+            for (i = 0; i < strategy.optimizerIterations; ++i) {
+                energyVal = opt->Iterate(gradientNorm, energyDiff);
+                for (auto& f : m.face) {
+                    double areaUV = (f.V(1)->T().P() - f.V(0)->T().P()) ^ (f.V(2)->T().P() - f.V(0)->T().P());
+                    assert(areaUV > 0 && "Parameterization is not bijective");
                 }
-                if (i >= strategy.optimizerIterations) {
-                    std::cout << "Maximum number of iterations reached" << std::endl;
+                if (gradientNorm < 1e-3) {
+                    std::cout << "Stopping because gradient magnitude is small enough (" << gradientNorm << ")" << std::endl;
+                    break;
                 }
-                std::cout << "Stopped after " << i << " iterations, gradient magnitude = " << gradientNorm
-                          << ", energy value = " << energyVal << std::endl;
+                if (energyDiff < 1e-9) {
+                    std::cout << "Stopping because energy improvement is too small (" << energyDiff << ")" << std::endl;
+                    break;
+                }
             }
+            if (i >= strategy.optimizerIterations) {
+                std::cout << "Maximum number of iterations reached" << std::endl;
+            }
+            std::cout << "Stopped after " << i << " iterations, gradient magnitude = " << gradientNorm
+                      << ", energy value = " << energyVal << std::endl;
+
             std::cout << "Optimization took " << t.TimeSinceLastCheck() << " seconds" << std::endl;
+
+            delete opt;
+
         } else {
           /*  strategy.optimizerIterations = -strategy.optimizerIterations;
 

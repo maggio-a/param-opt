@@ -425,7 +425,7 @@ void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg, std::unordered_map<Mesh::
 
 
 /// FIXME if the chart is an aggregate that has not been reparameterized this breaks...
-template <typename ScalarType = float>
+template <typename ScalarType>
 void ChartOutlinesUV(Mesh& m, ChartHandle chart, std::vector<std::vector<Point2<ScalarType>>> &outline2Vec)
 {
     struct FaceAdjacency {

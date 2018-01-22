@@ -72,17 +72,6 @@ SymmetricDirichlet::SymmetricDirichlet(Mesh& mesh, Geometry geometryMode = Geome
         data[f][3] = (((P(&f, 1) - P(&f, 0)) ^ (P(&f, 2) - P(&f, 0))).Norm() / 2.0f);
     }
 
-    /*
-     * Hack to speed up the convergence of iterative methods
-     *
-     * Scale the parameterization so that its area matches the total area of the model (either the actual 3D area or
-     * the area of the original parameterized face, according to the geometryMode parameter).
-     * This somewhat speeds up the convergence by mitigating the need for iterative methods to scale the parameterization
-     * when optimizing, since this energy penalizes area distortion.
-     */
-    /// TODO move this to the iterative methods implementation, it makes no sense here
-    CorrectScale();
-
     for (auto& f : m.face) {
         for (int i=0; i<3; i++) {
             // Numerically stable (?) cotangents
@@ -105,7 +94,6 @@ double SymmetricDirichlet::E()
 
 double SymmetricDirichlet::E(const Mesh::FaceType& f)
 {
-    assert(&f == &m.face[Index(m, f)]);
     double o[3] = { // (opposite edge)^2
         (   u1-u2).SquaredNorm(),
         (u0   -u2).SquaredNorm(),

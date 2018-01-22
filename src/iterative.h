@@ -36,7 +36,7 @@ class GradientDescent : public DescentMethod {
 
 public:
 
-    GradientDescent(std::shared_ptr<Energy> energy) : DescentMethod(energy) {}
+    GradientDescent(std::shared_ptr<Energy> energy);
 
     virtual Eigen::MatrixXd ComputeDescentDirection();
 };
@@ -51,7 +51,7 @@ class LBFGS : public DescentMethod {
 
 public:
 
-    LBFGS(std::shared_ptr<Energy> energy, std::size_t memory) : DescentMethod(energy), m{memory} {}
+    LBFGS(std::shared_ptr<Energy> energy, std::size_t memory);
 
     Eigen::MatrixXd ComputeDescentDirection();
     virtual double Iterate(double& gradientNorm, double& objValDiff);
@@ -73,6 +73,10 @@ class SLIM : public DescentMethod {
     Eigen::VectorXd diagAreaVector; // Vector of face areas repeated 4 times (used as diagonal matrix)
     const double lambda; // the 'proximal penalty' term in the paper
 
+    // store the solver for the global step in order to reuse the factorization pattern
+    Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> solver;
+    bool firstSolve;
+
 public:
 
     SLIM(std::shared_ptr<SymmetricDirichlet> sd);
@@ -81,10 +85,11 @@ public:
 
 private:
 
+    void PrecomputeD12(const Mesh& m, Eigen::SparseMatrix<double>& D1, Eigen::SparseMatrix<double>& D2);
     void UpdateJRW();
     void BuildA(Eigen::SparseMatrix<double>& A);
     void BuildRhs(const Eigen::SparseMatrix<double>& At, Eigen::VectorXd &rhs);
-    Eigen::MatrixXd MinimizeProxyEnergy();
+    void MinimizeProxyEnergy(Eigen::MatrixXd &p_k);
 };
 
 #endif // ITERATIVE_H

@@ -11,8 +11,9 @@
 #include <QString>
 
 #include "mesh.h"
+#include "mesh_graph.h"
 #include "uv.h"
-#include "optimizer.h"
+#include "texture_optimization.h"
 #include "texture_rendering.h"
 #include "timer.h"
 
@@ -58,34 +59,15 @@ int main(int argc, char *argv[])
     float uvMeshBorder;
     auto graph = ComputeParameterizationGraph(m, textureObject, &uvMeshBorder);
 
-    /*
-    GraphManager gm{graph};
-    while (gm.HasNextEdge()) {
-        auto we = gm.PeekNextEdge();
-        if (we.first.a->FN() > minRegionSize && we.first.b->FN() > minRegionSize)
-            break;
-        else {
-            gm.RemoveNextEdge();
-            auto ch = gm.Collapse(we.first);
-            ParameterizeChartFromInitialTexCoord(m, ch);
-            std::cout << we.first.a->id << " + " << we.first.b->id << std::endl;
-            int a = 0;
-        }
-    }
-    return 0;
-    */
-
     // Print original info
     PrintParameterizationInfo(graph);
 
     Timer t;
 
-#ifdef OLD_OPTIMIZER
-    ReduceTextureFragmentation(m, *graph, minRegionSize);
-#else
-    ReduceTextureFragmentation(m, graph, minRegionSize);
-#endif
+    GraphManager gm{graph};
 
+    ReduceTextureFragmentation_NoPacking(gm, minRegionSize);
+/*
     std::cout << "Rendering texture..." << std::endl;
     TextureObjectHandle newTexture = RenderTexture(m, textureObject, filter, nullptr);
 
@@ -98,7 +80,7 @@ int main(int argc, char *argv[])
     auto graph2 = ComputeParameterizationGraph(m, textureObject, &uvMeshBorder);
     // Print optimized info
     PrintParameterizationInfo(graph2);
-
+*/
     return 0;
 }
 

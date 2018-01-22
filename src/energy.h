@@ -35,6 +35,16 @@ public:
 
     double SurfaceArea();
     double ParameterArea();
+
+     /*
+      * Hack to speed up the convergence of iterative methods
+      *
+      * Scales the parameterization so that its area matches the total area of the model (either the actual 3D area or
+      * the area of the original parameterized faces, according to the geometry mode).
+      * This can be used by iterative methods on energies that penalize area mismatches, in order to scale the initial solution
+      * and reduce the scaling process that happens during the iterations (thereby lowering the number of iterations required
+      * to converge)
+      * */
     void CorrectScale();
 
     Mesh::CoordType P(Mesh::ConstFacePointer fp, int i);
