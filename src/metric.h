@@ -66,7 +66,6 @@ public:
     {
         double parameterArea = AreaUV(f) * areaScale;
         double faceArea = Area3D(m, f, geometry);
-        assert(std::isfinite(faceArea));
         return (parameterArea - faceArea) / faceArea;
     }
 

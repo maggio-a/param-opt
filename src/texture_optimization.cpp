@@ -5,10 +5,11 @@
 #include "timer.h"
 #include "dcpsolver.h"
 #include "fixed_border_bijective.h"
-#include <ext/texcoord_optimization.h>
 #include "iterative.h"
+#include "metric.h"
 
 #include <vcg/complex/complex.h>
+#include <vcg/complex/algorithms/update/texture.h>
 #include <vcg/space/rasterized_outline2_packer.h>
 #include <vcg/space/outline2_packer.h>
 #include <wrap/qt/outline2_rasterizer.h>
@@ -16,9 +17,35 @@
 #include <vcg/space/segment2.h>
 #include <vcg/space/intersection2.h>
 
+//#include<vcg/complex/algorithms/cut_tree.h>
+//#include<vcg/complex/algorithms/curve_on_manifold.h>
+//#include<vcg/complex/algorithms/crease_cut.h>
+
 #include <vector>
 
 
+void ParameterizeZeroUVAreaFaces(Mesh& m)
+{
+    double scale;
+    DistortionMetric::ComputeAreaScale(m, scale, ParameterizationGeometry::Model);
+    scale = std::sqrt(1.0 / scale);
+    int count = 0;
+    for (auto& f : m.face) {
+        if (DistortionMetric::AreaUV(f) == 0) {
+            Point2d u10, u20;
+            LocalIsometry(f.P(1) - f.P(0), f.P(2) - f.P(0), u10, u20);
+            u10 *= scale; u20 *= scale;
+            double u0_u = -1.0 - (rand() / (double) RAND_MAX);
+            double u0_v = rand() / (double) RAND_MAX;
+            Point2d u0{u0_u, u0_v};
+            f.WT(0).P() = u0;
+            f.WT(1).P() = u0 + u10;
+            f.WT(2).P() = u0 + u20;
+            count++;
+        }
+    }
+    std::cout << "Parameterized " << count << " zero UV area faces" << std::endl;
+}
 
 static bool SegmentBoxIntersection(const Segment2<double>& seg, const Box2d& box)
 {
@@ -159,6 +186,8 @@ bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy)
             case DescentType::ScalableLocallyInjectiveMappings:
                 opt = new SLIM{std::make_shared<SymmetricDirichlet>(m, mode)};
                 break;
+            default:
+                assert(0);
             }
 
             Timer t;
@@ -187,6 +216,8 @@ bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy)
 
             std::cout << "Optimization took " << t.TimeSinceLastCheck() << " seconds" << std::endl;
 
+            tri::UpdateTexture<Mesh>::WedgeTexFromVertexTex(m);
+
             delete opt;
 
         } else {
@@ -214,25 +245,19 @@ bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy)
     return solved;
 }
 
-bool ParameterizeChartFromInitialTexCoord(Mesh &m, GraphManager::ChartHandle ch, ParameterizationStrategy strategy)
+bool ParameterizeChart(Mesh &m, GraphManager::ChartHandle ch, ParameterizationStrategy strategy)
 {
     Mesh pm;
-    std::unordered_map<Mesh::VertexPointer,Mesh::VertexPointer> mv_to_pmv;
-
-    CopyFaceGroupIntoMesh(pm, *ch, mv_to_pmv);
-
+    CopyFaceGroupIntoMesh(pm, *ch);
     bool solved = ParameterizeMesh(pm, strategy);
-
     if (solved) {
-        for (auto& fptr : ch->fpVec) {
+        for (auto const& f : pm.face) {
+            Mesh::FacePointer fptr = ch->fpVec[tri::Index(pm, f)];
             for (int i = 0; i < 3; ++i) {
-                auto vi = fptr->V(i);
-                auto pmv = mv_to_pmv[vi];
-                fptr->WT(i).P() = pmv->T().P();
+                fptr->WT(i).P() = f.cWT(i).P();
             }
         }
     }
-
     return solved;
 }
 
@@ -283,7 +308,7 @@ int ParameterizeGraph(GraphManager& gm,
             // TODO a possible workaround would be to use the bounding box as the outline
         }
         else {
-            bool parameterized = ParameterizeChartFromInitialTexCoord(m, chart, strategy);
+            bool parameterized = ParameterizeChart(m, chart, strategy);
 
             if (failsafe) {
                 if (ChartParameterizationHasOverlaps(m, chart)) {
@@ -302,7 +327,8 @@ int ParameterizeGraph(GraphManager& gm,
                     float newUvArea = chart->AreaUV();
                     float scale = std::sqrt(oldUvArea / newUvArea);
                     assert(scale > 0);
-                    std::cout << "Scale value = " << scale << std::endl; // shoud be very close to 1 if we optimize for area distortion
+                    // scale shoud be very close to 1 if we optimize for area distortion wrt to original uv coords
+                    std::cout << "Scale value = " << scale << std::endl;
                     vcg::Box2d uvBox = chart->UVBox();
                     for (auto fptr : chart->fpVec) {
                         for (int i = 0; i < 3; ++i) {

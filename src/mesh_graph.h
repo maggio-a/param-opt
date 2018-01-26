@@ -385,10 +385,10 @@ std::shared_ptr<MeshGraph> ComputeParameterizationGraph(MeshType &m, TextureObje
 
 
 template <typename MeshType>
-void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg, std::unordered_map<Mesh::VertexPointer, typename MeshType::VertexPointer>& vpmap)
+void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg)
 {
     m.Clear();
-    vpmap.clear();
+    std::unordered_map<Mesh::VertexPointer, typename MeshType::VertexPointer> vpmap;
     vpmap.reserve(fg.FN() * 3);
 
     auto WTCSh = tri::Allocator<Mesh>::FindPerFaceAttribute<TexCoordStorage>(fg.mesh, "WedgeTexCoordStorage");

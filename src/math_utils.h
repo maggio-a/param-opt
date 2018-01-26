@@ -25,5 +25,17 @@ double VecCotg(const PointType& u, const PointType& v)
     return (u.SquaredNorm() + v.SquaredNorm() - w.SquaredNorm()) / (2.0 * dblArea);
 }
 
+/* Given two vectors, it transforms them to the local 2d-frame of the plane they span */
+template <typename PointType, typename PointTypeOut>
+void LocalIsometry(const PointType& v1, const PointType& v2, PointTypeOut& w1, PointTypeOut& w2)
+{
+    double theta = VecAngle(v1, v2);
+    double v2Norm = v2.Norm();
+    w1[0] = v1.Norm();
+    w1[1] = 0;
+    w2[0] = v2Norm * std::cos(theta);
+    w2[1] = v2Norm * std::sin(theta);
+}
+
 #endif // MATH_UTILS_H
 

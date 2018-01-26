@@ -341,7 +341,7 @@ SLIM::SLIM(std::shared_ptr<SymmetricDirichlet> sd)
       diagAreaVector{},
       lambda{0.0001},
       solver{},
-      firstSolve{false}
+      firstSolve{true}
 {
     for (auto& f : m.face) {
         /*
@@ -351,6 +351,7 @@ SLIM::SLIM(std::shared_ptr<SymmetricDirichlet> sd)
          * */
         Point3d p10 = energy->P1(&f) - energy->P0(&f);
         Point3d p20 = energy->P2(&f) - energy->P0(&f);
+        /*
         double theta = VecAngle(p10, p20);
         Eigen::Vector2d x1{p10.Norm(), 0};
         double st = std::sin(theta);
@@ -358,13 +359,14 @@ SLIM::SLIM(std::shared_ptr<SymmetricDirichlet> sd)
         Eigen::Matrix2d rt;
         rt << ct, -st, st, ct;
         Eigen::Vector2d x2 = p20.Norm() * (rt * Eigen::Vector2d{1, 0}); // rotate and scale
-
+*/
         /*
          * at this point the transformation from the canonical triangle (0,0) (1,0), (0,1) to the
          * mesh face is encoded in the matrix [x1 | x2], and we want the inverse
-         * inverse = (1/det) * adjugate
          * */
         Eigen::Matrix2d fm;
+        Eigen::Vector2d x1, x2;
+        LocalIsometry(p10, p20, x1, x2);
         fm.col(0) = x1;
         fm.col(1) = x2;
         fm_inv[f] = fm.inverse();
@@ -553,7 +555,6 @@ void SLIM::MinimizeProxyEnergy(Eigen::MatrixXd& p_k)
     L.makeCompressed();
     Eigen::VectorXd rhs;
     BuildRhs(At, rhs);
-    L.makeCompressed();
 
     Eigen::VectorXd sol;
 
@@ -561,7 +562,8 @@ void SLIM::MinimizeProxyEnergy(Eigen::MatrixXd& p_k)
         solver.analyzePattern(L);
         firstSolve = false;
     }
-    solver.compute(L);
+
+    solver.factorize(L);
     sol = solver.solve(rhs);
 
     assert((solver.info() == Eigen::Success) && "SLIM::MinimizeProxyEnergy solve failed");

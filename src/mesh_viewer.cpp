@@ -644,7 +644,7 @@ void MeshViewer::UpdateSelection(const RegionID id)
         }
         // Parameterize the aggregate chart, build the vertex buffer and restore the original state
 
-        ParameterizeChartFromInitialTexCoord(meshParamData->mesh, aggregate, strategy);
+        ParameterizeChart(meshParamData->mesh, aggregate, strategy);
 
         glUseProgram(_detailView.program);
 

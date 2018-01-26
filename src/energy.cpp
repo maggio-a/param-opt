@@ -173,6 +173,8 @@ MatrixXd SymmetricDirichlet::Grad()
             //double gv = gv_area * e_d + e_a * gv_angle;
             double gv = gv_area * angleTerm + e_a * gv_angle;
 
+            assert(std::isnan(gu) == false && std::isnan(gv) == false);
+
             g.row(Index(m, f.V(i))) += Eigen::Vector2d{gu, gv};
         }
     }

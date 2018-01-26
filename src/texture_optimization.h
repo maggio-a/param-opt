@@ -40,11 +40,13 @@ struct ParameterizationStrategy {
     int optimizerIterations = 0;
 };
 
+void ParameterizeZeroUVAreaFaces(Mesh& m);
+
 bool ChartParameterizationHasOverlaps(Mesh& m, GraphManager::ChartHandle chart);
 
 bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy);
 
-bool ParameterizeChartFromInitialTexCoord(Mesh &m, GraphManager::ChartHandle ch, ParameterizationStrategy strategy);
+bool ParameterizeChart(Mesh &m, GraphManager::ChartHandle ch, ParameterizationStrategy strategy);
 
 /*
  * Parameterize the mesh graph. Each region is a group of connected mesh faces, and it is assumed to be homeomorphic to a disk.

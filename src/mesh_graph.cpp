@@ -148,21 +148,24 @@ void MeshGraph::MapDistortion(DistortionMetric::Type type, ParameterizationGeome
 {
     double areaScale;
     DistortionMetric::ComputeAreaScale(mesh, areaScale, geometry);
+    /// FIXME absolute distortion should be an option parameter
+    if (geometry == ParameterizationGeometry::Texture) areaScale = 1;
     for (auto& c : charts) c.second->MapDistortion(type, geometry, areaScale);
 
     // Map distortion to color
     std::pair<float, float> range = DistortionRange();
     for (auto& c : charts) {
         for (auto fptr : c.second->fpVec) {
-            //float q = fptr->Q();
-            float q = fptr->Q() / std::max(std::abs(range.first), std::abs(range.second));
+            float q = fptr->Q();
+            //float q = fptr->Q() / std::max(std::abs(range.first), std::abs(range.second));
+            //float q = fptr->Q() / std::abs(range.first);
             if (q < 0) {
                 //float v = 1.0f - (q / range.first);
-                float v = 1.0f + q;
+                float v = 1.0f + (q / (-range.first));
                 fptr->C().Import(Color4f{1.0f, v, v, 1.0f});
             } else {
                 //float v = 1.0f - (q / range.second);
-                float v = 1.0f - q;
+                float v = 1.0f - (q / range.second);
                 fptr->C().Import(Color4f{v, v, 1.0f, 1.0f});
             }
         }
