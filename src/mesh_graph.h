@@ -35,11 +35,11 @@ template <class MeshType>
 std::shared_ptr<MeshGraph> ComputeParameterizationGraph(MeshType &m, TextureObjectHandle textureObject, float *uvMeshBorder = nullptr);
 
 /*
- * Builds a mesh (into m) from a given FaceGroup. On exit, vpmap will contain the mappings from the vertex pointers
- * of the FaceGroup faces to the vertex pointers of the newly constructed faces.
+ * Constructs a mesh from a FaceGroup, if wtcsattr == false does not copy
+ * the WedgeTexCoordStorage attribute into the new mesh (defaut true)
  */
 template <typename MeshType>
-void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg, std::unordered_map<Mesh::VertexPointer, typename MeshType::VertexPointer>& vpmap);
+void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg, bool wtcsattr = true);
 
 /* Computes the texture outlines of a given chart */
 template <typename ScalarType = float>
@@ -385,15 +385,11 @@ std::shared_ptr<MeshGraph> ComputeParameterizationGraph(MeshType &m, TextureObje
 
 
 template <typename MeshType>
-void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg)
+void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg, bool wtcsattr)
 {
     m.Clear();
     std::unordered_map<Mesh::VertexPointer, typename MeshType::VertexPointer> vpmap;
     vpmap.reserve(fg.FN() * 3);
-
-    auto WTCSh = tri::Allocator<Mesh>::FindPerFaceAttribute<TexCoordStorage>(fg.mesh, "WedgeTexCoordStorage");
-    assert(tri::Allocator<Mesh>::IsValidHandle<TexCoordStorage>(fg.mesh, WTCSh));
-    auto WTCShNew = tri::Allocator<MeshType>::template GetPerFaceAttribute<TexCoordStorage>(m, "WedgeTexCoordStorage");
 
     std::size_t vn = 0;
     for (auto fptr : fg.fpVec) {
@@ -409,7 +405,6 @@ void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg)
 
     for (auto fptr : fg.fpVec) {
         typename MeshType::FacePointer mfp = &*mfi++;
-        WTCShNew[mfp] = WTCSh[fptr];
         for (int i = 0; i < 3; ++i) {
             Mesh::VertexPointer vp = fptr->V(i);
             typename MeshType::VertexPointer& mvp = vpmap[vp];
@@ -419,6 +414,15 @@ void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg)
             }
             mfp->V(i) = mvp;
             mfp->WT(i) = mvp->T();
+        }
+    }
+
+    if (wtcsattr) {
+        auto WTCSh = tri::Allocator<Mesh>::FindPerFaceAttribute<TexCoordStorage>(fg.mesh, "WedgeTexCoordStorage");
+        assert(tri::Allocator<Mesh>::IsValidHandle<TexCoordStorage>(fg.mesh, WTCSh));
+        auto WTCShNew = tri::Allocator<MeshType>::template GetPerFaceAttribute<TexCoordStorage>(m, "WedgeTexCoordStorage");
+        for (std::size_t i = 0; i < m.FN(); ++i) {
+            WTCShNew[m.face[i]] = WTCSh[fg.fpVec[i]];
         }
     }
 }
@@ -484,63 +488,6 @@ void ChartOutlinesUV(Mesh& m, ChartHandle chart, std::vector<std::vector<Point2<
         }
     }
 }
-
-
-
-
-
-/*
-void ReparameterizeZeroAreaRegions(Mesh &m, ParameterizationData& pdata)
-{
-    float meshArea3D = pdata.Area3D();
-    for (auto& entry : pdata.charts) {
-        auto chart = entry.second;
-
-        if (chart->AreaUV() > 0) continue;
-
-        PMesh pm;
-        for (auto fptr : chart->fpVec) {
-            tri::Allocator<PMesh>::AddFace(pm, fptr->P(0), fptr->P(1), fptr->P(2));
-        }
-
-        tri::Clean<PMesh>::RemoveDuplicateVertex(pm);
-        tri::Allocator<PMesh>::CompactEveryVector(pm);
-        tri::UpdateTopology<PMesh>::FaceFace(pm);
-        tri::UpdateSelection<PMesh>::Clear(pm);
-
-        tri::PoissonSolver<PMesh> solver(pm);
-        tri::UpdateBounding<PMesh>::Box(pm);
-        if (!solver.IsFeasible()) {
-            tri::io::ExporterOBJ<PMesh>::Save(pm, "debug-reparam.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
-            assert(0 && "Poisson solver unfeasible");
-        }
-        solver.Init();
-        solver.FixDefaultVertices();
-        solver.SolvePoisson();
-        tri::UpdateTexture<PMesh>::WedgeTexFromVertexTex(pm);
-
-        float uvArea = 0.0f;
-        for (auto &pf : pm.face) {
-            uvArea += tri::Distortion<PMesh,true>::AreaUV(&pf);
-        }
-
-        // attempt to make the uv area of the region somewhat proportional in uv space
-        // to the surface area in 3D space
-        float scale = std::sqrt(chart->Area3D() / (uvArea * meshArea3D));
-
-        assert(scale > 0);
-
-        for (std::size_t i = 0; i < pm.face.size(); ++i) {
-            auto &pf = pm.face[i];
-            auto &f = *(chart->fpVec[i]);
-            for (int k = 0; k < f.VN(); ++k) {
-                pf.WT(k).P() = pf.WT(k).P() * scale;
-                f.WT(k) = pf.WT(k);
-            }
-        }
-
-    }
-} */
 
 
 #endif // MESH_GRAPH_H

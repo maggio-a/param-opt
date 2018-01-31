@@ -407,6 +407,7 @@ void MeshViewer::ClearSelection()
 
 void MeshViewer::Select(const RegionID id)
 {
+    assert(meshParamData->GetChart(id) != nullptr);
     UpdateSelection(id);
 }
 
@@ -888,6 +889,8 @@ void MeshViewer::InitBuffers()
     glUnmapBuffer(GL_ARRAY_BUFFER);
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
+    CheckGLError();
+
     // Load texture data
     glActiveTexture(GL_TEXTURE0);
     _currentTexture->Bind();
@@ -1332,6 +1335,8 @@ void MeshViewer::Run()
 
     glUseProgram(0);
 
+    CheckGLError();
+
     InitBuffers();
     SetupViews();
 
@@ -1468,10 +1473,13 @@ void MeshViewer::ManageImGuiState()
             ReduceTextureFragmentation_NoPacking(*gm, minRegionSize);
         }
 
-        if (ImGui::Button("Pack the atlas")) {
+        static bool failsafe = true;
+        bool clickPack = ImGui::Button("Parameterize graph");
+        ImGui::SameLine(); ImGui::Checkbox("Safe", &failsafe);
+        if (clickPack) {
             ClearSelection();
             if (meshParamData->MergeCount() > 0) {
-                int c = ParameterizeGraph(*gm, strategy);
+                int c = ParameterizeGraph(*gm, strategy, failsafe);
                 if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
                 updateTexcoord = true;
                 if (activeDistIndex != -1) {
@@ -1508,6 +1516,15 @@ void MeshViewer::ManageImGuiState()
 
                 tri::io::ExporterOBJ<Mesh>::Save(pm, "chart.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
             }
+        }
+
+        ImGui::Separator();
+
+        static int selId = 0;
+        ImGui::InputInt("##SelectId", &selId, 1, 1);
+        ImGui::SameLine();
+        if (ImGui::Button("S") && meshParamData->GetChart(selId) != nullptr) {
+            Select(selId);
         }
 
         ImGui::Separator();

@@ -14,8 +14,8 @@
 
 #include "mesh.h"
 #include "mesh_viewer.h"
-#include "uv.h"
 #include "texture_optimization.h"
+#include "uv.h"
 
 using namespace vcg;
 
@@ -43,7 +43,7 @@ int main(int argc, char *argv[])
 
     assert(loadMask & tri::io::Mask::IOM_WEDGTEXCOORD);
 
-    ParameterizeZeroUVAreaFaces(m);
+    PreprocessMesh(m);
     StoreWedgeTexCoordAsAttribute(m);
 
     float uvMeshBorder;

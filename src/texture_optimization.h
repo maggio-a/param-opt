@@ -34,13 +34,14 @@ enum DescentType {
 
 struct ParameterizationStrategy {
     DirectParameterizer directParameterizer = DCP;
-    TexCoordOptimizer optimizer = AreaPreserving;
+    TexCoordOptimizer optimizer = SymmetricDirichletOpt;
     ParameterizationGeometry geometry = Model;
     DescentType descent = Gradient;
     int optimizerIterations = 0;
 };
 
-void ParameterizeZeroUVAreaFaces(Mesh& m);
+void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph);
+void PreprocessMesh(Mesh& m);
 
 bool ChartParameterizationHasOverlaps(Mesh& m, GraphManager::ChartHandle chart);
 

@@ -31,7 +31,8 @@ SOURCES += viewer.cpp \
     ../../include/vcglib/wrap/gui/trackball.cpp \
     ../src/energy.cpp \
     ../src/texture_optimization.cpp \
-    ../src/mesh_graph.cpp
+    ../src/mesh_graph.cpp \
+    ../src/uv.cpp
 
 SOURCES += \
     ../src/mesh_viewer.cpp \

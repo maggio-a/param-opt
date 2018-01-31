@@ -18,8 +18,12 @@ public:
         double sumArea3D = 0;
         double sumAreaUV = 0;
         for (const auto& f : m.face) {
-            sumArea3D = Area3D(m, f, geometry);
-            sumAreaUV = AreaUV(f);
+            double a3D = Area3D(m, f, geometry);
+            double aUV = AreaUV(f);
+            if (a3D > 0 && aUV > 0) {
+                sumArea3D += a3D;
+                sumAreaUV += aUV;
+            }
         }
         areaScale = sumArea3D / sumAreaUV;
     }

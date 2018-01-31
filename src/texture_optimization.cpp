@@ -24,29 +24,6 @@
 #include <vector>
 
 
-void ParameterizeZeroUVAreaFaces(Mesh& m)
-{
-    double scale;
-    DistortionMetric::ComputeAreaScale(m, scale, ParameterizationGeometry::Model);
-    scale = std::sqrt(1.0 / scale);
-    int count = 0;
-    for (auto& f : m.face) {
-        if (DistortionMetric::AreaUV(f) == 0) {
-            Point2d u10, u20;
-            LocalIsometry(f.P(1) - f.P(0), f.P(2) - f.P(0), u10, u20);
-            u10 *= scale; u20 *= scale;
-            double u0_u = -1.0 - (rand() / (double) RAND_MAX);
-            double u0_v = rand() / (double) RAND_MAX;
-            Point2d u0{u0_u, u0_v};
-            f.WT(0).P() = u0;
-            f.WT(1).P() = u0 + u10;
-            f.WT(2).P() = u0 + u20;
-            count++;
-        }
-    }
-    std::cout << "Parameterized " << count << " zero UV area faces" << std::endl;
-}
-
 static bool SegmentBoxIntersection(const Segment2<double>& seg, const Box2d& box)
 {
     Point2d isec;
@@ -143,24 +120,82 @@ bool ChartParameterizationHasOverlaps(Mesh& m, GraphManager::ChartHandle chart)
     return false;
 }
 
+void PreprocessMesh(Mesh& m)
+{
+    // Compute preliminary parameterization graph
+    auto graph = ComputeParameterizationGraph(m, nullptr, nullptr);
+
+    // Parameterize regions that are not parameterized
+    ReparameterizeZeroAreaRegions(m, graph);
+
+}
+
+void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
+{
+    double scale;
+    DistortionMetric::ComputeAreaScale(m, scale, ParameterizationGeometry::Model);
+    scale = std::sqrt(1.0 / scale);
+
+    int numNoParam = 0;
+    int numParameterized = 0;
+
+    ParameterizationStrategy strategy;
+    strategy.directParameterizer = FixedBorderBijective;
+    strategy.optimizer = SymmetricDirichletOpt;
+    strategy.geometry = Model;
+
+    for (auto& entry : graph->charts) {
+        auto chart = entry.second;
+
+        if (chart->AreaUV() > 0) continue;
+
+        numNoParam++;
+
+        strategy.descent = ScalableLocallyInjectiveMappings;
+        strategy.optimizerIterations = 200;
+        std::cout << "Parameterizing region of " << chart->FN() << " zero UV area faces" << std::endl;
+        bool parameterized = ParameterizeChart(m, chart, strategy);
+
+        if (!parameterized) {
+            std::cout << "WARNING: preliminary parameterization of chart " << chart->id << " failed" << std::endl;
+        } else {
+            /* as convenience to detect regions that originally did not have a parameterization, the texcoords
+             * of such regions have negative u and a randomly displaced v */
+            Box2d box = chart->UVBox();
+            double randomDisplacementU = rand() / (double) RAND_MAX;
+            for (auto fptr : chart->fpVec) {
+                for (int i = 0; i < 3; ++i) {
+                    fptr->WT(i).P().X() -= (box.min.X() + box.DimX());
+                    fptr->WT(i).P().Y() -= (box.min.Y() + randomDisplacementU);
+                    fptr->WT(i).P() *= scale;
+                }
+            }
+            numParameterized++;
+        }
+    }
+
+    std::cout << "Newly parameterized regions: " << numParameterized << "/" << numNoParam << std::endl;
+}
+
 bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy)
 {
-    WedgeTexCoordAttributePosition<Mesh> texcoordPosition{m, "WedgeTexCoordStorage"};
     bool solved = false;
     if (strategy.directParameterizer == DirectParameterizer::DCP) {
         DCPSolver<Mesh> solver(m);
-        if (strategy.geometry == ParameterizationGeometry::Model)
+        if (strategy.geometry == ParameterizationGeometry::Model) {
             solved = solver.Solve(DefaultVertexPosition<Mesh>{});
-        else
+        } else {
+            WedgeTexCoordAttributePosition<Mesh> texcoordPosition{m, "WedgeTexCoordStorage"};
             solved = solver.Solve(texcoordPosition);
+        }
     } else if (strategy.directParameterizer == DirectParameterizer::FixedBorderBijective) {
         UniformSolver<Mesh> solver(m);
         solved = solver.Solve();
         // check for inverted faces
-        for (auto& f : m.face) {
-            double areaUV = (f.V(1)->T().P() - f.V(0)->T().P()) ^ (f.V(2)->T().P() - f.V(0)->T().P());
-            assert(areaUV > 0 && "Parameterization is not bijective");
-        }
+        //for (auto& f : m.face) {
+        //    double areaUV = (f.V(1)->T().P() - f.V(0)->T().P()) ^ (f.V(2)->T().P() - f.V(0)->T().P());
+        //    assert(areaUV > 0 && "Parameterization is not bijective");
+        //}
     } else {
         assert(0 && "Solver not supported");
     }
@@ -220,26 +255,6 @@ bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy)
 
             delete opt;
 
-        } else {
-          /*  strategy.optimizerIterations = -strategy.optimizerIterations;
-
-            tri::TexCoordOptimization<Mesh> *opt;
-            opt = new tri::MIPSTexCoordOptimization<Mesh, WedgeTexCoordAttributePosition<Mesh>>(m, texcoordPosition);
-
-            opt->SetNothingAsFixed();
-            opt->TargetCurrentGeometry();
-
-            Timer t;
-            if (strategy.optimizerIterations < 0) {
-            } else {
-                float movement;
-                for (int i = 0; i < strategy.optimizerIterations; ++i) {
-                    movement = opt->Iterate();
-                }
-                std::cout << "Max movement at last step was " << movement << std::endl;
-            }
-            std::cout << "Optimization took " << t.TimeSinceLastCheck() << " seconds" << std::endl;
-            delete opt;*/
         }
     }
     return solved;
@@ -248,15 +263,24 @@ bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy)
 bool ParameterizeChart(Mesh &m, GraphManager::ChartHandle ch, ParameterizationStrategy strategy)
 {
     Mesh pm;
-    CopyFaceGroupIntoMesh(pm, *ch);
+    bool copyWedgeTexCoordStorage = (strategy.geometry == ParameterizationGeometry::Texture);
+    CopyFaceGroupIntoMesh(pm, *ch, copyWedgeTexCoordStorage);
     bool solved = ParameterizeMesh(pm, strategy);
     if (solved) {
+
+        for (std::size_t i = 0; i < ch->fpVec.size(); ++i) {
+            for (int k = 0; k < 3; ++k) {
+                ch->fpVec[i]->WT(k).P() = pm.face[i].WT(k).P();
+            }
+        }
+        /*
         for (auto const& f : pm.face) {
             Mesh::FacePointer fptr = ch->fpVec[tri::Index(pm, f)];
             for (int i = 0; i < 3; ++i) {
                 fptr->WT(i).P() = f.cWT(i).P();
             }
         }
+        */
     }
     return solved;
 }
@@ -399,11 +423,11 @@ int ParameterizeGraph(GraphManager& gm,
     Point2i gridSize(1024, 1024);
     std::vector<Similarity2f> transforms;
 
-    //RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Pack(texOutlines, gridSize, transforms, packingParam);
+    RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Pack(texOutlines, gridSize, transforms, packingParam);
 
     Point2f cover;
     //PolyPacker<float>::PackAsObjectOrientedRect(texOutlines, gridSize, transforms, cover);
-    PolyPacker<float>::PackAsAxisAlignedRect(texOutlines, gridSize, transforms, cover);
+    //PolyPacker<float>::PackAsAxisAlignedRect(texOutlines, gridSize, transforms, cover);
 
     std::cout << "Packing took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
 

@@ -26,6 +26,7 @@ static const char *vs_text[] = {
     "void main(void)                                             \n"
     "{                                                           \n"
     "    uv = texcoord;                                          \n"
+    "    if (uv.s < 0) uv = vec2(0.0, 0.0);                      \n"
     "    vec2 p = 2.0 * position - vec2(1.0, 1.0);               \n"
     "    gl_Position = vec4(p, 0.5, 1.0);                        \n"
     "}                                                           \n"

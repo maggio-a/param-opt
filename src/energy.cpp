@@ -20,17 +20,22 @@ using Eigen::MatrixXd;
 
 Energy::Energy(Mesh& mesh, Geometry geometryMode) : m{mesh}, mode{geometryMode}, surfaceArea{0.0}
 {
-    tcsattr = tri::Allocator<Mesh>::FindPerFaceAttribute<TexCoordStorage>(m, "WedgeTexCoordStorage");
-    assert(tri::Allocator<Mesh>::IsValidHandle<TexCoordStorage>(m, tcsattr));
-    for (auto& f : m.face) {
+   for (auto& f : m.face) {
         surfaceArea += (((P(&f, 1) - P(&f, 0)) ^ (P(&f, 2) - P(&f, 0))).Norm() / 2.0);
     }
 }
 
 Mesh::CoordType Energy::P(Mesh::ConstFacePointer fp, int i) {
     assert(i>=0 && i<3);
-    if (mode == Geometry::Model) return fp->cP(i);
-    else if (mode == Geometry::Texture) return Mesh::CoordType(tcsattr[fp].tc[i].U(), tcsattr[fp].tc[i].V(), 0);
+    if (mode == Geometry::Model) {
+        return fp->cP(i);
+    }
+    else if (mode == Geometry::Texture) {
+        Mesh::PerFaceAttributeHandle<TexCoordStorage> tcsattr
+                = tri::Allocator<Mesh>::FindPerFaceAttribute<TexCoordStorage>(m, "WedgeTexCoordStorage");
+        assert(tri::Allocator<Mesh>::IsValidHandle<TexCoordStorage>(m, tcsattr));
+        return Mesh::CoordType(tcsattr[fp].tc[i].U(), tcsattr[fp].tc[i].V(), 0);
+    }
     else {
         assert(0 && "Energy::P()");
         return {0, 0, 0};

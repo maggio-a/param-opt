@@ -1,41 +1,20 @@
 #ifndef UV_H
 #define UV_H
 
-#include <vcg/complex/complex.h>
+#include "mesh.h"
 #include <vcg/space/texcoord2.h>
-
-#include <vector>
-#include <memory>
-
-#include <QImage>
-
-
-using namespace vcg;
 
 
 struct TexCoordStorage {
     vcg::TexCoord2d tc[3];
 };
 
+/* Save a copy of the original texture coordinates (this will be used to render the new texture) */
+void StoreWedgeTexCoordAsAttribute(Mesh &m);
 
-// Save a copy of the original texture coordinates (this will be used to render the new texture)
-template <class MeshType>
-void StoreWedgeTexCoordAsAttribute(MeshType &m)
-{
-    //TODO assert MeshType has wedge tex coord
-    typename MeshType::template PerFaceAttributeHandle<TexCoordStorage> WTCSh
-            = tri::Allocator<MeshType>::template GetPerFaceAttribute<TexCoordStorage>(m, "WedgeTexCoordStorage");
-    for (auto &f : m.face) {
-        for (int i = 0; i < 3; ++i) {
-            WTCSh[&f].tc[i].P() = f.WT(i).P();
-            WTCSh[&f].tc[i].N() = f.WT(i).N();
-        }
-    }
-}
-
-
-// Computes per face connected component ids. Two faces with the same id belong
-// to the same connected component. Assumes the topology is already updated.
+/* Computes per face connected component ids. Two faces with the same id belong
+ * to the same connected component. Uses FaceFaceFromTexCoord topology.
+ * */
 template <class MeshType>
 std::size_t ComputePerFaceConnectedComponentIdAttribute(MeshType &m)
 {
@@ -73,9 +52,8 @@ std::size_t ComputePerFaceConnectedComponentIdAttribute(MeshType &m)
     return regionCounter;
 }
 
-
 template<class ScalarType, class MeshType>
-static std::size_t ConvertTextureBoundaryToOutline2Vec(MeshType &m, std::vector<std::vector<Point2<ScalarType>>> &outline2Vec)
+std::size_t ConvertTextureBoundaryToOutline2Vec(MeshType &m, std::vector<std::vector<Point2<ScalarType>>> &outline2Vec)
 {
     typedef typename MeshType::FaceType FaceType;
 

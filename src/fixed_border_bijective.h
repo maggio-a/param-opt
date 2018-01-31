@@ -11,11 +11,15 @@
 #include <Eigen/OrderingMethods>
 
 #include "mesh.h"
+#include "metric.h"
 
 #include <vcg/complex/complex.h>
+#include <wrap/io_trimesh/export.h>
+
+#include <vcg/complex/algorithms/hole.h>
 
 template <typename FaceType>
-float EdgeLength(const FaceType& f, int i) {
+inline double EdgeLength(const FaceType& f, int i) {
     return vcg::Distance(f.cV0(i)->P(), f.cV1(i)->P());
 }
 
@@ -31,6 +35,7 @@ public:
     using FacePointer = typename MeshType::FacePointer;
     using Coord3D = typename MeshType::CoordType;
     using CoordUV = typename FaceType::TexCoordType::PointType;
+    using IndexType = std::size_t;
 
 private:
 
@@ -38,37 +43,37 @@ private:
 
     MeshType &mesh;
 
-    std::unordered_map<VertexPointer,CoordUV> constraints;
+    std::unordered_map<IndexType,CoordUV> constraints;
     std::vector<Td> coeffList;
 
-    std::unordered_map<VertexPointer,int> vmap;
+    //std::unordered_map<VertexPointer,int> vmap;
 
-    int vn;
+    //int vn;
 
     int U(int i) { return i; }
-    int V(int i) { return vn + i; }
+    int V(int i) { return mesh.VN() + i; }
 
 public:
 
-    UniformSolver(MeshType &m) : mesh{m}, vn{0} {}
+    UniformSolver(MeshType &m) : mesh{m}/*, vn{0}*/ {}
 
 private:
 
     int U(VertexPointer v) { return U(vcg::tri::Index(mesh, v)); }
     int V(VertexPointer v) { return V(vcg::tri::Index(mesh, v)); }
 
-    bool AddConstraint(VertexPointer vp, CoordUV uv)
+    bool AddConstraint(IndexType vi, CoordUV uv)
     {
-        return constraints.insert(std::make_pair(vp, uv)).second;
+        return constraints.insert(std::make_pair(vi, uv)).second;
     }
-
+/*
     void BuildIndex()
     {
         for (auto& v : mesh.vert) {
             vmap[&v] = vn++;
         }
     }
-
+*/
 public:
 
     bool Solve()
@@ -78,48 +83,94 @@ public:
         tri::UpdateFlags<MeshType>::VertexBorderFromFaceAdj(mesh);
 
         // Init index
-        BuildIndex();
+        //BuildIndex();
 
-        float totalBorderLength = 0.0f;
+        std::vector<double> vTotalBorderLength;
+        std::vector<std::vector<IndexType>> vBorderVertices;
+        std::vector<std::vector<double>> vCumulativeBorder;
 
-        std::vector<VertexPointer> borderVertices;
-        std::vector<float> cumulativeBorder;
+        int splitCount = tri::Clean<MeshType>::SplitNonManifoldVertex(mesh, 0);
+        if (splitCount > 0) {
+            std::cout << "Mesh was not vertex-manifold, " << splitCount << " vertices split" << std::endl;
+        }
 
         tri::UpdateFlags<MeshType>::FaceClearV(mesh);
-        bool borderFound = false;
         for (auto& f : mesh.face) {
             for (int i = 0; i < 3; ++i) {
                 if (!f.IsV() && face::IsBorder(f, i)) {
-                    assert(!borderFound && "Multiple borders detected");
-                    borderFound = true;
+                    double totalBorderLength = 0;
+                    std::vector<IndexType> borderVertices;
+                    std::vector<double> cumulativeBorder;
+
                     face::Pos<FaceType> p(&f, i);
                     face::Pos<FaceType> startPos = p;
                     assert(p.IsBorder());
                     do {
                         assert(p.IsManifold());
                         p.F()->SetV();
-                        borderVertices.push_back(p.V());
+                        borderVertices.push_back(tri::Index(mesh, p.V()));
                         cumulativeBorder.push_back(totalBorderLength);
                         totalBorderLength += EdgeLength(*p.F(), p.VInd());
                         p.NextB();
                     } while (p != startPos);
+                    vTotalBorderLength.push_back(totalBorderLength);
+                    vBorderVertices.push_back(borderVertices);
+                    vCumulativeBorder.push_back(cumulativeBorder);
                 }
             }
         }
 
+        assert(vBorderVertices.size() > 0 && "Mesh has no boundaries");
+        // select longest border and pin it to a circle
+        std::size_t k = std::distance(vTotalBorderLength.begin(), std::max_element(vTotalBorderLength.begin(), vTotalBorderLength.end()));
+
         // map border to the unit circle (store coord in vertex texcoord)
         constexpr float twoPi = 2 * M_PI;
-        for (std::size_t i = 0; i < borderVertices.size(); ++i) {
-            float angle = (cumulativeBorder[i] / totalBorderLength) * twoPi;
-            borderVertices[i]->T().P() = Point2d{std::sin(angle), std::cos(angle)};
-            AddConstraint(borderVertices[i], borderVertices[i]->T().P());
+        for (std::size_t i = 0; i < vBorderVertices[k].size(); ++i) {
+            float angle = (vCumulativeBorder[k][i] / vTotalBorderLength[k]) * twoPi;
+            Point2d uvCoord = Point2d{std::sin(angle), std::cos(angle)};
+            mesh.vert[vBorderVertices[k][i]].T().P() = uvCoord;
+            AddConstraint(vBorderVertices[k][i], uvCoord);
         }
 
-        // Workaround to avoid inifinities if an angle is too small
-        assert(std::is_floating_point<ScalarType>::value);
-        ScalarType eps = std::numeric_limits<ScalarType>::epsilon();
+        // close the other borders by adding a 'star' vertex for each border
+        int startVerts = mesh.VN();
+        int startFaces = mesh.FN();
+        /*
+        std::size_t newVerts = vBorderVertices.size() - 1;
+        auto vi = tri::Allocator<MeshType>::AddVertices(mesh, newVerts);
+        std::size_t newFaces = 0;
+        for (std::size_t i = 0; i < vBorderVertices.size(); ++i) {
+            if (i == k) continue;
 
-        const int n = vn * 2;
+            std::size_t sz = vBorderVertices[i].size();
+            auto fi = tri::Allocator<MeshType>::AddFaces(mesh, sz);
+            newFaces += sz;
+            vi->P().SetZero();
+            for (std::size_t j = 0; j < sz; ++j) {
+                fi->V(0) = &*vi;
+                fi->V(1) = &mesh.vert[vBorderVertices[i][j]];
+                fi->V(2) = &mesh.vert[vBorderVertices[i][(j+1)%sz]];
+                vi->P() += fi->V(1)->P();
+                fi++;
+            }
+            vi->P() /= double(sz);
+            vi++;
+        }
+        */
+
+        if (vBorderVertices.size() > 1) {
+            // retrieve the hole size parameter, since all holes except the peripheral border, just use the border length minus 1
+            for (std::size_t i = 0; i < vBorderVertices.size(); ++i) {
+                if (i == k) continue;
+                assert(vBorderVertices[k].size() > vBorderVertices[i].size());  // otherwise cannot close all holes below threshold
+            }
+            int maxHoleSize = vBorderVertices[k].size() - 1;
+            tri::Hole<Mesh>::EarCuttingFill<tri::MinimumWeightEar<Mesh>>(mesh, maxHoleSize, false);
+            assert(mesh.VN() == int(startVerts));
+        }
+
+        const int n = mesh.VN() * 2;
         Eigen::SparseMatrix<double,Eigen::ColMajor> A(n, n);
         Eigen::VectorXd b(Eigen::VectorXd::Zero(n));
 
@@ -132,21 +183,25 @@ public:
         }
 
         // Compute matrix coefficients
-        coeffList.reserve(vn * 32);
+        coeffList.reserve(mesh.VN() * 32);
         for (auto& entry : vadj) {
-            if (constraints.find(entry.first) == constraints.end()) {
+            IndexType vi = tri::Index(mesh, entry.first);
+            if (constraints.find(vi) == constraints.end()) {
                 for (auto & vp : entry.second) {
                     float coeff = - 1.0f / entry.second.size();
+                    if(U(entry.first) >= mesh.VN()) std::cout << U(entry.first) << std::endl;// && U(vp) < mesh.VN() * 2);
                     coeffList.push_back(Td(U(entry.first), U(vp), coeff));
                     coeffList.push_back(Td(V(entry.first), V(vp), coeff));
                 }
             } else {
-                b[U(entry.first)] = constraints[entry.first][0];
-                b[V(entry.first)] = constraints[entry.first][1];
+                b[U(entry.first)] = constraints[vi][0];
+                b[V(entry.first)] = constraints[vi][1];
             }
             coeffList.push_back(Td(U(entry.first), U(entry.first), 1));
             coeffList.push_back(Td(V(entry.first), V(entry.first), 1));
         }
+
+        tri::io::Exporter<Mesh>::Save(mesh, "surf.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
 
         // Prepare to solve
 
@@ -159,8 +214,6 @@ public:
         Eigen::SparseLU<Eigen::SparseMatrix<double,Eigen::ColMajor>, Eigen::COLAMDOrdering<Eigen::SparseMatrix<double>::StorageIndex>> solver;
 
         A.makeCompressed();
-        solver.analyzePattern(A);
-
         solver.compute(A);
         if (solver.info() != Eigen::Success) {
             std::cout << "Factorization failed" << std::endl;
@@ -176,11 +229,11 @@ public:
 
         // Copy back the texture coordinates
         vcg::Box2<typename CoordUV::ScalarType> uvBox;
-        for (int i = 0; i < vn; ++i) {
+        for (int i = 0; i < mesh.VN(); ++i) {
             uvBox.Add(CoordUV(ScalarType(x[U(i)]), ScalarType(x[V(i)])));
         }
 
-        float scale = 1.0f / std::max(uvBox.Dim().X(), uvBox.Dim().Y());
+        double scale = 1.0f / std::max(uvBox.Dim().X(), uvBox.Dim().Y());
 
         for (auto &f : mesh.face) {
             for (int i = 0; i < 3; ++i) {
@@ -189,7 +242,24 @@ public:
                 f.WT(i).P() = (uv - uvBox.min) * scale;
                 vi->T().P() = (uv - uvBox.min) * scale;
             }
+            if (DistortionMetric::AreaUV(f) < 0) std::cout << tri::Index(mesh, f) << std::endl;
+            assert(DistortionMetric::AreaUV(f) > 0);
         }
+
+        // delete added vertices and faces
+
+        //for (std::size_t i = 0; i < newVerts; ++i) {
+        //    VertexType& v = mesh.vert[startVerts + i];
+        //    tri::Allocator<MeshType>::DeleteVertex(mesh, v);
+        //}
+        //tri::Allocator<MeshType>::CompactVertexVector(mesh);
+
+        int newFaces = mesh.FN() - startFaces;
+        for (int i = 0; i < newFaces; ++i) {
+            FaceType& f = mesh.face[startFaces + i];
+            tri::Allocator<MeshType>::DeleteFace(mesh, f);
+        }
+        tri::Allocator<MeshType>::CompactFaceVector(mesh);
 
         return true;
     }
