@@ -12,6 +12,8 @@ class Energy {
     friend class DescentMethod;
     friend class SLIM;
 
+    Mesh::PerFaceAttributeHandle<TexCoordStorage> tcsattr;
+
 public:
 
     enum Geometry { Model, Texture };
@@ -19,7 +21,7 @@ public:
 protected:
 
     Mesh& m;
-    Geometry mode;
+    const Geometry mode;
     double surfaceArea;
 
 public:

@@ -4,9 +4,6 @@
 #include <Eigen/Core>
 
 
-#define p0 (f.cV(0)->P())
-#define p1 (f.cV(1)->P())
-#define p2 (f.cV(2)->P())
 #define u0 (f.cV(0)->T().P())
 #define u1 (f.cV(1)->T().P())
 #define u2 (f.cV(2)->T().P())
@@ -20,7 +17,11 @@ using Eigen::MatrixXd;
 
 Energy::Energy(Mesh& mesh, Geometry geometryMode) : m{mesh}, mode{geometryMode}, surfaceArea{0.0}
 {
-   for (auto& f : m.face) {
+    if (geometryMode == Geometry::Texture) {
+        tcsattr = tri::Allocator<Mesh>::FindPerFaceAttribute<TexCoordStorage>(m, "WedgeTexCoordStorage");
+        assert(tri::Allocator<Mesh>::IsValidHandle<TexCoordStorage>(m, tcsattr));
+    }
+    for (auto& f : m.face) {
         surfaceArea += (((P(&f, 1) - P(&f, 0)) ^ (P(&f, 2) - P(&f, 0))).Norm() / 2.0);
     }
 }
@@ -31,9 +32,6 @@ Mesh::CoordType Energy::P(Mesh::ConstFacePointer fp, int i) {
         return fp->cP(i);
     }
     else if (mode == Geometry::Texture) {
-        Mesh::PerFaceAttributeHandle<TexCoordStorage> tcsattr
-                = tri::Allocator<Mesh>::FindPerFaceAttribute<TexCoordStorage>(m, "WedgeTexCoordStorage");
-        assert(tri::Allocator<Mesh>::IsValidHandle<TexCoordStorage>(m, tcsattr));
         return Mesh::CoordType(tcsattr[fp].tc[i].U(), tcsattr[fp].tc[i].V(), 0);
     }
     else {
@@ -75,6 +73,7 @@ SymmetricDirichlet::SymmetricDirichlet(Mesh& mesh, Geometry geometryMode = Geome
 {
     for (auto&f : m.face) {
         data[f][3] = (((P(&f, 1) - P(&f, 0)) ^ (P(&f, 2) - P(&f, 0))).Norm() / 2.0f);
+        assert(data[f][3] > 0);
     }
 
     for (auto& f : m.face) {
@@ -187,9 +186,6 @@ MatrixXd SymmetricDirichlet::Grad()
     return g;
 }
 
-#undef p0
-#undef p1
-#undef p2
 #undef u0
 #undef u1
 #undef u2
