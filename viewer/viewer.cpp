@@ -16,6 +16,8 @@
 #include "mesh_viewer.h"
 #include "texture_optimization.h"
 #include "uv.h"
+#include "gl_utils.h"
+
 
 using namespace vcg;
 
@@ -52,14 +54,12 @@ int main(int argc, char *argv[])
     // Print original info
     PrintParameterizationInfo(graph);
 
+    GLInit();
+
     MeshViewer viewer(graph, std::size_t(minRegionSize), fileName);
     viewer.Run();
 
-    return 0;
+    GLTerminate();
 
-    for (auto &f : m.face) {
-        for (int i =0 ; i < 3; ++i) {
-            f.V(i)->T() = f.WT(i);
-        }
-    }
+    return 0;
 }

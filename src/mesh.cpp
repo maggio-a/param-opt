@@ -10,7 +10,7 @@
 #include <QString>
 
 #include "mesh.h"
-#include "gl_util.h"
+#include "gl_utils.h"
 
 bool LoadMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject, int &loadMask, std::string &modelName)
 {

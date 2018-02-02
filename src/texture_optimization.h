@@ -56,6 +56,8 @@ bool ParameterizeChart(Mesh &m, GraphManager::ChartHandle ch, ParameterizationSt
  * overlaps, the region is split in its original components and each face is assigned its original texture coordinates. This
  * ensures that no overlaps are introduced by this procedure, potentially reducing the whole procedure to a no-op if necessary
  * (that is, if every region parameterization contains overlaps).
+ * The threshold parameter is the fraction of overlapping fragments - in the rasterized parameterization - above which the chart
+ * is split.
  *
  * After each region is parameterized the procedure packs the texture atlas.
  *
@@ -63,8 +65,9 @@ bool ParameterizeChart(Mesh &m, GraphManager::ChartHandle ch, ParameterizationSt
  */
 /// TODO update distortion info if needed (this should also be done through the graph manager)
 int ParameterizeGraph(GraphManager& gm,
-                      ParameterizationStrategy strategy = ParameterizationStrategy{},
-                      bool failsafe = true);
+                      ParameterizationStrategy strategy,
+                      bool failsafe,
+                      double threshold = 0);
 
 
 void ReduceTextureFragmentation_NoPacking(GraphManager &gm, std::size_t minRegionSize);

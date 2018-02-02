@@ -32,7 +32,8 @@ SOURCES += viewer.cpp \
     ../src/energy.cpp \
     ../src/texture_optimization.cpp \
     ../src/mesh_graph.cpp \
-    ../src/uv.cpp
+    ../src/uv.cpp \
+    ../src/gl_utils.cpp
 
 SOURCES += \
     ../src/mesh_viewer.cpp \
@@ -44,7 +45,6 @@ SOURCES += $${VCGPATH}/wrap/ply/plylib.cpp $${VCGPATH}/wrap/qt/Outline2ToQImage.
 HEADERS += \
     ../src/mesh.h \
     ../src/linmath.h \
-    ../src/gl_util.h \
     ../src/timer.h \
     ../src/uv.h \
     ../src/mesh_graph.h \
@@ -65,7 +65,9 @@ HEADERS += \
     ../src/energy.h \
     ../src/math_utils.h \
     ../src/texture_optimization.h \
-    ../src/metric.h
+    ../src/metric.h \
+    ../src/parameterization_checker.h \
+    ../src/gl_utils.h
 
 DISTFILES += \
     readme.txt

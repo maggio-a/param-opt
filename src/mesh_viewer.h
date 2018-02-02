@@ -279,7 +279,6 @@ private:
 public:
     MeshViewer(std::shared_ptr<MeshGraph> meshParamData_, std::size_t minRegionSize_, const std::string &fileName_);
     void Run();
-    GLuint CompileShaders(const GLchar **vs_text, const GLchar **fs_text);
     void InitBuffers();
     void SetupViews();
     void SetupDetailView(ChartHandle chart);

@@ -12,7 +12,7 @@
 #include "pushpull.h"
 #include "uv.h"
 
-#include "gl_util.h"
+#include "gl_utils.h"
 
 using namespace std;
 
@@ -62,15 +62,6 @@ static TextureObjectHandle RenderTexture(Mesh::FaceIterator fbegin, Mesh::FaceIt
     bool sharedContext = (parentWindow != nullptr);
 
     QImage &img = *(textureObject->imgVec[0]);
-
-    if (sharedContext == false) {
-        if (!glfwInit())
-        {
-            cout << "Failed to initialize glfw" << endl;
-            exit(-1);
-        }
-        glfwSetErrorCallback(ErrorCallback);
-    }
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
@@ -253,9 +244,6 @@ static TextureObjectHandle RenderTexture(Mesh::FaceIterator fbegin, Mesh::FaceIt
     glfwDestroyWindow(window);
     if (sharedContext) {
         glfwMakeContextCurrent(parentWindow);
-    }
-    else {
-        glfwTerminate();
     }
 
     if (filter) vcg::PullPush(textureImage, qRgba(0, 255, 0, 255));

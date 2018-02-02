@@ -7,6 +7,7 @@
 #include "fixed_border_bijective.h"
 #include "iterative.h"
 #include "metric.h"
+#include "parameterization_checker.h"
 
 #include <vcg/complex/complex.h>
 #include <vcg/complex/algorithms/update/texture.h>
@@ -286,23 +287,12 @@ bool ParameterizeChart(Mesh &m, GraphManager::ChartHandle ch, ParameterizationSt
 }
 
 
-// returns the number of charts that could not be parameterized
-/// TODO update distortion info if needed (this should also be done through the graph manager)
-/*
- * Parameterize the mesh graph. Each region is a connected set of mesh faces, and it is assumed to be homeomorphic to a disk.
- * The parameterization of each region is performed according to the parameterization strategy passed as parameter.
- * If failsafe is true, then each region is tested for overlaps in the parameterization: in case the parameterization contains
- * overlaps, the region is split in its original components and each face is assigned its original texture coordinates. This
- * ensures that no overlaps are introduced by this procedure, potentially reducing the whole procedure to a no-op if necessary
- * (that is, if every region parameterization contains overlaps).
- *
- * After each region is parameterized the procedure packs the texture atlas.
- *
- */
 int ParameterizeGraph(GraphManager& gm,
                       ParameterizationStrategy strategy,
-                      bool failsafe)
+                      bool failsafe,
+                      double threshold)
 {
+    assert(threshold >= 0 && threshold <= 1);
     Timer timer;
     auto graph = gm.Graph();
     Mesh& m = graph->mesh;
@@ -335,9 +325,13 @@ int ParameterizeGraph(GraphManager& gm,
             bool parameterized = ParameterizeChart(m, chart, strategy);
 
             if (failsafe) {
-                if (ChartParameterizationHasOverlaps(m, chart)) {
+                RasterizedParameterizationStats stats = GetRasterizationStats(chart, 1024, 1024);
+                double fraction = stats.lostFragments / (double) stats.totalFragments;
+                if (fraction > threshold) {
+                //if (ChartParameterizationHasOverlaps(m, chart)) {
                     // store this chart in a list and split it later to avoid invalidating the iterator
-                    std::cout << "WARNING: REGION " << chart->id << " HAS OVERLAPS IN THE PARAMETERIZATION" << std::endl;
+                    std::cout << "WARNING: REGION " << chart->id << " HAS OVERLAPS IN THE PARAMETERIZATION "
+                              << "(overlap fraction = " << fraction << ")" << std::endl;
                     toSplit.insert(chart);
                 }
             }
@@ -461,7 +455,8 @@ void ReduceTextureFragmentation(Mesh &m, std::shared_ptr<MeshGraph> graph, std::
 
     ReduceTextureFragmentation_NoPacking(gm, minRegionSize);
 
-    int c = ParameterizeGraph(gm);
+    assert(0 && "TODO ParameterizeGraph parameters");
+    int c = ParameterizeGraph(gm, ParameterizationStrategy{}, true, 0);
     if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
 }
 

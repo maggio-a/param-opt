@@ -23,9 +23,10 @@
 
 #include "mesh.h"
 #include "mesh_viewer.h"
-#include "gl_util.h"
+#include "gl_utils.h"
 #include "texture_optimization.h"
 #include "texture_rendering.h"
+#include "parameterization_checker.h"
 #include "timer.h"
 
 #include "linmath.h"
@@ -113,7 +114,7 @@ void TrackballGlfwMouseButtonCapture(GLFWwindow *window, int x, int y, int butto
     switch (button) {
     case GLFW_MOUSE_BUTTON_LEFT: trackButton = vcg::Trackball::BUTTON_LEFT; break;
     case GLFW_MOUSE_BUTTON_MIDDLE: trackButton = vcg::Trackball::BUTTON_MIDDLE; break;
-    case GLFW_MOUSE_BUTTON_RIGHT: trackButton = vcg::Trackball::BUTTON_RIGHT; break;
+    case GLFW_MOUSE_BUTTON_RIGHT:/* trackButton = vcg::Trackball::BUTTON_RIGHT;*/ break;
     default: assert(0 && "Mouse button input");
     }
 
@@ -127,6 +128,8 @@ void TrackballGlfwMouseButtonCapture(GLFWwindow *window, int x, int y, int butto
     if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS) {
         trackButton |= vcg::Trackball::KEY_SHIFT;
     }
+
+    if (trackButton == vcg::Trackball::BUTTON_NONE) return;
 
     if (action == GLFW_PRESS) trackball.MouseDown(x, y, trackButton);
     else if (action == GLFW_RELEASE) trackball.MouseUp(x, y, trackButton);
@@ -809,59 +812,6 @@ void MeshViewer::CenterPerspectiveViewFromMouse()
     }
 }
 
-GLuint MeshViewer::CompileShaders(const GLchar **vs_text, const GLchar **fs_text)
-{
-    GLint status;
-    char infoLog[1024] = {0};
-
-    GLuint vs = glCreateShader(GL_VERTEX_SHADER);
-    glShaderSource(vs, 1, vs_text, NULL);
-    glCompileShader(vs);
-    glGetShaderInfoLog(vs, 1024, NULL, infoLog);
-    if (*infoLog) {
-        std::cout << infoLog << std::endl;
-        memset(infoLog, 0, 1024);
-    }
-    glGetShaderiv(vs, GL_COMPILE_STATUS, &status);
-    if (status == GL_FALSE) {
-        std::cout << "Vertex shader compilation failed" << std::endl;
-    }
-
-    GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
-    glShaderSource(fs, 1, fs_text, NULL);
-    glCompileShader(fs);
-    glGetShaderInfoLog(fs, 1024, NULL, infoLog);
-    if (*infoLog) {
-        std::cout << infoLog << std::endl;
-        memset(infoLog, 0, 1024);
-    }
-    glGetShaderiv(fs, GL_COMPILE_STATUS, &status);
-    if (status == GL_FALSE) {
-        std::cout << "Fragment shader compilation failed" << std::endl;
-    }
-
-    GLuint program = glCreateProgram();
-    glAttachShader(program, vs);
-    glAttachShader(program, fs);
-    glLinkProgram(program);
-    glValidateProgram(program);
-    glGetProgramInfoLog(program, 1024, NULL, infoLog);
-    if (*infoLog) {
-        std::cout << infoLog << std::endl;
-    }
-    glGetProgramiv(program, GL_LINK_STATUS, &status);
-    if (status == GL_FALSE) {
-        std::cout << "Shader program link failed" << std::endl;
-    }
-
-    glDeleteShader(vs);
-    glDeleteShader(fs);
-
-    CheckGLError();
-
-    return program;
-}
-
 void MeshViewer::InitBuffers()
 {
     const Mesh& m = meshParamData->mesh;
@@ -1259,17 +1209,11 @@ void MeshViewer::DrawViews()
 
 void MeshViewer::Run()
 {
-    if (!glfwInit()) {
-        std::cout << "Failed to initialize glfw" << std::endl;
-        std::exit(-1);
-    }
-
-    glfwSetErrorCallback(ErrorCallback);
-
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+    glfwWindowHint(GLFW_VISIBLE, GL_TRUE);
 
     _window = glfwCreateWindow(1280, 720, "Mesh viewer", NULL, NULL);
     if (!_window) {
@@ -1373,8 +1317,6 @@ void MeshViewer::Run()
     ImGui_ImplGlfwGL3_Shutdown();
 
     glfwDestroyWindow(_window);
-    glfwTerminate();
-
 }
 
 void MeshViewer::ManageImGuiState()

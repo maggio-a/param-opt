@@ -16,7 +16,7 @@
 #include <vcg/complex/algorithms/update/color.h>
 
 #include "mesh.h"
-#include "gl_util.h"
+#include "gl_utils.h"
 #include "metric.h"
 #include "uv.h"
 
