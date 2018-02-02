@@ -14,9 +14,11 @@
 #include <vcg/math/histogram.h>
 #include <vcg/complex/algorithms/stat.h>
 #include <vcg/complex/algorithms/update/color.h>
+#include <vcg/complex/algorithms/hole.h>
 
 #include "mesh.h"
 #include "gl_utils.h"
+#include "math_utils.h"
 #include "metric.h"
 #include "uv.h"
 
@@ -35,11 +37,12 @@ template <class MeshType>
 std::shared_ptr<MeshGraph> ComputeParameterizationGraph(MeshType &m, TextureObjectHandle textureObject, float *uvMeshBorder = nullptr);
 
 /*
- * Constructs a mesh from a FaceGroup, if wtcsattr == false does not copy
- * the WedgeTexCoordStorage attribute into the new mesh (defaut true)
+ * Constructs a mesh from a FaceGroup. If sanitize == true closes the holes and splits non manifold vertices.
+ * If wtcsattr == false does not copy the WedgeTexCoordStorage attribute into the new mesh. Extra faces added
+ * in the hole filling process get an isometric parameterization scaled according to the chart attributes
  */
 template <typename MeshType>
-void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg, bool wtcsattr = true);
+void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg, bool sanitize, bool wtcsattr);
 
 /* Computes the texture outlines of a given chart */
 template <typename ScalarType = float>
@@ -385,7 +388,7 @@ std::shared_ptr<MeshGraph> ComputeParameterizationGraph(MeshType &m, TextureObje
 
 
 template <typename MeshType>
-void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg, bool wtcsattr)
+void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg, bool sanitize, bool wtcsattr)
 {
     m.Clear();
     std::unordered_map<Mesh::VertexPointer, typename MeshType::VertexPointer> vpmap;
@@ -417,12 +420,85 @@ void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg, bool wtcsattr)
         }
     }
 
+    // face number before sanitizing mesh
+    int startFN = m.FN();
+
+    if (sanitize) {
+        tri::UpdateTopology<MeshType>::FaceFace(m);
+
+        int splitCount = tri::Clean<MeshType>::SplitNonManifoldVertex(m, 0);
+        if (splitCount > 0) {
+            std::cout << "Mesh was not vertex-manifold, " << splitCount << " vertices split" << std::endl;
+        }
+
+        std::vector<double> vTotalBorderLength;
+        std::vector<std::vector<std::size_t>> vBorderVertices;
+        std::vector<std::vector<double>> vCumulativeBorder;
+
+        tri::UpdateFlags<MeshType>::FaceClearV(m);
+        for (auto& f : m.face) {
+            for (int i = 0; i < 3; ++i) {
+                if (!f.IsV() && face::IsBorder(f, i)) {
+                    double totalBorderLength = 0;
+                    std::vector<std::size_t> borderVertices;
+                    std::vector<double> cumulativeBorder;
+
+                    face::Pos<typename MeshType::FaceType> p(&f, i);
+                    face::Pos<typename MeshType::FaceType> startPos = p;
+                    assert(p.IsBorder());
+                    do {
+                        assert(p.IsManifold());
+                        p.F()->SetV();
+                        borderVertices.push_back(tri::Index(m, p.V()));
+                        cumulativeBorder.push_back(totalBorderLength);
+                        totalBorderLength += EdgeLength(*p.F(), p.VInd());
+                        p.NextB();
+                    } while (p != startPos);
+                    vTotalBorderLength.push_back(totalBorderLength);
+                    vBorderVertices.push_back(borderVertices);
+                    vCumulativeBorder.push_back(cumulativeBorder);
+                }
+            }
+        }
+        /// TODO in case multiple borders have the same size, it could be chosen randomly
+        assert(vBorderVertices.size() > 0 && "Mesh has no boundaries");
+        // select longest border (this is the only one that remains), while the others are closed
+        std::size_t k = std::distance(vTotalBorderLength.begin(), std::max_element(vTotalBorderLength.begin(), vTotalBorderLength.end()));
+        if (vBorderVertices.size() > 1) {
+            // retrieve the hole size parameter, since all holes except the peripheral border, just use the border length minus 1
+            for (std::size_t i = 0; i < vBorderVertices.size(); ++i) {
+                if (i == k) continue;
+                assert(vBorderVertices[k].size() > vBorderVertices[i].size());  // otherwise cannot close all holes below threshold
+            }
+
+            // close holes
+            int maxHoleSize = vBorderVertices[k].size() - 1;
+            tri::Hole<MeshType>::template EarCuttingFill<tri::MinimumWeightEar<MeshType>>(m, maxHoleSize, false);
+        }
+    }
+
     if (wtcsattr) {
         auto WTCSh = tri::Allocator<Mesh>::FindPerFaceAttribute<TexCoordStorage>(fg.mesh, "WedgeTexCoordStorage");
         assert(tri::Allocator<Mesh>::IsValidHandle<TexCoordStorage>(fg.mesh, WTCSh));
         auto WTCShNew = tri::Allocator<MeshType>::template GetPerFaceAttribute<TexCoordStorage>(m, "WedgeTexCoordStorage");
-        for (std::size_t i = 0; i < m.FN(); ++i) {
-            WTCShNew[m.face[i]] = WTCSh[fg.fpVec[i]];
+
+        /* if some holes were closed, the isometric parameterization of the faces is scaled to match the ratio
+         * of the FaceGroup copied */
+        double scale = std::sqrt(fg.AreaUV() / fg.Area3D());
+        for (int i = 0; i < m.FN(); ++i) {
+            if (i < startFN) {
+                WTCShNew[m.face[i]] = WTCSh[fg.fpVec[i]];
+            }
+            else { // faces added to close holes, use isometric parameterization as attribute for those
+                typename MeshType::FaceType& f = m.face[i];
+                Point2d u10, u20;
+                LocalIsometry(f.P(1) - f.P(0), f.P(2) - f.P(0), u10, u20);
+                u10 *= scale; u20 *= scale;
+                Point2d u0{0, 0};
+                WTCShNew[&f].tc[0].P() = u0;
+                WTCShNew[&f].tc[1].P() = u0 + u10;
+                WTCShNew[&f].tc[2].P() = u0 + u20;
+            }
         }
     }
 }

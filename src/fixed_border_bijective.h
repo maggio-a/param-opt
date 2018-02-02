@@ -12,16 +12,13 @@
 
 #include "mesh.h"
 #include "metric.h"
+#include "math_utils.h"
 
 #include <vcg/complex/complex.h>
 #include <wrap/io_trimesh/export.h>
 
 #include <vcg/complex/algorithms/hole.h>
 
-template <typename FaceType>
-inline double EdgeLength(const FaceType& f, int i) {
-    return vcg::Distance(f.cV0(i)->P(), f.cV1(i)->P());
-}
 
 template <typename MeshType>
 class UniformSolver
@@ -82,17 +79,17 @@ public:
         tri::UpdateTopology<MeshType>::FaceFace(mesh);
         tri::UpdateFlags<MeshType>::VertexBorderFromFaceAdj(mesh);
 
-        // Init index
-        //BuildIndex();
 
         std::vector<double> vTotalBorderLength;
         std::vector<std::vector<IndexType>> vBorderVertices;
         std::vector<std::vector<double>> vCumulativeBorder;
 
+        /*
         int splitCount = tri::Clean<MeshType>::SplitNonManifoldVertex(mesh, 0);
         if (splitCount > 0) {
             std::cout << "Mesh was not vertex-manifold, " << splitCount << " vertices split" << std::endl;
         }
+        */
 
         tri::UpdateFlags<MeshType>::FaceClearV(mesh);
         for (auto& f : mesh.face) {
@@ -120,6 +117,17 @@ public:
             }
         }
 
+        assert(vBorderVertices.size() == 1);
+        // map border to the unit circle (store coord in vertex texcoord)
+        constexpr float twoPi = 2 * M_PI;
+        for (std::size_t i = 0; i < vBorderVertices[0].size(); ++i) {
+            float angle = (vCumulativeBorder[0][i] / vTotalBorderLength[0]) * twoPi;
+            Point2d uvCoord = Point2d{std::sin(angle), std::cos(angle)};
+            mesh.vert[vBorderVertices[0][i]].T().P() = uvCoord;
+            AddConstraint(vBorderVertices[0][i], uvCoord);
+        }
+
+        /*
         assert(vBorderVertices.size() > 0 && "Mesh has no boundaries");
         // select longest border and pin it to a circle
         std::size_t k = std::distance(vTotalBorderLength.begin(), std::max_element(vTotalBorderLength.begin(), vTotalBorderLength.end()));
@@ -136,28 +144,6 @@ public:
         // close the other borders by adding a 'star' vertex for each border
         int startVerts = mesh.VN();
         int startFaces = mesh.FN();
-        /*
-        std::size_t newVerts = vBorderVertices.size() - 1;
-        auto vi = tri::Allocator<MeshType>::AddVertices(mesh, newVerts);
-        std::size_t newFaces = 0;
-        for (std::size_t i = 0; i < vBorderVertices.size(); ++i) {
-            if (i == k) continue;
-
-            std::size_t sz = vBorderVertices[i].size();
-            auto fi = tri::Allocator<MeshType>::AddFaces(mesh, sz);
-            newFaces += sz;
-            vi->P().SetZero();
-            for (std::size_t j = 0; j < sz; ++j) {
-                fi->V(0) = &*vi;
-                fi->V(1) = &mesh.vert[vBorderVertices[i][j]];
-                fi->V(2) = &mesh.vert[vBorderVertices[i][(j+1)%sz]];
-                vi->P() += fi->V(1)->P();
-                fi++;
-            }
-            vi->P() /= double(sz);
-            vi++;
-        }
-        */
 
         if (vBorderVertices.size() > 1) {
             // retrieve the hole size parameter, since all holes except the peripheral border, just use the border length minus 1
@@ -169,6 +155,7 @@ public:
             tri::Hole<Mesh>::EarCuttingFill<tri::MinimumWeightEar<Mesh>>(mesh, maxHoleSize, false);
             assert(mesh.VN() == int(startVerts));
         }
+        */
 
         const int n = mesh.VN() * 2;
         Eigen::SparseMatrix<double,Eigen::ColMajor> A(n, n);
@@ -253,14 +240,14 @@ public:
         //    tri::Allocator<MeshType>::DeleteVertex(mesh, v);
         //}
         //tri::Allocator<MeshType>::CompactVertexVector(mesh);
-
+        /*
         int newFaces = mesh.FN() - startFaces;
         for (int i = 0; i < newFaces; ++i) {
             FaceType& f = mesh.face[startFaces + i];
             tri::Allocator<MeshType>::DeleteFace(mesh, f);
         }
         tri::Allocator<MeshType>::CompactFaceVector(mesh);
-
+        */
         return true;
     }
 

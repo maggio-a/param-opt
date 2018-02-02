@@ -264,8 +264,10 @@ bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy)
 bool ParameterizeChart(Mesh &m, GraphManager::ChartHandle ch, ParameterizationStrategy strategy)
 {
     Mesh pm;
+    bool sanitize = (strategy.directParameterizer == DirectParameterizer::FixedBorderBijective);
     bool copyWedgeTexCoordStorage = (strategy.geometry == ParameterizationGeometry::Texture);
-    CopyFaceGroupIntoMesh(pm, *ch, copyWedgeTexCoordStorage);
+    CopyFaceGroupIntoMesh(pm, *ch, sanitize, copyWedgeTexCoordStorage);
+
     bool solved = ParameterizeMesh(pm, strategy);
     if (solved) {
 
@@ -274,14 +276,6 @@ bool ParameterizeChart(Mesh &m, GraphManager::ChartHandle ch, ParameterizationSt
                 ch->fpVec[i]->WT(k).P() = pm.face[i].WT(k).P();
             }
         }
-        /*
-        for (auto const& f : pm.face) {
-            Mesh::FacePointer fptr = ch->fpVec[tri::Index(pm, f)];
-            for (int i = 0; i < 3; ++i) {
-                fptr->WT(i).P() = f.cWT(i).P();
-            }
-        }
-        */
     }
     return solved;
 }

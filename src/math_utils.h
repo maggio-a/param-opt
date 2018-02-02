@@ -3,6 +3,13 @@
 
 #include <cmath>
 
+template <typename FaceType>
+inline double EdgeLength(const FaceType& f, int i)
+{
+    return (f.cV0(i)->P() - f.cV1(i)->P()).Norm();
+}
+
+
 /* Computes the angle between u and v */
 template <typename PointType>
 double VecAngle(const PointType& u, const PointType& v)
