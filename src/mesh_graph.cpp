@@ -375,7 +375,7 @@ void GraphManager::Merge(ChartHandle c1, ChartHandle c2)
     g->charts.erase(c2->id);
 }
 
-void GraphManager::Split(const RegionID id)
+void GraphManager::Split(const RegionID id, std::vector<ChartHandle>& splitCharts)
 {
     assert(g->charts.count(id) == 1);
 
@@ -386,6 +386,10 @@ void GraphManager::Split(const RegionID id)
     assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(g->mesh, ICCh));
 
     ChartHandle chart = g->GetChart(id);
+    if (chart->numMerges == 0) {
+        splitCharts.push_back(chart);
+        return;
+    }
 
     // detach chart from the graph
     g->charts.erase(chart->id);
@@ -418,8 +422,9 @@ void GraphManager::Split(const RegionID id)
 
     // insert new edges in the support list
     for (auto c1 : newCharts) {
+        splitCharts.push_back(c1);
         for (auto c2 : c1->adj) {
-            AddEdge(c1, c2);
+            AddEdge(c1, c2, true);
         }
     }
 }

@@ -280,103 +280,143 @@ bool ParameterizeChart(Mesh &m, GraphManager::ChartHandle ch, ParameterizationSt
     return solved;
 }
 
+/* Ugly function that tries to perform subsequent merges after a split. split is the vector of charts
+ * that formed the aggregate, chartQueue is the queue were the newly merged charts must be inserted
+ * */
+static void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, std::deque<ChartHandle>& chartQueue)
+{
+    /* very simple heuristic, select the two largest charts in the split, and iteratively grow them
+     * until all the charts in the split are covered, producing to 2 new aggregates that will be
+     * parameterized independently */
+    std::sort(split.begin(), split.end(),
+              [](const ChartHandle& c1, const ChartHandle& c2) { return c1->Area3D() > c2->Area3D(); }
+    );
+    ChartHandle c1 = split[0];
+    ChartHandle c2 = split[1];
+    std::unordered_set<ChartHandle> charts;
+    for (std::size_t i = 2; i < split.size(); ++i) {
+        charts.insert(split[i]);
+    }
+
+    while (charts.size() > 0) {
+        // grow c1
+        for (auto ch : c1->adj) {
+            if (charts.count(ch) == 1) {
+                charts.erase(ch);
+                c1 = gm.Collapse(GraphManager::Edge(c1, ch));
+                break;
+            }
+        }
+
+        // grow c2
+        for (auto ch : c2->adj) {
+            if (charts.count(ch) == 1) {
+                charts.erase(ch);
+                c2 = gm.Collapse(GraphManager::Edge(c2, ch));
+                break;
+            }
+        }
+    }
+
+    chartQueue.push_back(c1);
+    chartQueue.push_back(c2);
+}
 
 int ParameterizeGraph(GraphManager& gm,
                       ParameterizationStrategy strategy,
                       bool failsafe,
-                      double threshold)
+                      double threshold,
+                      bool retry)
 {
     assert(threshold >= 0 && threshold <= 1);
+
     Timer timer;
+
     auto graph = gm.Graph();
     Mesh& m = graph->mesh;
 
+    auto WTCSh = tri::Allocator<Mesh>::FindPerFaceAttribute<TexCoordStorage>(m, "WedgeTexCoordStorage");
+    assert(tri::Allocator<Mesh>::IsValidHandle<TexCoordStorage>(m, WTCSh));
+
     std::cout << "Parameterizing " << graph->charts.size() << " regions..." << std::endl;
 
-    std::set<GraphManager::ChartHandle> toSplit;
+    // gather the charts to parameterize
+    std::deque<ChartHandle> chartQueue;
+    for (auto entry : graph->charts) {
+        ChartHandle chart = entry.second;
+        if (chart->numMerges > 0) chartQueue.push_back(chart);
+        chart->ParameterizationChanged(); // packing changes texture coords even for charts that are not reparameterized
+
+        /* !!!
+         * If the chart was not merged because it was a disconnected component AND a closed surface, the outline
+         * extraction will fail (this means that the original parameterization mapped a closed surface to a flat area)
+         * a possible workaround would be to use the uv bounding box instead of the outline for those cases
+         * */
+    }
+
     int iter = 0;
     int numFailed = 0;
-    for (auto entry : graph->charts) {
-        GraphManager::ChartHandle chart = entry.second;
-
-        chart->ParameterizationChanged(); // always changes due to repacking, even if the original coordinates were preserved
+    while (chartQueue.size() > 0) {
+        ChartHandle chart = chartQueue.front();
+        chartQueue.pop_front();
 
         std::cout << "Chart " << chart->id << " - FN=" << chart->FN() << ", FI=" << tri::Index(m, chart->Fp()) << std::endl;
 
-        // If the old chart has no valid parameterization, skip it
-        float oldUvArea = chart->AreaUV();
-        if (oldUvArea == 0) continue;
+        if (chart->numMerges == 0) continue;
 
-        if (chart->numMerges == 0) {
-            // The chart was not merged, therefore there is nothing to do -- the original parameterization is preserved
+        double oldUvArea = chart->AreaUV();
 
-            // !!! this does not happen to work as there are issues with selecting the outline2 from such regions
-            // Example: closed surfaces parameterized without cuts (like two sides projected to a plane)
-
-            // TODO a possible workaround would be to use the bounding box as the outline
+        bool parameterized = ParameterizeChart(m, chart, strategy);
+        if (!parameterized) {
+            numFailed++;
+            std::cout << "Parameterization failed" << std::endl;
         }
         else {
-            bool parameterized = ParameterizeChart(m, chart, strategy);
-
+            bool valid = true;
             if (failsafe) {
                 RasterizedParameterizationStats stats = GetRasterizationStats(chart, 1024, 1024);
                 double fraction = stats.lostFragments / (double) stats.totalFragments;
                 if (fraction > threshold) {
-                //if (ChartParameterizationHasOverlaps(m, chart)) {
-                    // store this chart in a list and split it later to avoid invalidating the iterator
+                    valid = false; // parameterization not valid, the chart must be split
                     std::cout << "WARNING: REGION " << chart->id << " HAS OVERLAPS IN THE PARAMETERIZATION "
-                              << "(overlap fraction = " << fraction << ")" << std::endl;
-                    toSplit.insert(chart);
-                }
-            }
-
-            if (parameterized) {
-                // if the parameterization is valid, scale chart relative to the original parameterization area value
-                if (toSplit.find(chart) == toSplit.end()) {
-                    // Normalize area: the region gets scaled by sqrt(oldUVArea)/sqrt(newUVArea) to keep the original proportions
-                    // between the regions of the atlas in an attempt to not lose too much texture data when the new texture is rendered
-
-                    float newUvArea = chart->AreaUV();
-                    float scale = std::sqrt(oldUvArea / newUvArea);
-                    assert(scale > 0);
-                    // scale shoud be very close to 1 if we optimize for area distortion wrt to original uv coords
-                    std::cout << "Scale value = " << scale << std::endl;
-                    vcg::Box2d uvBox = chart->UVBox();
+                              << "(overlap fraction = " << fraction << "), splitting..." << std::endl;
+                    // restore original texture coordinates for each face of the chart
                     for (auto fptr : chart->fpVec) {
+                        TexCoordStorage tcs = WTCSh[fptr];
                         for (int i = 0; i < 3; ++i) {
-                            fptr->WT(i).P() = (fptr->WT(i).P() - uvBox.min) * scale;
+                            fptr->WT(i) = tcs.tc[i];
+                            fptr->V(i)->T() = tcs.tc[i];
                         }
                     }
-
-                    chart->numMerges = 0;
+                    // split the chart in the mesh graph using the graph manager
+                    std::vector<ChartHandle> splitCharts;
+                    gm.Split(chart->id, splitCharts);
+                    if (retry) {
+                        RecoverFromSplit(splitCharts, gm, chartQueue);
+                    }
                 }
             }
-            else {
-                numFailed++;
-                std::cout << "Parameterization failed" << std::endl;
+
+            // if the parameterization is valid, scale chart relative to the original parameterization area value
+            if (valid) {
+                // Normalize area: the region gets scaled by sqrt(oldUVArea)/sqrt(newUVArea) to keep the original proportions
+                // between the regions of the atlas in an attempt to not lose too much texture data when the new texture is rendered
+                double newUvArea = chart->AreaUV();
+                double scale = std::sqrt(oldUvArea / newUvArea);
+                assert(scale > 0);
+                // scale shoud be very close to 1 if we optimize for area distortion wrt to original uv coords
+                std::cout << "Chart scale value = " << scale << std::endl;
+                vcg::Box2d uvBox = chart->UVBox();
+                for (auto fptr : chart->fpVec) {
+                    for (int i = 0; i < 3; ++i) {
+                        fptr->WT(i).P() = (fptr->WT(i).P() - uvBox.min) * scale;
+                    }
+                }
+                chart->numMerges = 0;
             }
         }
 
         std::cout << "Iteration " << iter++ << " took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
-    }
-
-    // Handle chart that need to be split, if any
-    auto WTCSh = tri::Allocator<Mesh>::FindPerFaceAttribute<TexCoordStorage>(m, "WedgeTexCoordStorage");
-    assert(tri::Allocator<Mesh>::IsValidHandle<TexCoordStorage>(m, WTCSh));
-
-    for (auto chart : toSplit) {
-        // restore original texture coordinates for each face of the chart
-        std::cout << "Splitting region " << chart->id << std::endl;
-        for (auto fptr : chart->fpVec) {
-            TexCoordStorage tcs = WTCSh[fptr];
-            for (int i = 0; i < 3; ++i) {
-                fptr->WT(i) = tcs.tc[i];
-                fptr->V(i)->T() = tcs.tc[i];
-            }
-        }
-
-        // split the chart in the mesh graph using the graph manager
-        gm.Split(chart->id);
     }
 
     // Pack the atlas

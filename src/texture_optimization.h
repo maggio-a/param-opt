@@ -67,7 +67,8 @@ bool ParameterizeChart(Mesh &m, GraphManager::ChartHandle ch, ParameterizationSt
 int ParameterizeGraph(GraphManager& gm,
                       ParameterizationStrategy strategy,
                       bool failsafe,
-                      double threshold = 0);
+                      double threshold = 0,
+                      bool retry = true);
 
 
 void ReduceTextureFragmentation_NoPacking(GraphManager &gm, std::size_t minRegionSize);

@@ -232,7 +232,8 @@ public:
     /// by *NextEdge() since feasibility is lazily evaluated (unfeasible edges may be present in the edge set)
     ChartHandle Collapse(const Edge& e);
 
-    void Split(const RegionID id);
+    // Splits the chart into its initial components, returns the handles to the created charts into splitCharts
+    void Split(const RegionID id, std::vector<ChartHandle> &splitCharts);
 
     int CloseMacroRegions(std::size_t minRegionSize);
 
