@@ -65,9 +65,9 @@ static bool Parameterizable(MeshType &m)
         return false;
     }
 
-    if (tri::Clean<MeshType>::CountNonManifoldVertexFF(m) > 0) {
-        return false;
-    }
+    //if (tri::Clean<MeshType>::CountNonManifoldVertexFF(m) > 0) {
+    //    return false;
+    //}
 
     if (tri::Clean<MeshType>::IsWaterTight(m)) {
         return false;

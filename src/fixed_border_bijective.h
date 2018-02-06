@@ -91,6 +91,8 @@ public:
         }
         */
 
+        tri::io::Exporter<Mesh>::Save(mesh, "surf.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
+
         tri::UpdateFlags<MeshType>::FaceClearV(mesh);
         for (auto& f : mesh.face) {
             for (int i = 0; i < 3; ++i) {
@@ -157,9 +159,10 @@ public:
         }
         */
 
-        const int n = mesh.VN() * 2;
+        const int n = mesh.VN();
         Eigen::SparseMatrix<double,Eigen::ColMajor> A(n, n);
-        Eigen::VectorXd b(Eigen::VectorXd::Zero(n));
+        Eigen::VectorXd b_u(Eigen::VectorXd::Zero(n));
+        Eigen::VectorXd b_v(Eigen::VectorXd::Zero(n));
 
         std::unordered_map<VertexPointer, std::unordered_set<VertexPointer>> vadj;
         for (auto& f : mesh.face) {
@@ -174,21 +177,19 @@ public:
         for (auto& entry : vadj) {
             IndexType vi = tri::Index(mesh, entry.first);
             if (constraints.find(vi) == constraints.end()) {
+                double c = entry.second.size();
                 for (auto & vp : entry.second) {
-                    float coeff = - 1.0f / entry.second.size();
-                    if(U(entry.first) >= mesh.VN()) std::cout << U(entry.first) << std::endl;// && U(vp) < mesh.VN() * 2);
-                    coeffList.push_back(Td(U(entry.first), U(vp), coeff));
-                    coeffList.push_back(Td(V(entry.first), V(vp), coeff));
+                    coeffList.push_back(Td(U(entry.first), U(vp), - (1.0 / c)));
+                    //coeffList.push_back(Td(V(entry.first), V(vp), coeff));
                 }
             } else {
-                b[U(entry.first)] = constraints[vi][0];
-                b[V(entry.first)] = constraints[vi][1];
+                b_u[vi] = constraints[vi][0];
+                b_v[vi] = constraints[vi][1];
             }
             coeffList.push_back(Td(U(entry.first), U(entry.first), 1));
-            coeffList.push_back(Td(V(entry.first), V(entry.first), 1));
+            //coeffList.push_back(Td(V(entry.first), V(entry.first), 1));
         }
 
-        tri::io::Exporter<Mesh>::Save(mesh, "surf.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
 
         // Prepare to solve
 
@@ -198,6 +199,7 @@ public:
         //std::cout << Eigen::MatrixXd(A) << std::endl;
         //std::cout << b << std::endl;
 
+        //Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> solver;
         Eigen::SparseLU<Eigen::SparseMatrix<double,Eigen::ColMajor>, Eigen::COLAMDOrdering<Eigen::SparseMatrix<double>::StorageIndex>> solver;
 
         A.makeCompressed();
@@ -207,7 +209,8 @@ public:
             return false;
         }
 
-        Eigen::VectorXd x = solver.solve(b);
+        Eigen::VectorXd x_u = solver.solve(b_u);
+        Eigen::VectorXd x_v = solver.solve(b_v);
 
         if (solver.info() != Eigen::Success) {
             std::cout << "Solving failed" << std::endl;
@@ -217,7 +220,7 @@ public:
         // Copy back the texture coordinates
         vcg::Box2<typename CoordUV::ScalarType> uvBox;
         for (int i = 0; i < mesh.VN(); ++i) {
-            uvBox.Add(CoordUV(ScalarType(x[U(i)]), ScalarType(x[V(i)])));
+            uvBox.Add(CoordUV(x_u[i], x_v[i]));
         }
 
         double scale = 1.0f / std::max(uvBox.Dim().X(), uvBox.Dim().Y());
@@ -225,10 +228,16 @@ public:
         for (auto &f : mesh.face) {
             for (int i = 0; i < 3; ++i) {
                 VertexPointer vi = f.V(i);
-                CoordUV uv(x[U(vi)], x[V(vi)]);
+                //CoordUV uv(x[U(vi)], x[V(vi)]);
+                CoordUV uv(x_u[U(vi)], x_v[U(vi)]);
                 f.WT(i).P() = (uv - uvBox.min) * scale;
                 vi->T().P() = (uv - uvBox.min) * scale;
             }
+        }
+
+        tri::io::Exporter<Mesh>::Save(mesh, "surf.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
+
+        for (auto &f : mesh.face) {
             if (DistortionMetric::AreaUV(f) < 0) std::cout << tri::Index(mesh, f) << std::endl;
             assert(DistortionMetric::AreaUV(f) > 0);
         }
