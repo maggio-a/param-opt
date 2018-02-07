@@ -1355,8 +1355,8 @@ void MeshViewer::ManageImGuiState()
         ImGui::Begin("Controls", nullptr, 0);
 
         ImGui::Checkbox("Info area##checkbox", &showInfoArea);
-
-        ImGui::Checkbox("Toggle wireframe", &_detailView.wireframe);
+        ImGui::SameLine();
+        ImGui::Checkbox("Wireframe", &_detailView.wireframe);
 
         ImGui::Separator();
 
@@ -1416,12 +1416,19 @@ void MeshViewer::ManageImGuiState()
         }
 
         static bool failsafe = true;
+        static bool retry = true;
+        static float tau = 0.0f;
         bool clickPack = ImGui::Button("Parameterize graph");
-        ImGui::SameLine(); ImGui::Checkbox("Safe", &failsafe);
+        ImGui::Checkbox("Safe", &failsafe);
+        ImGui::SameLine();
+        ImGui::Checkbox("Retry", &retry);
+        ImGui::InputFloat("tau", &tau, 0.002f, 1.0f);
+        if (tau < 0) tau = 0;
+        if (tau > 1) tau = 1;
         if (clickPack) {
             ClearSelection();
             if (meshParamData->MergeCount() > 0) {
-                int c = ParameterizeGraph(*gm, strategy, failsafe);
+                int c = ParameterizeGraph(*gm, strategy, failsafe, tau, retry);
                 if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
                 updateTexcoord = true;
                 if (activeDistIndex != -1) {
@@ -1430,8 +1437,8 @@ void MeshViewer::ManageImGuiState()
                     updateColor = true;
                 }
                 _currentTexture->Release();
-                //_currentTexture = RenderTexture(meshParamData->mesh, meshParamData->textureObject, true, _window);
-                _currentTexture = RenderTexture(meshParamData->mesh, meshParamData->textureObject, false, _window);
+                _currentTexture = RenderTexture(meshParamData->mesh, meshParamData->textureObject, true, _window);
+                //_currentTexture = RenderTexture(meshParamData->mesh, meshParamData->textureObject, false, _window);
            } else {
                std::cout << "No merges, nothing to do" << std::endl;
            }
@@ -1498,9 +1505,13 @@ void MeshViewer::ManageImGuiState()
         ImGui::RadioButton("Vertex position", &geometryInUse, 0);
         ImGui::RadioButton("Texture coords", &geometryInUse, 1);
 
+        static bool padBoundaries = false;
         ImGui::Text("Parameterizer");
         ImGui::RadioButton("Discrete Conformal", &parameterizerInUse, 0);
         ImGui::RadioButton("Circular border bijective", &parameterizerInUse, 1);
+        if (parameterizerInUse == 1) {
+            ImGui::Checkbox("Pad inner boundaries", &padBoundaries);
+        }
 
         //ImGui::Text("Descent method energy");
         //ImGui::RadioButton("Area preserving", &optimizerInUse, 0);
@@ -1508,7 +1519,7 @@ void MeshViewer::ManageImGuiState()
         //ImGui::RadioButton("MIPS", &optimizerInUse, 2);
 
         ImGui::Text("Descent method");
-        ImGui::RadioButton("Gradient descent", &descentTypeInUse, 0);
+        //ImGui::RadioButton("Gradient descent", &descentTypeInUse, 0);
         ImGui::RadioButton("LBFGS", &descentTypeInUse, 1);
         ImGui::RadioButton("SLIM", &descentTypeInUse, 2);
 
@@ -1516,6 +1527,7 @@ void MeshViewer::ManageImGuiState()
         strategy.optimizer = optimizer[optimizerInUse];
         strategy.geometry = geometry[geometryInUse];
         strategy.descent = descent[descentTypeInUse];
+        strategy.padBoundaries = padBoundaries;
 
         ImGui::Text("Max descent iterations");
         ImGui::InputInt("##Optimizer iterations", &strategy.optimizerIterations, 1, 100);

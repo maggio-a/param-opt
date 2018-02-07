@@ -39,7 +39,8 @@ std::shared_ptr<MeshGraph> ComputeParameterizationGraph(MeshType &m, TextureObje
 /*
  * Constructs a mesh from a FaceGroup. If sanitize == true closes the holes and splits non manifold vertices.
  * If wtcsattr == false does not copy the WedgeTexCoordStorage attribute into the new mesh. Extra faces added
- * in the hole filling process get an isometric parameterization scaled according to the chart attributes
+ * in the hole filling process get an isometric parameterization scaled according to the chart attributes.
+ * The added faces are visited.
  */
 template <typename MeshType>
 void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg, bool sanitize, bool wtcsattr);
@@ -203,7 +204,9 @@ public:
                 }
             }
 
-            return double(std::min(e.a->FN(), e.b->FN())) / (sharedBorder/totalBorder); // The smaller the shared fraction, the larger the weight
+            double w = double(std::min(e.a->FN(), e.b->FN())) / (sharedBorder/totalBorder); // The smaller the shared fraction, the larger the weight
+            assert(std::isfinite(w));
+            return w;
         }
     };
 
@@ -473,9 +476,14 @@ void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg, bool sanitize, bool wtcsa
             }
 
             // close holes
-            int maxHoleSize = vBorderVertices[k].size() - 1;
+            int maxHoleSize = vBorderVertices[k].size() - 1 + 1; // there is an off by one in the hole size computed by the vcglib
             tri::Hole<MeshType>::template EarCuttingFill<tri::MinimumWeightEar<MeshType>>(m, maxHoleSize, false);
         }
+    }
+
+    tri::UpdateFlags<MeshType>::FaceClearS(m);
+    for (auto& f: m.face) {
+        if (int(tri::Index(m, f)) >= startFN) f.SetS();
     }
 
     if (wtcsattr) {
@@ -509,6 +517,8 @@ void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg, bool sanitize, bool wtcsa
 template <typename ScalarType>
 void ChartOutlinesUV(Mesh& m, ChartHandle chart, std::vector<std::vector<Point2<ScalarType>>> &outline2Vec)
 {
+    assert(chart->numMerges == 0);
+
     struct FaceAdjacency {
         bool changed[3] = {false, false, false};
         Mesh::FacePointer FFp[3];
@@ -546,7 +556,7 @@ void ChartOutlinesUV(Mesh& m, ChartHandle chart, std::vector<std::vector<Point2<
                     p.F()->SetV();
                     //outline.push_back(Point2<ScalarType>(p.V()->P()));
                     Point2d uv = p.F()->WT(p.VInd()).P();
-                    outline.push_back(Point2<ScalarType>{ScalarType(uv[0]), ScalarType(uv[1])});
+                    outline.push_back(Point2<ScalarType>(uv[0], uv[1]));
                     p.NextB();
                 }
                 while (p != startPos);
@@ -564,6 +574,21 @@ void ChartOutlinesUV(Mesh& m, ChartHandle chart, std::vector<std::vector<Point2<
             }
         }
     }
+
+    std::size_t maxsz = 0;
+    for (std::size_t i = 0; i < outline2Vec.size(); ++i) {
+        maxsz = std::max(maxsz, outline2Vec[i].size());
+    }
+    if (maxsz == 0) {// fallback to uv box as outline
+        vcg::Box2d box = chart->UVBox();
+        std::vector<Point2<ScalarType>> outline;
+        outline.push_back(Point2<ScalarType>(box.min.X(), box.min.Y()));
+        outline.push_back(Point2<ScalarType>(box.max.X(), box.min.Y()));
+        outline.push_back(Point2<ScalarType>(box.max.X(), box.max.Y()));
+        outline.push_back(Point2<ScalarType>(box.min.X(), box.max.Y()));
+        outline2Vec.push_back(outline);
+    }
+
 }
 
 

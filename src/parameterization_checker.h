@@ -46,7 +46,6 @@ static RasterizedParameterizationStats GetRasterizationStats(ChartHandle chart, 
 {
     // Create a hidden window
     GLFWwindow *parentWindow = glfwGetCurrentContext();
-    assert(parentWindow != nullptr);
     bool sharedContext = (parentWindow != nullptr);
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);

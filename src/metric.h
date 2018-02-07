@@ -68,9 +68,9 @@ public:
 
     static double AreaDistortion(Mesh& m, const Mesh::FaceType& f, double areaScale, ParameterizationGeometry geometry)
     {
-        double parameterArea = AreaUV(f) * areaScale;
-        double faceArea = Area3D(m, f, geometry);
-        return (parameterArea - faceArea) / faceArea;
+        double parameterArea = std::abs(AreaUV(f) * areaScale);
+        double modelArea = std::abs(Area3D(m, f, geometry));
+        return (parameterArea - modelArea) / modelArea;
     }
 
     static double AngleDistortion(Mesh& m, const Mesh::FaceType& f, ParameterizationGeometry geometry)

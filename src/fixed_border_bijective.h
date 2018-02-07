@@ -91,7 +91,7 @@ public:
         }
         */
 
-        tri::io::Exporter<Mesh>::Save(mesh, "surf.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
+        //tri::io::Exporter<Mesh>::Save(mesh, "surf.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
 
         tri::UpdateFlags<MeshType>::FaceClearV(mesh);
         for (auto& f : mesh.face) {
@@ -235,7 +235,7 @@ public:
             }
         }
 
-        tri::io::Exporter<Mesh>::Save(mesh, "surf.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
+        //tri::io::Exporter<Mesh>::Save(mesh, "surf.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
 
         for (auto &f : mesh.face) {
             if (DistortionMetric::AreaUV(f) < 0) std::cout << tri::Index(mesh, f) << std::endl;

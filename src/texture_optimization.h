@@ -38,6 +38,9 @@ struct ParameterizationStrategy {
     ParameterizationGeometry geometry = Model;
     DescentType descent = Gradient;
     int optimizerIterations = 0;
+    bool padBoundaries = false; // keep holes filled while optimizing from FixedBorderBijective
+
+    ParameterizationStrategy() = default;
 };
 
 void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph);
