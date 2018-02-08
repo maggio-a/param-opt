@@ -72,7 +72,12 @@ void Energy::CorrectScale()
 SymmetricDirichlet::SymmetricDirichlet(Mesh& mesh, Geometry geometryMode = Geometry::Model) : Energy{mesh, geometryMode}, data{m.face}
 {
     for (auto&f : m.face) {
-        data[f][3] = (((P(&f, 1) - P(&f, 0)) ^ (P(&f, 2) - P(&f, 0))).Norm() / 2.0f);
+        data[f][3] = (((P(&f, 1) - P(&f, 0)) ^ (P(&f, 2) - P(&f, 0))).Norm() / 2.0);
+        //if ((data[f][3] > 0) == false) {
+        //    std::cout << P(&f, 0).X() << " " << P(&f, 0).Y() << " " <<  P(&f, 0).Z() << std::endl;
+        //    std::cout << P(&f, 1).X() << " " << P(&f, 1).Y() << " " <<  P(&f, 1).Z() << std::endl;
+        //    std::cout << P(&f, 2).X() << " " << P(&f, 2).Y() << " " <<  P(&f, 2).Z() << std::endl;
+        //}
         assert(data[f][3] > 0);
     }
 

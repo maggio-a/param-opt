@@ -514,6 +514,7 @@ void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg, bool sanitize, bool wtcsa
                 LocalIsometry(f.P(1) - f.P(0), f.P(2) - f.P(0), u10, u20);
                 u10 *= scale; u20 *= scale;
                 Point2d u0{0, 0};
+                assert((u10 ^ u20) > 0);
                 WTCShNew[&f].tc[0].P() = u0;
                 WTCShNew[&f].tc[1].P() = u0 + u10;
                 WTCShNew[&f].tc[2].P() = u0 + u20;
