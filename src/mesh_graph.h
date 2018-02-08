@@ -436,16 +436,14 @@ void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg, bool sanitize, bool wtcsa
         }
 
         std::vector<double> vTotalBorderLength;
-        std::vector<std::vector<std::size_t>> vBorderVertices;
-        std::vector<std::vector<double>> vCumulativeBorder;
+        std::vector<std::vector<std::size_t>> vBorderFaces;
 
         tri::UpdateFlags<MeshType>::FaceClearV(m);
         for (auto& f : m.face) {
             for (int i = 0; i < 3; ++i) {
                 if (!f.IsV() && face::IsBorder(f, i)) {
                     double totalBorderLength = 0;
-                    std::vector<std::size_t> borderVertices;
-                    std::vector<double> cumulativeBorder;
+                    std::vector<std::size_t> borderFaces;
 
                     face::Pos<typename MeshType::FaceType> p(&f, i);
                     face::Pos<typename MeshType::FaceType> startPos = p;
@@ -453,22 +451,32 @@ void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg, bool sanitize, bool wtcsa
                     do {
                         assert(p.IsManifold());
                         p.F()->SetV();
-                        borderVertices.push_back(tri::Index(m, p.V()));
-                        cumulativeBorder.push_back(totalBorderLength);
+                        borderFaces.push_back(tri::Index(m, p.F()));
                         totalBorderLength += EdgeLength(*p.F(), p.VInd());
                         p.NextB();
                     } while (p != startPos);
                     vTotalBorderLength.push_back(totalBorderLength);
-                    vBorderVertices.push_back(borderVertices);
-                    vCumulativeBorder.push_back(cumulativeBorder);
+                    vBorderFaces.push_back(borderFaces);
                 }
             }
         }
+
+        tri::UpdateFlags<MeshType>::FaceClearS(m);
         /// TODO in case multiple borders have the same size, it could be chosen randomly
-        assert(vBorderVertices.size() > 0 && "Mesh has no boundaries");
+        assert(vBorderFaces.size() > 0 && "Mesh has no boundaries");
         // select longest border (this is the only one that remains), while the others are closed
-        std::size_t k = std::distance(vTotalBorderLength.begin(), std::max_element(vTotalBorderLength.begin(), vTotalBorderLength.end()));
-        if (vBorderVertices.size() > 1) {
+        if (vBorderFaces.size() > 1) {
+            std::size_t k = std::distance(vTotalBorderLength.begin(), std::max_element(vTotalBorderLength.begin(), vTotalBorderLength.end()));
+
+            for (std::size_t i = 0; i < vBorderFaces.size(); ++i) {
+                if (i == k) continue;
+                for (auto j : vBorderFaces[i]) m.face[j].SetS();
+            }
+
+            // close everything that is selected
+            tri::Hole<MeshType>::template EarCuttingFill<tri::MinimumWeightEar<MeshType>>(m, m.FN(), true);
+
+            /*
             // retrieve the hole size parameter, since all holes except the peripheral border, just use the border length minus 1
             for (std::size_t i = 0; i < vBorderVertices.size(); ++i) {
                 if (i == k) continue;
@@ -478,9 +486,11 @@ void CopyFaceGroupIntoMesh(MeshType &m, FaceGroup& fg, bool sanitize, bool wtcsa
             // close holes
             int maxHoleSize = vBorderVertices[k].size() - 1 + 1; // there is an off by one in the hole size computed by the vcglib
             tri::Hole<MeshType>::template EarCuttingFill<tri::MinimumWeightEar<MeshType>>(m, maxHoleSize, false);
+            */
         }
     }
 
+    /// FIXME XXX selecting faces to mark them as new...
     tri::UpdateFlags<MeshType>::FaceClearS(m);
     for (auto& f: m.face) {
         if (int(tri::Index(m, f)) >= startFN) f.SetS();

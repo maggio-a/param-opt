@@ -175,7 +175,7 @@ void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
         }
     }
 
-    std::cout << "Newly parameterized regions: " << numParameterized << "/" << numNoParam << std::endl;
+    std::cout << "[LOG] Newly parameterized regions: " << numParameterized << "/" << numNoParam << std::endl;
 }
 
 bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy)

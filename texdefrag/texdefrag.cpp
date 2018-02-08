@@ -61,11 +61,11 @@ void LogDistortionStats(std::shared_ptr<MeshGraph> graph)
 
 
     d.Clear();
-    graph->MapDistortion(DistortionMetric::Type::Area, ParameterizationGeometry::Model);
+    graph->MapDistortion(DistortionMetric::Type::Angle, ParameterizationGeometry::Model);
     for (auto& f : graph->mesh.face) {
         d.Add(f.Q());
     }
-    std::cout << "[LOG] Area Model " << d.Min() << " " << d.Max() << " " << d.Avg() << " " << d.Variance() << std::endl;
+    std::cout << "[LOG] Angle Model " << d.Min() << " " << d.Max() << " " << d.Avg() << " " << d.Variance() << std::endl;
 
 }
 
@@ -97,6 +97,12 @@ int main(int argc, char *argv[])
         std::exit(-1);
     }
 
+    tri::UpdateTopology<Mesh>::FaceFace(m);
+    if (tri::Clean<Mesh>::CountNonManifoldEdgeFF(m, false)) {
+        std::cout << "Mesh is not edge manifold" << std::endl;
+        std::exit(-1);
+    }
+
     if (minRegionSize == -1) {
         if (m.FN() < 100000) minRegionSize = 1000;
         else if (m.FN() < 300000) minRegionSize = 5000;
@@ -122,11 +128,12 @@ int main(int argc, char *argv[])
     strategy.optimizerIterations = 600;
     strategy.padBoundaries = true;
 
-    double tolerance = 0;
+    double tolerance = 0.0001;
+
+    PreprocessMesh(m);
+    StoreWedgeTexCoordAsAttribute(m);
 
     LogStrategy(strategy, tolerance);
-
-    StoreWedgeTexCoordAsAttribute(m);
 
     float uvMeshBorder;
     auto graph = ComputeParameterizationGraph(m, textureObject, &uvMeshBorder);
@@ -142,12 +149,12 @@ int main(int argc, char *argv[])
 
     GraphManager gm{graph};
 
+    std::cout << "[LOG] Edge weight limit (minRegionSize) = " << minRegionSize << std::endl;
     ReduceTextureFragmentation_NoPacking(gm, minRegionSize);
 
     int c = ParameterizeGraph(gm, strategy, true, tolerance, true);
     if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
 
-    std::cout << "[LOG] Edge weight limit (minRegionSize) = " << minRegionSize << std::endl;
     std::cout << "[LOG] Scale factor of the packed chart = " << graph->AreaUV() / areaUvBefore << std::endl;
 
     LogDistortionStats(graph);

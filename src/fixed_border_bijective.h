@@ -238,8 +238,11 @@ public:
         //tri::io::Exporter<Mesh>::Save(mesh, "surf.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
 
         for (auto &f : mesh.face) {
-            if (DistortionMetric::AreaUV(f) < 0) std::cout << tri::Index(mesh, f) << std::endl;
-            assert(DistortionMetric::AreaUV(f) > 0);
+            if (DistortionMetric::AreaUV(f) <= 0) {
+                std::cout << "Failed to compute injective parameterization" << std::endl;
+                return false;
+                //assert(DistortionMetric::AreaUV(f) > 0);
+            }
         }
 
         // delete added vertices and faces
