@@ -43,6 +43,7 @@ void StoreWedgeTexCoordAsAttribute(Mesh &m)
             WTCSh[&f].tc[2].N() = f.WT(2).N();
        // }
     }
-    std::cout << "Parameterized " << count << " zero uv area faces" << std::endl;
+    // faces that were parameterized to degenerate triangles
+    std::cout << "[LOG] Parameterized " << count << " zero uv area faces" << std::endl;
 }
 

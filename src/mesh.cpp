@@ -36,7 +36,7 @@ bool LoadMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject,
         return false;
     }
 
-    std::cout << "Loaded mesh " << fileName << " (VN " <<  m.VN() << ", FN " << m.FN() << ")" << std::endl;
+    std::cout << "[LOG] Loaded mesh " << fileName << " (VN " <<  m.VN() << ", FN " << m.FN() << ")" << std::endl;
 
     for (const string& textureName : m.textures) {
         QFileInfo textureFile(textureName.c_str());

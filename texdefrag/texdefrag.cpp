@@ -23,9 +23,11 @@ using namespace vcg;
 
 void LogStrategy(ParameterizationStrategy strategy, double tol)
 {
+    std::string geometry = (strategy.geometry == ParameterizationGeometry::Model) ? std::string("Model") : std::string("Texture");
     std::cout << "[LOG] Parameterization strategy: ";
-    std::cout << "iterations=" << strategy.optimizerIterations << " , "
-              << "tolerance=" << tol << " "
+    std::cout << "Geometry=" << geometry << " , "
+              << "iterations=" << strategy.optimizerIterations << " , "
+              << "tolerance=" << tol << " , "
               << "padded inner boundaries=" << strategy.padBoundaries
               << std::endl;
 }
@@ -35,14 +37,17 @@ void LogDistortionStats(std::shared_ptr<MeshGraph> graph)
     vcg::Distribution<double> d;
 
     std::cout << "[LOG] Distortion" << std::endl;
-    std::cout << "[LOG] Type Source Min Max Avg Variance" << std::endl;
+    std::cout << "[LOG] Type Source Min PCT1 PCT5 Max PCT99 PCT95 Avg Variance" << std::endl;
 
     d.Clear();
     graph->MapDistortion(DistortionMetric::Type::Area, ParameterizationGeometry::Texture);
     for (auto& f : graph->mesh.face) {
         d.Add(f.Q());
     }
-    std::cout << "[LOG] Area Texture " << d.Min() << " " << d.Max() << " " << d.Avg() << " " << d.Variance() << std::endl;
+    std::cout << "[LOG] Area Texture "
+              << d.Min() << " " << d.Percentile(0.01) << " " << d.Percentile(0.05) << " "
+              << d.Max() << " " << d.Percentile(0.99) << " " << d.Percentile(0.95) << " "
+              << d.Avg() << " " << d.Variance() << std::endl;
 
 
     d.Clear();
@@ -98,8 +103,6 @@ int main(int argc, char *argv[])
         std::cout << "Usage: " << argv[0] << " model [minRegionSize(int)] [--nofilter]" << std::endl;
         return -1;
     }
-
-    std::cout << "[LOG] " << argv[0] << std::endl;
 
     bool filter = true;
     if (argc > 3 && std::string("--nofilter").compare(argv[3]) == 0) {
@@ -195,7 +198,8 @@ int main(int argc, char *argv[])
 
     std::cout << "Processing took " << t.TimeElapsed() << " seconds" << std::endl;
 
-    if (SaveMesh(m, modelName.c_str(), newTexture) == false) {
+    std::string outName = "out_" + modelName;
+    if (SaveMesh(m, outName.c_str(), newTexture) == false) {
         std::cout << "Model not saved correctly" << std::endl;
     }
 

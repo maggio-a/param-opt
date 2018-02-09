@@ -72,6 +72,7 @@ static RasterizedParameterizationStats GetRasterizationStats(const std::vector<M
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    //glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE);
 
     GLFWwindow *window = glfwCreateWindow(width, height, "Window", nullptr, parentWindow);
     if (!window)
@@ -88,7 +89,6 @@ static RasterizedParameterizationStats GetRasterizationStats(const std::vector<M
     }
     glGetError();
 
-    glfwSwapInterval(1);
 
     int fbw, fbh;
     glfwGetFramebufferSize(window, &fbw, &fbh);
@@ -146,13 +146,17 @@ static RasterizedParameterizationStats GetRasterizationStats(const std::vector<M
 
     glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
     glClearStencil(0);
+
+    glDrawBuffer(GL_BACK);
+
     glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    glfwPollEvents();
 
     glDrawArrays(GL_TRIANGLES, 0, faces.size()*3);
 
     CheckGLError();
 
-    //glReadBuffer(GL_COLOR_ATTACHMENT0);
+    glReadBuffer(GL_BACK);
     unsigned char *sb = new unsigned char[width*height];
     glReadPixels(0, 0, width, height, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, sb);
 
@@ -227,11 +231,8 @@ static RasterizedParameterizationStats GetRasterizationStats(const std::vector<M
 
     // clean up
     glUseProgram(0);
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glBindVertexArray(0);
 
-    //glDeleteTextures(1, &renderTarget);
-    //glDeleteFramebuffers(1, &fbo);
     glDeleteBuffers(1, &vertexbuf);
     glDeleteProgram(program);
     glDeleteVertexArrays(1, &vao);
