@@ -13,7 +13,10 @@
 #include "gl_utils.h"
 
 struct RasterizedParameterizationStats {
+    int rw; // raster width
+    int rh; //raster height
     int totalFragments;
+    int totalFragments_bilinear;
     int overwrittenFragments; // number of fragments that were written more than once
     int lostFragments; // number of fragments lost due to overwrites: if fragment f has fw>1 writes, than lostFragmens += (fw-1)
     int boundaryFragments;
@@ -42,7 +45,23 @@ static const char *fs_text_checker[] = {
     "}                                                           \n"
 };
 
+static RasterizedParameterizationStats GetRasterizationStats(const std::vector<Mesh::FacePointer>& faces, int width, int height, const vcg::Box2d& resizeBox);
+
+static RasterizedParameterizationStats GetRasterizationStats(Mesh& m, int width, int height)
+{
+    vcg::Box2d nullbox;
+    nullbox.SetNull();
+    std::vector<Mesh::FacePointer> faces;
+    for (auto & f : m.face) { faces.push_back(&f); }
+    return GetRasterizationStats(faces, width, height, nullbox);
+}
+
 static RasterizedParameterizationStats GetRasterizationStats(ChartHandle chart, int width, int height)
+{
+    return GetRasterizationStats(chart->fpVec, width, height, chart->UVBox());
+}
+
+static RasterizedParameterizationStats GetRasterizationStats(const std::vector<Mesh::FacePointer>& faces, int width, int height, const vcg::Box2d& resizeBox)
 {
     // Create a hidden window
     GLFWwindow *parentWindow = glfwGetCurrentContext();
@@ -91,16 +110,21 @@ static RasterizedParameterizationStats GetRasterizationStats(ChartHandle chart, 
     GLuint vertexbuf;
     glGenBuffers(1, &vertexbuf);
 
-    vcg::Box2d box = chart->UVBox();
+    //vcg::Box2d box = chart->UVBox();
 
     glBindBuffer(GL_ARRAY_BUFFER, vertexbuf);
-    glBufferData(GL_ARRAY_BUFFER, chart->FN()*6*sizeof(float), NULL, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, faces.size()*6*sizeof(float), NULL, GL_STATIC_DRAW);
     float *p = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
-    for (auto fptr : chart->fpVec) {
+    for (auto fptr : faces) {
         for (int i = 0; i < 3; ++i) {
-            // normalize coordinates
-            *p++ = (fptr->cWT(i).U() - box.min.X()) / box.DimX();
-            *p++ = (fptr->cWT(i).V() - box.min.Y()) / box.DimY();
+            if (! resizeBox.IsNull()) {
+                // normalize coordinates
+                *p++ = (fptr->cWT(i).U() - resizeBox.min.X()) / resizeBox.DimX();
+                *p++ = (fptr->cWT(i).V() - resizeBox.min.Y()) / resizeBox.DimY();
+            } else {
+                *p++ = fptr->cWT(i).U();
+                *p++ = fptr->cWT(i).V();
+            }
         }
     }
     glUnmapBuffer(GL_ARRAY_BUFFER);
@@ -124,26 +148,33 @@ static RasterizedParameterizationStats GetRasterizationStats(ChartHandle chart, 
     glClearStencil(0);
     glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
-    glDrawArrays(GL_TRIANGLES, 0, chart->FN()*3);
+    glDrawArrays(GL_TRIANGLES, 0, faces.size()*3);
 
     CheckGLError();
 
     //glReadBuffer(GL_COLOR_ATTACHMENT0);
-    unsigned char sb[width*height];
+    unsigned char *sb = new unsigned char[width*height];
     glReadPixels(0, 0, width, height, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, sb);
 
-    RasterizedParameterizationStats stats{0, 0, 0, 0};
+    CheckGLError();
 
+    RasterizedParameterizationStats stats{0, 0, 0, 0, 0, 0, 0};
+    stats.rw = width;
+    stats.rh = height;
     bool outside;
     for (int j = 0; j < height; ++j) {
         outside = true;
         for (int i = 0; i < width; ++i) {
             int k = j * width + i;
+            //std::cout << k << std::endl;
             int n = sb[k]; // stencil value
             if (n > 0) {
                 stats.totalFragments += n;
-                if (n > 1) stats.overwrittenFragments++;
-                stats.lostFragments += n - 1;
+                stats.totalFragments_bilinear += 1;
+                if (n > 1) {
+                    stats.overwrittenFragments++;
+                    stats.lostFragments += n - 1;
+                }
                 if (outside     // enering a segment
                     || j == 0   // first line in the raster
                     || j == (height-1) // last line in the raster
@@ -157,10 +188,23 @@ static RasterizedParameterizationStats GetRasterizationStats(ChartHandle chart, 
                 outside = false;
             } else {
                 outside = true;
-            }
 
+                // inspect a 3x3 kernel and add pixel to bilinear area if it overlaps a fragment
+                bool bilinear = false;
+                for(int ker_j = std::max(j-1, 0); ker_j < std::min(j+1, height); ++ker_j) {
+                    for(int ker_i = std::max(i-1, 0); ker_i < std::min(i+1, width); ++ker_i) {
+                        if (sb[ker_j * width + ker_i] > 0) {
+                            bilinear = true;
+                        }
+                    }
+                }
+                if (bilinear) stats.totalFragments_bilinear++;
+            }
         }
     }
+
+    delete sb;
+    sb = nullptr;
 
     /*
     ofstream ofs("overlap.ppm", ios_base::binary | ios_base::out | ios_base::trunc);

@@ -24,6 +24,7 @@ int GraphManager::Collapse_ERR_UNFEASIBLE = 2;
 
 void PrintParameterizationInfo(std::shared_ptr<MeshGraph> pdata)
 {
+    std::cout << "Parameterization Info (Charts, Area 3D, Area UV, Border UV) " << std::endl;
     std::cout << pdata->charts.size() << " " << pdata->Area3D() << " "
               << pdata->AreaUV() << " " << pdata->BorderUV() << std::endl;
 }

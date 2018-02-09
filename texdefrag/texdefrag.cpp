@@ -15,6 +15,7 @@
 #include "uv.h"
 #include "texture_optimization.h"
 #include "texture_rendering.h"
+#include "parameterization_checker.h"
 #include "timer.h"
 #include "gl_utils.h"
 
@@ -69,12 +70,36 @@ void LogDistortionStats(std::shared_ptr<MeshGraph> graph)
 
 }
 
+void LogParameterizationStats(std::shared_ptr<MeshGraph> graph, RasterizedParameterizationStats stats, const std::string& header)
+{
+    int boundaries;
+    tri::UpdateTopology<Mesh>::FaceFaceFromTexCoord(graph->mesh);
+    boundaries = tri::Clean<Mesh>::CountHoles(graph->mesh);
+    tri::UpdateTopology<Mesh>::FaceFace(graph->mesh);
+
+    std::cout << header << std::endl;
+    std::cout << "[LOG] Texture Size , Charts , Boundaries , Occupancy , BorderUV(px), AreaUV(px), BilinearAreaUV(px), Overwritten fragments, Lost Fragments" << std::endl;
+    std::cout << "[LOG] "
+              << stats.rw << "x" << stats.rh << " , "
+              << graph->charts.size() << " , "
+              << boundaries << " , "
+              << (stats.totalFragments - stats.lostFragments) / double(stats.rw*stats.rh) << " , "
+              << stats.boundaryFragments << " , "
+              << stats.totalFragments  << " , "
+              << stats.totalFragments_bilinear  << " , "
+              << stats.overwrittenFragments  << " , "
+              << stats.lostFragments << "" << std::endl;
+
+}
+
 int main(int argc, char *argv[])
 {
     if (argc < 2) {
         std::cout << "Usage: " << argv[0] << " model [minRegionSize(int)] [--nofilter]" << std::endl;
         return -1;
     }
+
+    std::cout << "[LOG] " << argv[0] << std::endl;
 
     bool filter = true;
     if (argc > 3 && std::string("--nofilter").compare(argv[3]) == 0) {
@@ -128,7 +153,7 @@ int main(int argc, char *argv[])
     strategy.optimizerIterations = 600;
     strategy.padBoundaries = true;
 
-    double tolerance = 0.0001;
+    double tolerance = 0.0005;
 
     PreprocessMesh(m);
     StoreWedgeTexCoordAsAttribute(m);
@@ -145,6 +170,9 @@ int main(int argc, char *argv[])
     // Print original info
     PrintParameterizationInfo(graph);
 
+    RasterizedParameterizationStats before = GetRasterizationStats(m, textureObject->imgVec[0]->width(), textureObject->imgVec[0]->height());
+    LogParameterizationStats(graph, before, std::string("[LOG] Raster stats before parameterizing"));
+
     Timer t;
 
     GraphManager gm{graph};
@@ -158,6 +186,9 @@ int main(int argc, char *argv[])
     std::cout << "[LOG] Scale factor of the packed chart = " << graph->AreaUV() / areaUvBefore << std::endl;
 
     LogDistortionStats(graph);
+
+    RasterizedParameterizationStats after = GetRasterizationStats(m, textureObject->imgVec[0]->width(), textureObject->imgVec[0]->height());
+    LogParameterizationStats(graph, after, std::string("[LOG] Raster stats after parameterizing"));
 
     std::cout << "Rendering texture..." << std::endl;
     TextureObjectHandle newTexture = RenderTexture(m, textureObject, filter, nullptr);
