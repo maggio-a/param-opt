@@ -300,6 +300,7 @@ static void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, 
     );
     ChartHandle c1 = split[0];
     ChartHandle c2 = split[1];
+
     std::unordered_set<ChartHandle> charts;
     for (std::size_t i = 2; i < split.size(); ++i) {
         charts.insert(split[i]);
@@ -327,6 +328,7 @@ static void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, 
 
     chartQueue.push_back(c1);
     chartQueue.push_back(c2);
+    std::cout << "Recovery produced two charts of sizes " << c1->numMerges + 1 << " " << c2->numMerges + 1 << std::endl;
 }
 
 int ParameterizeGraph(GraphManager& gm,

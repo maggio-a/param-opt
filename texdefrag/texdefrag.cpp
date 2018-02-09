@@ -153,7 +153,7 @@ int main(int argc, char *argv[])
     strategy.optimizer = SymmetricDirichletOpt;
     strategy.geometry = Texture;
     strategy.descent = ScalableLocallyInjectiveMappings;
-    strategy.optimizerIterations = 600;
+    strategy.optimizerIterations = 500;
     strategy.padBoundaries = true;
 
     double tolerance = 0.0005;
