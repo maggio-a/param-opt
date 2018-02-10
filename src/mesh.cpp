@@ -53,9 +53,11 @@ bool LoadMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject,
     return true;
 }
 
-bool SaveMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject)
+bool SaveMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject, bool color)
 {
-    if (tri::io::Exporter<Mesh>::Save(m, fileName, tri::io::Mask::IOM_WEDGTEXCOORD)) {
+    int mask = tri::io::Mask::IOM_WEDGTEXCOORD;
+    if (color) mask = mask | tri::io::Mask::IOM_FACEQUALITY | tri::io::Mask::IOM_FACECOLOR;
+    if (tri::io::Exporter<Mesh>::Save(m, fileName, mask)) {
         std::cout << "Error saving mesh file " << fileName << std::endl;
         return false;
     }

@@ -198,8 +198,10 @@ int main(int argc, char *argv[])
 
     std::cout << "Processing took " << t.TimeElapsed() << " seconds" << std::endl;
 
+    graph->MapDistortion(DistortionMetric::Type::Angle, ParameterizationGeometry::Texture);
+
     std::string outName = "out_" + modelName;
-    if (SaveMesh(m, outName.c_str(), newTexture) == false) {
+    if (SaveMesh(m, outName.c_str(), newTexture, true) == false) {
         std::cout << "Model not saved correctly" << std::endl;
     }
 

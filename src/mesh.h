@@ -35,7 +35,7 @@ using DistortionWedge = tri::Distortion<Mesh,true>;
 using RegionID = std::size_t;
 
 bool LoadMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject, int &loadMask, std::string &modelName);
-bool SaveMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject);
+bool SaveMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject, bool color = false);
 
 // Builds a PMesh with face face topology and bounding box initialized, so that it can be
 // passed to the poisson solver
