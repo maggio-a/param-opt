@@ -394,6 +394,8 @@ int ParameterizeGraph(GraphManager& gm,
             }
         }
 
+        std::cout << "+ Chart parameterized correctly" << std::endl;
+
         if (needToSplit) {
             // restore original texture coordinates for each face of the chart
             for (auto fptr : chart->fpVec) {
