@@ -137,6 +137,7 @@ struct MeshGraph {
 };
 
 
+class EdgeWeightFunction;
 
 class GraphManager {
 
@@ -174,43 +175,6 @@ public:
         }
     };
 
-    struct EdgeWeightFunction {
-        std::shared_ptr<MeshGraph> g;
-
-        // The weight of an edge is the number of faces of the smallest chart divided by the fraction of the
-        // total chart border shared with the other chart. This weight should prioritize smaller charts, and
-        // among smaller charts the ones that, when merged, minimize the residual texture border
-        double operator()(Edge& e) const
-        {
-            // First evaluate shared border
-            auto CHIDh  = tri::Allocator<Mesh>::FindPerFaceAttribute<std::size_t>(g->mesh, "ConnectedComponentID");
-            assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(g->mesh, CHIDh));
-
-            ChartHandle chart1 = e.a->FN() < e.b->FN() ? e.a : e.b;
-            ChartHandle chart2 = chart1 == e.a ? e.b : e.a;
-
-            float totalBorder = 0.0f;
-            float sharedBorder = 0.0f;
-            for (auto fptr : chart1->fpVec) {
-                for (int i = 0; i < fptr->VN(); ++i) {
-                    auto ffpi = fptr->FFp(i);
-                    auto adjId = CHIDh[ffpi];
-                    if (adjId != CHIDh[fptr]) {
-                        float edgeLength = DistortionWedge::EdgeLenght3D(fptr, i);
-                        if (adjId == chart2->id)
-                            sharedBorder += edgeLength;
-                        totalBorder += edgeLength;
-                    }
-                }
-            }
-
-            double w = double(std::min(e.a->FN(), e.b->FN())) / (sharedBorder/totalBorder); // The smaller the shared fraction, the larger the weight
-            assert(std::isfinite(w));
-            return w;
-        }
-    };
-
-
     struct EdgeWeightComparator {
         int operator()(const std::pair<Edge,double>& e1, const std::pair<Edge,double>& e2) const
         {
@@ -218,7 +182,7 @@ public:
         }
     };
 
-    GraphManager(std::shared_ptr<MeshGraph> gptr);
+    GraphManager(std::shared_ptr<MeshGraph> gptr, std::unique_ptr<EdgeWeightFunction> wfct);
 
     /// TODO replace with a proper interface to the graph instance
     std::shared_ptr<MeshGraph> Graph();
@@ -338,11 +302,60 @@ private:
     // weights are consistent
     std::priority_queue<std::pair<Edge,double>, std::vector<std::pair<Edge,double>>, EdgeWeightComparator> queue;
 
-    EdgeWeightFunction wfct;
+    std::unique_ptr<EdgeWeightFunction> wfct;
 
     bool AddEdge(ChartHandle c1, ChartHandle c2, bool replace = false);
     void Merge(ChartHandle c1, ChartHandle c2);
 };
+
+struct EdgeWeightFunction {
+    virtual ~EdgeWeightFunction() {}
+
+    virtual double operator()(GraphManager::Edge& e) const = 0;
+};
+
+struct FaceSizeWeightedShared3DBorder : EdgeWeightFunction {
+
+    static std::string Name() { return "FaceSizeWeighted3DBorder"; }
+
+    Mesh& mesh;
+
+    FaceSizeWeightedShared3DBorder(Mesh& m) : mesh{m}{}
+
+    // The weight of an edge is the number of faces of the smallest chart divided by the fraction of the
+    // total chart border shared with the other chart. This weight should prioritize smaller charts, and
+    // among smaller charts the ones that, when merged, minimize the residual texture border
+    double operator()(GraphManager::Edge& e) const
+    {
+        // First evaluate shared border
+        auto CHIDh  = tri::Allocator<Mesh>::FindPerFaceAttribute<std::size_t>(mesh, "ConnectedComponentID");
+        assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CHIDh));
+
+        ChartHandle chart1 = e.a->FN() < e.b->FN() ? e.a : e.b;
+        ChartHandle chart2 = chart1 == e.a ? e.b : e.a;
+
+        float totalBorder = 0.0f;
+        float sharedBorder = 0.0f;
+        for (auto fptr : chart1->fpVec) {
+            for (int i = 0; i < fptr->VN(); ++i) {
+                auto ffpi = fptr->FFp(i);
+                auto adjId = CHIDh[ffpi];
+                if (adjId != CHIDh[fptr]) {
+                    float edgeLength = DistortionWedge::EdgeLenght3D(fptr, i);
+                    if (adjId == chart2->id)
+                        sharedBorder += edgeLength;
+                    totalBorder += edgeLength;
+                }
+            }
+        }
+
+        double w = double(std::min(e.a->FN(), e.b->FN())) / (sharedBorder/totalBorder); // The smaller the shared fraction, the larger the weight
+        assert(std::isfinite(w));
+        return w;
+    }
+};
+
+
 
 
 // Template functions implementation

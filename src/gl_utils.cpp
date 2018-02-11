@@ -155,6 +155,18 @@ void TextureObject::Release()
     }
 }
 
+int TextureObject::TextureWidth(std::size_t i)
+{
+    assert(i < imgVec.size());
+    return imgVec[i]->width();
+}
+
+int TextureObject::TextureHeight(std::size_t i)
+{
+    assert(i < imgVec.size());
+    return imgVec[i]->height();
+}
+
 std::size_t TextureObject::ArraySize() {
     return imgVec.size();
 }

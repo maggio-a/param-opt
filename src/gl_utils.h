@@ -44,6 +44,9 @@ struct TextureObject {
     /* Deletes the current opengl texture, without unbinding it if it is bound */
     void Release();
 
+    int TextureWidth(std::size_t i);
+    int TextureHeight(std::size_t i);
+
     std::size_t ArraySize();
 };
 

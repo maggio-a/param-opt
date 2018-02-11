@@ -464,7 +464,8 @@ int ParameterizeGraph(GraphManager& gm,
     packingParam.cellSize = 4;
     packingParam.rotationNum = 16; //number of rasterizations in 90°
 
-    Point2i gridSize(1024, 1024);
+    TextureObjectHandle to = gm.Graph()->textureObject;
+    Point2i gridSize(to->TextureWidth(0), to->TextureHeight(0));
     std::vector<Similarity2f> transforms;
 
     RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Pack(texOutlines, gridSize, transforms, packingParam);
@@ -482,7 +483,7 @@ int ParameterizeGraph(GraphManager& gm,
             for (int j = 0; j < fptr->VN(); ++j) {
                 Point2d uv = fptr->WT(j).P();
                 Point2f transformedTexCoordPos = transforms[p.second] * (Point2f(uv[0], uv[1]));
-                fptr->WT(j).P() = Point2d{transformedTexCoordPos[0] / 1024.0, transformedTexCoordPos[1] / 1024};
+                fptr->WT(j).P() = Point2d{transformedTexCoordPos[0] / double(gridSize.X()), transformedTexCoordPos[1] / double(gridSize.Y())};
             }
         }
     }
@@ -491,6 +492,7 @@ int ParameterizeGraph(GraphManager& gm,
 }
 
 
+/*
 void ReduceTextureFragmentation(Mesh &m, std::shared_ptr<MeshGraph> graph, std::size_t minRegionSize)
 {
     if (minRegionSize == 0) return;
@@ -509,6 +511,42 @@ void ReduceTextureFragmentation(Mesh &m, std::shared_ptr<MeshGraph> graph, std::
     int c = ParameterizeGraph(gm, ParameterizationStrategy{}, true, 0);
     if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
 }
+*/
+
+void ReduceTextureFragmentation_NoPacking_TargetRegionCount(GraphManager &gm, std::size_t regionCount)
+{
+    Timer timer;
+    int mergeCount;
+    int numIter = 0;
+
+    std::cout << "[LOG] Reduction strategy TargetRegionCount=" << regionCount << std::endl;
+
+    do {
+        //mergeCount = gm.CloseMacroRegions(minRegionSize);
+
+        while (gm.HasNextEdge()) {
+            auto we = gm.PeekNextEdge();
+            if (gm.Graph()->Count() < regionCount)
+                break;
+            else {
+                gm.RemoveNextEdge();
+                gm.Collapse(we.first);
+                mergeCount++;
+                if (mergeCount%50 == 0) {
+                    std::cout << "Merged " << mergeCount << " regions..." << std::endl;
+                }
+            }
+        }
+
+        std::cout << "Iteration "  << numIter << " took " << timer.TimeSinceLastCheck() << " seconds ("
+                  << mergeCount << " merges took place)" << std::endl;
+
+        numIter++;
+
+    } while (mergeCount > 0);
+
+    std::cout << "Stopping after " << numIter << " passes and " << timer.TimeElapsed() << " seconds" << std::endl;
+}
 
 
 void ReduceTextureFragmentation_NoPacking(GraphManager &gm, std::size_t minRegionSize)
@@ -516,6 +554,8 @@ void ReduceTextureFragmentation_NoPacking(GraphManager &gm, std::size_t minRegio
     Timer timer;
     int mergeCount;
     int numIter = 0;
+
+    std::cout << "[LOG] Reduction strategy MinRegionSize=" << minRegionSize << std::endl;
 
     do {
         mergeCount = gm.CloseMacroRegions(minRegionSize);

@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include <iostream>
+#include <memory>
 
 #include <QImage>
 #include <QDir>
@@ -153,7 +154,7 @@ int main(int argc, char *argv[])
     strategy.optimizer = SymmetricDirichletOpt;
     strategy.geometry = Texture;
     strategy.descent = ScalableLocallyInjectiveMappings;
-    strategy.optimizerIterations = 500;
+    strategy.optimizerIterations = 200;
     strategy.padBoundaries = true;
 
     double tolerance = 0.0005;
@@ -162,6 +163,13 @@ int main(int argc, char *argv[])
     StoreWedgeTexCoordAsAttribute(m);
 
     LogStrategy(strategy, tolerance);
+
+    std::vector<std::pair<int, Mesh::FacePointer>> cc;
+    tri::Clean<Mesh>::ConnectedComponents(m, cc);
+    int smallcomponents = 0;
+    for (auto p : cc) if (p.first < 100) smallcomponents++;
+
+    std::cout << "[LOG] " << cc.size() << " connected components (" << smallcomponents << " have less than 100 faces)" << std::endl;
 
     float uvMeshBorder;
     auto graph = ComputeParameterizationGraph(m, textureObject, &uvMeshBorder);
@@ -178,10 +186,16 @@ int main(int argc, char *argv[])
 
     Timer t;
 
-    GraphManager gm{graph};
+    std::unique_ptr<EdgeWeightFunction> wfct(new FaceSizeWeightedShared3DBorder(m));
+    GraphManager gm{graph, std::move(wfct)};
 
-    std::cout << "[LOG] Edge weight limit (minRegionSize) = " << minRegionSize << std::endl;
-    ReduceTextureFragmentation_NoPacking(gm, minRegionSize);
+    int regionCount = 20;
+    if (regionCount > 0) {
+        ReduceTextureFragmentation_NoPacking_TargetRegionCount(gm, regionCount + smallcomponents);
+    }
+    else {
+        ReduceTextureFragmentation_NoPacking(gm, minRegionSize);
+    }
 
     int c = ParameterizeGraph(gm, strategy, true, tolerance, true);
     if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;

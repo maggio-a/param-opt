@@ -234,9 +234,9 @@ float MeshGraph::BorderUV(float *meshBorderLengthUV, float *seamLengthUV)
 // GraphManager class implementation
 // =================================
 
-GraphManager::GraphManager(std::shared_ptr<MeshGraph> gptr)
+GraphManager::GraphManager(std::shared_ptr<MeshGraph> gptr, std::unique_ptr<EdgeWeightFunction> wfct)
     : g{gptr},
-      wfct{gptr}
+      wfct{std::move(wfct)}
 {
     tri::UpdateTopology<Mesh>::FaceFace(g->mesh);
     for (auto elem : g->charts) {
@@ -305,7 +305,7 @@ bool GraphManager::HasNextEdge()
 
 /// TODO this is not robust if a client tries to collapse an arbitrary edge rather than the one returned
 /// by *NextEdge() since feasibility is lazily evaluated (unfeasible edges may be present in the edge set)
-ChartHandle GraphManager::Collapse(const Edge& e)
+ChartHandle GraphManager::Collapse(const GraphManager::Edge& e)
 {
     ChartHandle c1, c2;
     if (e.a->FN() > e.b->FN()) {
@@ -326,7 +326,7 @@ bool GraphManager::AddEdge(ChartHandle c1, ChartHandle c2, bool replace)
      if (replace) edges.erase(e);
 
      if (edges.find(e) == edges.end()) {
-         auto weightedEdge = std::make_pair(e, wfct(e));
+         auto weightedEdge = std::make_pair(e, (*wfct)(e));
          edges.insert(weightedEdge);
          queue.push(weightedEdge);
          return true;
