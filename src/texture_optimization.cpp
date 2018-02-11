@@ -513,13 +513,15 @@ void ReduceTextureFragmentation(Mesh &m, std::shared_ptr<MeshGraph> graph, std::
 }
 */
 
-void ReduceTextureFragmentation_NoPacking_TargetRegionCount(GraphManager &gm, std::size_t regionCount)
+void ReduceTextureFragmentation_NoPacking_TargetRegionCount(GraphManager &gm, std::size_t regionCount, std::size_t minRegionSize)
 {
     Timer timer;
     int mergeCount;
     int numIter = 0;
 
-    std::cout << "[LOG] Reduction strategy TargetRegionCount=" << regionCount << std::endl;
+    assert(regionCount > 0);
+
+    std::cout << "[LOG] Reduction strategy TargetRegionCount=" << regionCount << " (region threshold " << minRegionSize << ")" << std::endl;
 
     do {
         //mergeCount = gm.CloseMacroRegions(minRegionSize);
@@ -527,7 +529,9 @@ void ReduceTextureFragmentation_NoPacking_TargetRegionCount(GraphManager &gm, st
 
         while (gm.HasNextEdge()) {
             auto we = gm.PeekNextEdge();
-            if (gm.Graph()->Count() < regionCount)
+            bool regionReached = gm.Graph()->Count() <= regionCount;
+            bool sizeThresholdReached = (we.first.a->FN() > minRegionSize && we.first.b->FN() > minRegionSize);
+            if (regionReached && sizeThresholdReached)
                 break;
             else {
                 gm.RemoveNextEdge();

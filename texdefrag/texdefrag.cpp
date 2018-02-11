@@ -191,7 +191,7 @@ int main(int argc, char *argv[])
 
     int regionCount = 20;
     if (regionCount > 0) {
-        ReduceTextureFragmentation_NoPacking_TargetRegionCount(gm, regionCount + smallcomponents);
+        ReduceTextureFragmentation_NoPacking_TargetRegionCount(gm, regionCount + smallcomponents, minRegionSize);
     }
     else {
         ReduceTextureFragmentation_NoPacking(gm, minRegionSize);

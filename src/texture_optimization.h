@@ -75,7 +75,7 @@ int ParameterizeGraph(GraphManager& gm,
 
 
 void ReduceTextureFragmentation_NoPacking(GraphManager &gm, std::size_t minRegionSize);
-void ReduceTextureFragmentation_NoPacking_TargetRegionCount(GraphManager &gm, std::size_t regionCount);
+void ReduceTextureFragmentation_NoPacking_TargetRegionCount(GraphManager &gm, std::size_t regionCount, std::size_t minRegionSize);
 //void ReduceTextureFragmentation(Mesh &m, std::shared_ptr<MeshGraph> graph, std::size_t minRegionSize);
 
 #endif // TEXTURE_OPTIMIZATION_H
