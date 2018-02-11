@@ -523,6 +523,7 @@ void ReduceTextureFragmentation_NoPacking_TargetRegionCount(GraphManager &gm, st
 
     do {
         //mergeCount = gm.CloseMacroRegions(minRegionSize);
+        mergeCount = 0;
 
         while (gm.HasNextEdge()) {
             auto we = gm.PeekNextEdge();
