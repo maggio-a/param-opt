@@ -182,7 +182,7 @@ public:
         }
     };
 
-    GraphManager(std::shared_ptr<MeshGraph> gptr, std::unique_ptr<EdgeWeightFunction> wfct);
+    GraphManager(std::shared_ptr<MeshGraph> gptr, std::unique_ptr<EdgeWeightFunction>&& wfct);
 
     /// TODO replace with a proper interface to the graph instance
     std::shared_ptr<MeshGraph> Graph();

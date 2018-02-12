@@ -524,8 +524,8 @@ void ReduceTextureFragmentation_NoPacking_TargetRegionCount(GraphManager &gm, st
     std::cout << "[LOG] Reduction strategy TargetRegionCount=" << regionCount << " (region threshold " << minRegionSize << ")" << std::endl;
 
     do {
-        //mergeCount = gm.CloseMacroRegions(minRegionSize);
-        mergeCount = 0;
+        mergeCount = gm.CloseMacroRegions(minRegionSize);
+       // mergeCount = 0;
 
         while (gm.HasNextEdge()) {
             auto we = gm.PeekNextEdge();

@@ -234,7 +234,7 @@ float MeshGraph::BorderUV(float *meshBorderLengthUV, float *seamLengthUV)
 // GraphManager class implementation
 // =================================
 
-GraphManager::GraphManager(std::shared_ptr<MeshGraph> gptr, std::unique_ptr<EdgeWeightFunction> wfct)
+GraphManager::GraphManager(std::shared_ptr<MeshGraph> gptr, std::unique_ptr<EdgeWeightFunction> &&wfct)
     : g{gptr},
       wfct{std::move(wfct)}
 {
