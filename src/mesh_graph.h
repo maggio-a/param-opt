@@ -65,7 +65,7 @@ struct FaceGroup {
     float minMappedFaceValue;
     float maxMappedFaceValue;
 
-    mutable float borderUV;
+    mutable double borderUV;
     mutable bool borderChanged;
 
     FaceGroup(Mesh& m, const RegionID id_);
@@ -78,9 +78,9 @@ struct FaceGroup {
     std::size_t FN() const;
     std::size_t NumAdj() const;
 
-    float AreaUV() const;
-    float Area3D() const;
-    float BorderUV() const;
+    double AreaUV() const;
+    double Area3D() const;
+    double BorderUV() const;
     vcg::Box2d UVBox() const;
 
 
@@ -129,11 +129,11 @@ struct MeshGraph {
     /* Number of merges performed on the graph (is it used?) */
     int MergeCount() const;
 
-    float Area3D() const;
-    float AreaUV() const;
+    double Area3D() const;
+    double AreaUV() const;
 
     /// TODO remove useless parameters
-    float BorderUV(float *meshBorderLengthUV = nullptr, float *seamLengthUV = nullptr);
+    double BorderUV(float *meshBorderLengthUV = nullptr, float *seamLengthUV = nullptr);
 };
 
 
@@ -312,11 +312,52 @@ struct EdgeWeightFunction {
     virtual ~EdgeWeightFunction() {}
 
     virtual double operator()(GraphManager::Edge& e) const = 0;
+    virtual std::string Name() = 0;
+};
+
+struct W3D : EdgeWeightFunction {
+
+    std::string Name() { return "w_3D"; }
+
+    Mesh& mesh;
+
+    W3D(Mesh& m) : mesh{m}{}
+
+    double operator()(GraphManager::Edge& e) const
+    {
+        // First evaluate shared border
+        auto CHIDh  = tri::Allocator<Mesh>::FindPerFaceAttribute<std::size_t>(mesh, "ConnectedComponentID");
+        assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CHIDh));
+
+        double area_a = e.a->Area3D();
+        double area_b = e.b->Area3D();
+        ChartHandle chart1 = area_a < area_b ? e.a : e.b;
+        ChartHandle chart2 = chart1 == e.a ? e.b : e.a;
+
+        double totalBorder = 0.0f;
+        double sharedBorder = 0.0f;
+        for (auto fptr : chart1->fpVec) {
+            for (int i = 0; i < fptr->VN(); ++i) {
+                auto ffpi = fptr->FFp(i);
+                auto adjId = CHIDh[ffpi];
+                if (adjId != CHIDh[fptr]) {
+                    double edgeLength = DistortionWedge::EdgeLenght3D(fptr, i);
+                    if (adjId == chart2->id)
+                        sharedBorder += edgeLength;
+                    totalBorder += edgeLength;
+                }
+            }
+        }
+
+        double w = double(std::min(area_a, area_b)) / (sharedBorder/totalBorder); // The smaller the shared fraction, the larger the weight
+        assert(std::isfinite(w));
+        return w;
+    }
 };
 
 struct FaceSizeWeightedShared3DBorder : EdgeWeightFunction {
 
-    static std::string Name() { return "FaceSizeWeighted3DBorder"; }
+    std::string Name() { return "FaceSizeWeighted3DBorder"; }
 
     Mesh& mesh;
 
@@ -355,6 +396,48 @@ struct FaceSizeWeightedShared3DBorder : EdgeWeightFunction {
     }
 };
 
+// if edge (a,b) with area uv a < b, then weight is (1-shared_uv_fraction(a)) * area_uv_a * abs(shared_fraction_a - shared_fraction_b)
+struct ZeroFractionAreaUV : EdgeWeightFunction {
+
+    std::string Name() { return "AreaUV_ZeroFraction"; }
+
+    Mesh& mesh;
+
+    ZeroFractionAreaUV(Mesh& m) : mesh{m}{}
+
+    double operator()(GraphManager::Edge& e) const
+    {
+        auto CHIDh  = tri::Allocator<Mesh>::FindPerFaceAttribute<std::size_t>(mesh, "ConnectedComponentID");
+        assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CHIDh));
+
+        ChartHandle chart1 = e.a->FN() < e.b->FN() ? e.a : e.b;
+        ChartHandle chart2 = chart1 == e.a ? e.b : e.a;
+
+        double borderFrom1 = 0.0;
+        double borderFrom2 = 0.0;
+        for (auto fptr : chart1->fpVec) {
+            for (int i = 0; i < fptr->VN(); ++i) {
+                auto ffpi = fptr->FFp(i);
+                auto adjId = CHIDh[ffpi];
+                if (adjId == chart2->id) {
+                    borderFrom1 += EdgeLengthUV(*fptr, i);
+                    borderFrom2 += EdgeLengthUV(*ffpi, fptr->FFi(i));
+                }
+            }
+        }
+
+        double sharedFraction1 = borderFrom1 / chart1->BorderUV();
+        double sharedFraction2 = borderFrom2 / chart2->BorderUV();
+
+        double w1 = (1.0 - sharedFraction1); // if the border from 1 is fully shared with 2 the weight collapses to 0
+        double w2 = chart1->AreaUV(); // area weighted, favor small regions in uv space
+        double w3 = std::abs(borderFrom1 - borderFrom2); // penalize merging regions with different resolution at the boundary in uv space
+
+        double w = w1*w2*w3;
+        assert(std::isfinite(w));
+        return w;
+    }
+};
 
 
 

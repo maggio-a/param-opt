@@ -56,24 +56,30 @@ void LogDistortionStats(std::shared_ptr<MeshGraph> graph)
     for (auto& f : graph->mesh.face) {
         d.Add(f.Q());
     }
-    std::cout << "[LOG] Angle Texture " << d.Min() << " " << d.Max() << " " << d.Avg() << " " << d.Variance() << std::endl;
-
+    std::cout << "[LOG] Angle Texture "
+              << d.Min() << " " << d.Percentile(0.01) << " " << d.Percentile(0.05) << " "
+              << d.Max() << " " << d.Percentile(0.99) << " " << d.Percentile(0.95) << " "
+              << d.Avg() << " " << d.Variance() << std::endl;
 
     d.Clear();
     graph->MapDistortion(DistortionMetric::Type::Area, ParameterizationGeometry::Model);
     for (auto& f : graph->mesh.face) {
         d.Add(f.Q());
     }
-    std::cout << "[LOG] Area Model " << d.Min() << " " << d.Max() << " " << d.Avg() << " " << d.Variance() << std::endl;
-
+    std::cout << "[LOG] Area Model "
+              << d.Min() << " " << d.Percentile(0.01) << " " << d.Percentile(0.05) << " "
+              << d.Max() << " " << d.Percentile(0.99) << " " << d.Percentile(0.95) << " "
+              << d.Avg() << " " << d.Variance() << std::endl;
 
     d.Clear();
     graph->MapDistortion(DistortionMetric::Type::Angle, ParameterizationGeometry::Model);
     for (auto& f : graph->mesh.face) {
         d.Add(f.Q());
     }
-    std::cout << "[LOG] Angle Model " << d.Min() << " " << d.Max() << " " << d.Avg() << " " << d.Variance() << std::endl;
-
+    std::cout << "[LOG] Angle Model "
+              << d.Min() << " " << d.Percentile(0.01) << " " << d.Percentile(0.05) << " "
+              << d.Max() << " " << d.Percentile(0.99) << " " << d.Percentile(0.95) << " "
+              << d.Avg() << " " << d.Variance() << std::endl;
 }
 
 void LogParameterizationStats(std::shared_ptr<MeshGraph> graph, RasterizedParameterizationStats stats, const std::string& header)
@@ -153,11 +159,22 @@ int main(int argc, char *argv[])
     strategy.directParameterizer = FixedBorderBijective;
     strategy.optimizer = SymmetricDirichletOpt;
     strategy.geometry = Texture;
+    //strategy.geometry = Model;
     strategy.descent = ScalableLocallyInjectiveMappings;
-    strategy.optimizerIterations = 200;
+    strategy.optimizerIterations = 300;
     strategy.padBoundaries = true;
 
     double tolerance = 0.0005;
+
+    double initialArea = 0.0;
+    std::unordered_set<std::size_t> zeroIndices;
+    for (auto& f : m.face) {
+        double area = DistortionMetric::AreaUV(f);
+        if (area == 0) {
+            zeroIndices.insert(tri::Index(m, f));
+        }
+        else initialArea += area;
+    }
 
     PreprocessMesh(m);
     StoreWedgeTexCoordAsAttribute(m);
@@ -187,6 +204,7 @@ int main(int argc, char *argv[])
     Timer t;
 
     std::unique_ptr<EdgeWeightFunction> wfct(new FaceSizeWeightedShared3DBorder(m));
+    std::cout << "[LOG] Weight function" << wfct->Name() << std::endl;
     GraphManager gm{graph, std::move(wfct)};
 
     int regionCount = 20;
@@ -200,7 +218,29 @@ int main(int argc, char *argv[])
     int c = ParameterizeGraph(gm, strategy, true, tolerance, true);
     if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
 
-    std::cout << "[LOG] Scale factor of the packed chart = " << graph->AreaUV() / areaUvBefore << std::endl;
+    double finalArea = 0.0;
+    for (auto& f : m.face) {
+        double area = DistortionMetric::AreaUV(f);
+        if (zeroIndices.count(tri::Index(m, f)) == 0) {
+            finalArea += area;
+        }
+    }
+
+
+    std::cout << "[LOG] Scale factor of the packed chart = " << initialArea / finalArea << std::endl;
+    //std::cout << "[LOG] Scale factor of the packed chart = " << graph->AreaUV() / areaUvBefore << std::endl;
+
+    bool normalizeArea = true;
+    //scale parameterization
+    double scale = std::sqrt(initialArea / finalArea);
+    if (normalizeArea)  {
+        std::cout << "[LOG] *** AREA NORMALIZED *** " << std::endl;
+        for (auto& f : m.face) {
+            f.WT(0).P() *= scale;
+            f.WT(1).P() *= scale;
+            f.WT(2).P() *= scale;
+        }
+    }
 
     LogDistortionStats(graph);
 

@@ -9,6 +9,12 @@ inline double EdgeLength(const FaceType& f, int i)
     return (f.cV0(i)->P() - f.cV1(i)->P()).Norm();
 }
 
+template <typename FaceType>
+inline double EdgeLengthUV(const FaceType& f, int i)
+{
+    return (f.cWT(i).P() - f.cWT((i+1)%3).P()).Norm();
+}
+
 
 /* Computes the angle between u and v */
 template <typename PointType>

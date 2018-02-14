@@ -274,6 +274,7 @@ bool ParameterizeChart(Mesh &m, GraphManager::ChartHandle ch, ParameterizationSt
     bool sanitize = (strategy.directParameterizer == DirectParameterizer::FixedBorderBijective);
     bool copyWedgeTexCoordStorage = (strategy.geometry == ParameterizationGeometry::Texture);
     CopyFaceGroupIntoMesh(pm, *ch, sanitize, copyWedgeTexCoordStorage);
+    //CopyFaceGroupIntoMesh(pm, *ch, sanitize, true);
 
     bool solved = ParameterizeMesh(pm, strategy);
     if (solved) {
@@ -354,7 +355,6 @@ int ParameterizeGraph(GraphManager& gm,
     for (auto entry : graph->charts) {
         ChartHandle chart = entry.second;
         if (chart->numMerges > 0) chartQueue.push_back(chart);
-        chart->ParameterizationChanged(); // packing changes texture coords even for charts that are not reparameterized
 
         /* !!!
          * If the chart was not merged because it was a disconnected component AND a closed surface, the outline
@@ -417,15 +417,17 @@ int ParameterizeGraph(GraphManager& gm,
 
             // Normalize area: the region gets scaled by sqrt(oldUVArea)/sqrt(newUVArea) to keep the original proportions
             // between the regions of the atlas in an attempt to not lose too much texture data when the new texture is rendered
-            double newUvArea = chart->AreaUV();
-            double scale = std::sqrt(oldUvArea / newUvArea);
-            assert(scale > 0);
-            // scale shoud be very close to 1 if we optimize for area distortion wrt to original uv coords
-            std::cout << "Chart scale value = " << scale << std::endl;
-            vcg::Box2d uvBox = chart->UVBox();
-            for (auto fptr : chart->fpVec) {
-                for (int i = 0; i < 3; ++i) {
-                    fptr->WT(i).P() = (fptr->WT(i).P() - uvBox.min) * scale;
+            if (strategy.geometry == Model || strategy.optimizerIterations == 0) {
+                double newUvArea = chart->AreaUV();
+                double scale = std::sqrt(oldUvArea / newUvArea);
+                assert(scale > 0);
+                // scale shoud be very close to 1 if we optimize for area distortion wrt to original uv coords
+                std::cout << "Chart scale value = " << scale << std::endl;
+                vcg::Box2d uvBox = chart->UVBox();
+                for (auto fptr : chart->fpVec) {
+                    for (int i = 0; i < 3; ++i) {
+                        fptr->WT(i).P() = (fptr->WT(i).P() - uvBox.min) * scale;
+                    }
                 }
             }
             chart->numMerges = 0;
@@ -441,6 +443,8 @@ int ParameterizeGraph(GraphManager& gm,
     for (auto entry : graph->charts) {
         GraphManager::ChartHandle chart = entry.second;
         std::cout << "Chart " << chart->id << " - FN=" << chart->FN() << ", FI=" << tri::Index(m, chart->Fp()) << std::endl;
+
+        chart->ParameterizationChanged(); // packing changes texture coords even for charts that are not reparameterized
 
         // Save the outline of the parameterization for this portion of the mesh
         std::vector<std::vector<Point2f>> uvOutlines;
@@ -465,7 +469,7 @@ int ParameterizeGraph(GraphManager& gm,
     packingParam.rotationNum = 16; //number of rasterizations in 90°
 
     TextureObjectHandle to = gm.Graph()->textureObject;
-    Point2i gridSize(to->TextureWidth(0), to->TextureHeight(0));
+    Point2i gridSize(to->TextureWidth(0) / 2, to->TextureHeight(0) / 2);
     std::vector<Similarity2f> transforms;
 
     RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Pack(texOutlines, gridSize, transforms, packingParam);

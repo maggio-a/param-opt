@@ -2,6 +2,7 @@
 
 #include "mesh.h"
 #include "gl_utils.h"
+#include "math_utils.h"
 #include "metric.h"
 #include "uv.h"
 
@@ -52,21 +53,21 @@ void FaceGroup::AddFace(const Mesh::FacePointer fptr)
     ParameterizationChanged();
 }
 
-float FaceGroup::AreaUV() const
+double FaceGroup::AreaUV() const
 {
-    float areaUV = 0;
-    for (auto fptr : fpVec) areaUV += std::abs(tri::Distortion<Mesh,true>::AreaUV(fptr));
+    double areaUV = 0;
+    for (auto fptr : fpVec) areaUV += std::abs(DistortionMetric::AreaUV(*fptr));
     return areaUV;
 }
 
-float FaceGroup::Area3D() const
+double FaceGroup::Area3D() const
 {
-    float area3D = 0;
-    for (auto fptr : fpVec) area3D += tri::Distortion<Mesh,true>::Area3D(fptr);
+    double area3D = 0;
+    for (auto fptr : fpVec) area3D += DistortionMetric::Area3D(*fptr);
     return area3D;
 }
 
-float FaceGroup::BorderUV() const
+double FaceGroup::BorderUV() const
 {
     if (borderChanged) UpdateBorder();
     return borderUV;
@@ -125,11 +126,11 @@ void FaceGroup::UpdateBorder() const
     auto CCIDh = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(mesh, "ConnectedComponentID");
     assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CCIDh));
 
-    borderUV = 0.0f;
+    borderUV = 0.0;
     for (auto fptr : fpVec) {
         for (int i = 0; i < 3; ++i) {
             if (face::IsBorder(*fptr, i) || CCIDh[fptr] != CCIDh[fptr->FFp(i)]) {
-                borderUV += DistortionWedge::EdgeLenghtUV(fptr, i);
+                borderUV += EdgeLengthUV(*fptr, i);
             }
         }
     }
@@ -210,23 +211,23 @@ int MeshGraph::MergeCount() const
 
 }
 
-float MeshGraph::Area3D() const
+double MeshGraph::Area3D() const
 {
-    float area3D = 0.0f;
+    double area3D = 0.0f;
     for (const auto& c : charts) area3D += c.second->Area3D();
     return area3D;
 }
 
-float MeshGraph::AreaUV() const
+double MeshGraph::AreaUV() const
 {
-    float areaUV = 0.0f;
+    double areaUV = 0.0f;
     for (const auto& c : charts) areaUV += c.second->AreaUV();
     return areaUV;
 }
 
-float MeshGraph::BorderUV(float *meshBorderLengthUV, float *seamLengthUV)
+double MeshGraph::BorderUV(float *meshBorderLengthUV, float *seamLengthUV)
 {
-    float borderUV = 0.0f;
+    double borderUV = 0.0;
     for (const auto& c : charts) borderUV += c.second->BorderUV();
     return borderUV;
 }

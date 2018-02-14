@@ -56,6 +56,11 @@ public:
         }
     }
 
+    static double Area3D(const Mesh::FaceType& f)
+    {
+        return ((f.cP(1) - f.cP(0)) ^ (f.cP(2) - f.cP(0))).Norm() / 2.0;
+    }
+
     static double Area3D(Mesh& m, const Mesh::FaceType& f, ParameterizationGeometry geometry)
     {
         if (geometry == Model) {

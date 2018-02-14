@@ -321,7 +321,8 @@ void MeshViewer::FramebufferSizeCallback(GLFWwindow *window, int width, int heig
 
 MeshViewer::MeshViewer(std::shared_ptr<MeshGraph> meshParamData_, std::size_t minRegionSize_, const std::string& fileName_)
     : meshParamData{meshParamData_}, _currentTexture{meshParamData_->textureObject},
-      gm{std::make_shared<GraphManager>(meshParamData_, std::unique_ptr<EdgeWeightFunction>(new FaceSizeWeightedShared3DBorder(meshParamData->mesh)))},
+      //gm{std::make_shared<GraphManager>(meshParamData_, std::unique_ptr<EdgeWeightFunction>(new FaceSizeWeightedShared3DBorder(meshParamData->mesh)))},
+      gm{std::make_shared<GraphManager>(meshParamData_, std::unique_ptr<EdgeWeightFunction>(new ZeroFractionAreaUV(meshParamData->mesh)))},
       fileName{fileName_}, minRegionSize{minRegionSize_}, _textureCamera{}, _detailCamera{}
 {
     std::size_t numRegions = meshParamData->Count();
