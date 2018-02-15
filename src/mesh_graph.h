@@ -355,13 +355,14 @@ struct W3D : EdgeWeightFunction {
     }
 };
 
-struct FaceSizeWeightedShared3DBorder : EdgeWeightFunction {
+struct WFN : EdgeWeightFunction {
 
-    std::string Name() { return "FaceSizeWeighted3DBorder"; }
+    //std::string Name() { return "FaceSizeWeighted3DBorder"; }
+    std::string Name() { return "w_FN"; }
 
     Mesh& mesh;
 
-    FaceSizeWeightedShared3DBorder(Mesh& m) : mesh{m}{}
+    WFN(Mesh& m) : mesh{m}{}
 
     // The weight of an edge is the number of faces of the smallest chart divided by the fraction of the
     // total chart border shared with the other chart. This weight should prioritize smaller charts, and
@@ -397,13 +398,13 @@ struct FaceSizeWeightedShared3DBorder : EdgeWeightFunction {
 };
 
 // if edge (a,b) with area uv a < b, then weight is (1-shared_uv_fraction(a)) * area_uv_a * abs(shared_fraction_a - shared_fraction_b)
-struct ZeroFractionAreaUV : EdgeWeightFunction {
+struct WUV : EdgeWeightFunction {
 
-    std::string Name() { return "AreaUV_ZeroFraction"; }
+    std::string Name() { return "w_UV"; }
 
     Mesh& mesh;
 
-    ZeroFractionAreaUV(Mesh& m) : mesh{m}{}
+    WUV(Mesh& m) : mesh{m}{}
 
     double operator()(GraphManager::Edge& e) const
     {
@@ -431,7 +432,7 @@ struct ZeroFractionAreaUV : EdgeWeightFunction {
 
         double w1 = (1.0 - sharedFraction1); // if the border from 1 is fully shared with 2 the weight collapses to 0
         double w2 = chart1->AreaUV(); // area weighted, favor small regions in uv space
-        double w3 = std::abs(borderFrom1 - borderFrom2); // penalize merging regions with different resolution at the boundary in uv space
+        double w3 = std::pow(borderFrom1 - borderFrom2, 2.0); // penalize merging regions with different resolution at the boundary in uv space
 
         double w = w1*w2*w3;
         assert(std::isfinite(w));

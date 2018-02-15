@@ -50,6 +50,12 @@ void LogDistortionStats(std::shared_ptr<MeshGraph> graph)
               << d.Max() << " " << d.Percentile(0.99) << " " << d.Percentile(0.95) << " "
               << d.Avg() << " " << d.Variance() << std::endl;
 
+    std::cout << "[LOG]  Percentile plot: ";
+    for (double p = 0.0; p <= 1.0; p += 0.05) {
+        std::cout << "( " << p << " , " << d.Percentile(p) << " ) ; ";
+    }
+    std::cout << "( " << 1.0 << " , " << d.Percentile(1.0) << " ) ; ";
+    std::cout << endl;
 
     d.Clear();
     graph->MapDistortion(DistortionMetric::Type::Angle, ParameterizationGeometry::Texture);
@@ -60,6 +66,13 @@ void LogDistortionStats(std::shared_ptr<MeshGraph> graph)
               << d.Min() << " " << d.Percentile(0.01) << " " << d.Percentile(0.05) << " "
               << d.Max() << " " << d.Percentile(0.99) << " " << d.Percentile(0.95) << " "
               << d.Avg() << " " << d.Variance() << std::endl;
+    std::cout << "[LOG]  Percentile plot: ";
+    for (double p = 0.0; p <= 1.0; p += 0.05) {
+        std::cout << "( " << p << " , " << d.Percentile(p) << " ) ; ";
+    }
+    std::cout << "( " << 1.0 << " , " << d.Percentile(1.0) << " ) ; ";
+    std::cout << endl;
+
 
     d.Clear();
     graph->MapDistortion(DistortionMetric::Type::Area, ParameterizationGeometry::Model);
@@ -70,6 +83,12 @@ void LogDistortionStats(std::shared_ptr<MeshGraph> graph)
               << d.Min() << " " << d.Percentile(0.01) << " " << d.Percentile(0.05) << " "
               << d.Max() << " " << d.Percentile(0.99) << " " << d.Percentile(0.95) << " "
               << d.Avg() << " " << d.Variance() << std::endl;
+    std::cout << "[LOG]  Percentile plot: ";
+    for (double p = 0.0; p <= 1.0; p += 0.05) {
+        std::cout << "( " << p << " , " << d.Percentile(p) << " ) ; ";
+    }
+    std::cout << "( " << 1.0 << " , " << d.Percentile(1.0) << " ) ; ";
+    std::cout << endl;
 
     d.Clear();
     graph->MapDistortion(DistortionMetric::Type::Angle, ParameterizationGeometry::Model);
@@ -80,6 +99,13 @@ void LogDistortionStats(std::shared_ptr<MeshGraph> graph)
               << d.Min() << " " << d.Percentile(0.01) << " " << d.Percentile(0.05) << " "
               << d.Max() << " " << d.Percentile(0.99) << " " << d.Percentile(0.95) << " "
               << d.Avg() << " " << d.Variance() << std::endl;
+    std::cout << "[LOG]  Percentile plot: ";
+    for (double p = 0.0; p <= 1.0; p += 0.05) {
+        std::cout << "( " << p << " , " << d.Percentile(p) << " ) ; ";
+    }
+    std::cout << "( " << 1.0 << " , " << d.Percentile(1.0) << " ) ; ";
+    std::cout << endl;
+
 }
 
 void LogParameterizationStats(std::shared_ptr<MeshGraph> graph, RasterizedParameterizationStats stats, const std::string& header)
@@ -203,7 +229,9 @@ int main(int argc, char *argv[])
 
     Timer t;
 
-    std::unique_ptr<EdgeWeightFunction> wfct(new FaceSizeWeightedShared3DBorder(m));
+    //std::unique_ptr<EdgeWeightFunction> wfct(new W3D(m));
+    //std::unique_ptr<EdgeWeightFunction> wfct(new WFN(m));
+    std::unique_ptr<EdgeWeightFunction> wfct(new WUV(m));
     std::cout << "[LOG] Weight function" << wfct->Name() << std::endl;
     GraphManager gm{graph, std::move(wfct)};
 
