@@ -235,11 +235,13 @@ int main(int argc, char *argv[])
     double scale = std::sqrt(initialArea / finalArea);
     if (normalizeArea)  {
         std::cout << "[LOG] *** AREA NORMALIZED *** " << std::endl;
+        vcg::Box2d finalBox;
         for (auto& f : m.face) {
-            f.WT(0).P() *= scale;
-            f.WT(1).P() *= scale;
-            f.WT(2).P() *= scale;
+            finalBox.Add(f.WT(0).P() *= scale);
+            finalBox.Add(f.WT(1).P() *= scale);
+            finalBox.Add(f.WT(2).P() *= scale);
         }
+        std::cout << "[LOG] Final uv box size " << finalBox.DimX() << " x " << finalBox.DimY() << std::endl;
     }
 
     LogDistortionStats(graph);
