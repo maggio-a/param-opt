@@ -68,6 +68,7 @@ bool ParameterizeChart(Mesh &m, GraphManager::ChartHandle ch, ParameterizationSt
  */
 /// TODO update distortion info if needed (this should also be done through the graph manager)
 int ParameterizeGraph(GraphManager& gm,
+                      double packingCoverage,
                       ParameterizationStrategy strategy,
                       bool failsafe,
                       double threshold = 0,

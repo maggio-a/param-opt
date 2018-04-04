@@ -123,7 +123,8 @@ namespace vcg
             div*=2;
             if(miplev>0) PullPushMip(mip[miplev-1],mip[miplev],bkcolor);
             else PullPushMip(p,mip[miplev],bkcolor);
-            if(mip[miplev].width()<=4 || mip[miplev].height()<=4) break;
+            //if(mip[miplev].width()<=4 || mip[miplev].height()<=4) break;
+            if(mip[miplev].width()<=1 || mip[miplev].height()<=1) break;
             ++miplev;
         }
         miplev++;

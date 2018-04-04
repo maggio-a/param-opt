@@ -268,6 +268,18 @@ bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy)
     return solved;
 }
 
+
+/*
+ * if overlap detected
+ * split chart
+ * recover from split
+ * for each filled hole
+ *   if the hole crosses the split, remove it
+ * for each edge
+ *   if the edge lies on the split, duplicate it
+ * the pm is now made of two distinct connected components, detach them and parameterize each independently
+ * using the previously computed solution as starting point
+ */
 bool ParameterizeChart(Mesh &m, GraphManager::ChartHandle ch, ParameterizationStrategy strategy)
 {
     Mesh pm;
@@ -333,6 +345,7 @@ static void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, 
 }
 
 int ParameterizeGraph(GraphManager& gm,
+                      double packingCoverage,
                       ParameterizationStrategy strategy,
                       bool failsafe,
                       double threshold,
@@ -466,10 +479,14 @@ int ParameterizeGraph(GraphManager& gm,
     packingParam.costFunction  = RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Parameters::LowestHorizon;
     packingParam.doubleHorizon = true;
     packingParam.cellSize = 4;
+    packingParam.pad = 4;
     packingParam.rotationNum = 16; //number of rasterizations in 90°
 
     TextureObjectHandle to = gm.Graph()->textureObject;
-    Point2i gridSize(to->TextureWidth(0) / 2, to->TextureHeight(0) / 2);
+    double scale = std::sqrt(packingCoverage);
+    int gridWidth = to->TextureWidth(0) / 2;
+    int gridHeight = to->TextureHeight(0) / 2;
+    Point2i gridSize(gridWidth, gridHeight);
     std::vector<Similarity2f> transforms;
 
     RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Pack(texOutlines, gridSize, transforms, packingParam);
@@ -488,6 +505,7 @@ int ParameterizeGraph(GraphManager& gm,
                 Point2d uv = fptr->WT(j).P();
                 Point2f transformedTexCoordPos = transforms[p.second] * (Point2f(uv[0], uv[1]));
                 fptr->WT(j).P() = Point2d{transformedTexCoordPos[0] / double(gridSize.X()), transformedTexCoordPos[1] / double(gridSize.Y())};
+                fptr->WT(j).P() *= scale;
             }
         }
     }

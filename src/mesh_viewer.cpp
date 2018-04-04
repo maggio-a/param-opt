@@ -322,7 +322,7 @@ void MeshViewer::FramebufferSizeCallback(GLFWwindow *window, int width, int heig
 MeshViewer::MeshViewer(std::shared_ptr<MeshGraph> meshParamData_, std::size_t minRegionSize_, const std::string& fileName_)
     : meshParamData{meshParamData_}, _currentTexture{meshParamData_->textureObject},
       //gm{std::make_shared<GraphManager>(meshParamData_, std::unique_ptr<EdgeWeightFunction>(new FaceSizeWeightedShared3DBorder(meshParamData->mesh)))},
-      gm{std::make_shared<GraphManager>(meshParamData_, std::unique_ptr<EdgeWeightFunction>(new ZeroFractionAreaUV(meshParamData->mesh)))},
+      gm{std::make_shared<GraphManager>(meshParamData_, std::unique_ptr<EdgeWeightFunction>(new W3D(meshParamData->mesh)))},
       fileName{fileName_}, minRegionSize{minRegionSize_}, _textureCamera{}, _detailCamera{}
 {
     std::size_t numRegions = meshParamData->Count();
@@ -1439,7 +1439,7 @@ void MeshViewer::ManageImGuiState()
                     updateColor = true;
                 }
                 _currentTexture->Release();
-                _currentTexture = RenderTexture(meshParamData->mesh, meshParamData->textureObject, true, _window);
+                _currentTexture = RenderTexture(meshParamData->mesh, meshParamData->textureObject, false, _window);
                 //_currentTexture = RenderTexture(meshParamData->mesh, meshParamData->textureObject, false, _window);
            } else {
                std::cout << "No merges, nothing to do" << std::endl;
@@ -1489,7 +1489,7 @@ void MeshViewer::ManageImGuiState()
             ImGui::InputText("file name", exportFileName, 256);
             if (ImGui::Button("Export", ImVec2(120,0))) {
                 Mesh& m = meshParamData->mesh;
-                if(SaveMesh(m, exportFileName, _currentTexture) == false) {
+                if(SaveMesh(m, exportFileName, _currentTexture, true) == false) {
                     std::cout << "Model not saved correctly" << std::endl;
                 }
                 ImGui::CloseCurrentPopup();
@@ -1521,7 +1521,7 @@ void MeshViewer::ManageImGuiState()
         //ImGui::RadioButton("MIPS", &optimizerInUse, 2);
 
         ImGui::Text("Descent method");
-        //ImGui::RadioButton("Gradient descent", &descentTypeInUse, 0);
+        ImGui::RadioButton("Gradient descent", &descentTypeInUse, 0);
         ImGui::RadioButton("LBFGS", &descentTypeInUse, 1);
         ImGui::RadioButton("SLIM", &descentTypeInUse, 2);
 

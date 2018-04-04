@@ -164,11 +164,11 @@ void MeshGraph::MapDistortion(DistortionMetric::Type type, ParameterizationGeome
             if (q < 0) {
                 //float v = 1.0f - (q / range.first);
                 float v = 1.0f + (q / (-range.first));
-                fptr->C().Import(Color4f{1.0f, v, v, 1.0f});
+                fptr->C().Import(Color4f{1.0f, v*v, v*v, 1.0f});
             } else {
                 //float v = 1.0f - (q / range.second);
                 float v = 1.0f - (q / range.second);
-                fptr->C().Import(Color4f{v, v, 1.0f, 1.0f});
+                fptr->C().Import(Color4f{v*v, v*v, 1.0f, 1.0f});
             }
         }
     }

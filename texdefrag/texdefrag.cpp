@@ -19,6 +19,7 @@
 #include "parameterization_checker.h"
 #include "timer.h"
 #include "gl_utils.h"
+#include "texture.h"
 
 using namespace vcg;
 
@@ -158,6 +159,9 @@ int main(int argc, char *argv[])
         std::exit(-1);
     }
 
+    double packingCoverage;
+    CompactTextureData(m, textureObject, &packingCoverage);
+
     tri::UpdateTopology<Mesh>::FaceFace(m);
     if (tri::Clean<Mesh>::CountNonManifoldEdgeFF(m, false)) {
         std::cout << "Mesh is not edge manifold" << std::endl;
@@ -170,7 +174,8 @@ int main(int argc, char *argv[])
         else minRegionSize = 10000;
     }
 
-    assert(m.FN() < 2000000);
+    //assert(m.FN() < 2000000);
+    assert(m.FN() < 1000000);
 
     assert(textureObject->ArraySize() == 1 && "Currently only single texture is supported");
 
@@ -187,7 +192,7 @@ int main(int argc, char *argv[])
     strategy.geometry = Texture;
     //strategy.geometry = Model;
     strategy.descent = ScalableLocallyInjectiveMappings;
-    strategy.optimizerIterations = 300;
+    strategy.optimizerIterations = 20;
     strategy.padBoundaries = true;
 
     double tolerance = 0.0005;
@@ -229,10 +234,10 @@ int main(int argc, char *argv[])
 
     Timer t;
 
-    //std::unique_ptr<EdgeWeightFunction> wfct(new W3D(m));
+    std::unique_ptr<EdgeWeightFunction> wfct(new W3D(m));
     //std::unique_ptr<EdgeWeightFunction> wfct(new WFN(m));
-    std::unique_ptr<EdgeWeightFunction> wfct(new WUV(m));
-    std::cout << "[LOG] Weight function" << wfct->Name() << std::endl;
+    //std::unique_ptr<EdgeWeightFunction> wfct(new WUV(m));
+    std::cout << "[LOG] Weight function " << wfct->Name() << std::endl;
     GraphManager gm{graph, std::move(wfct)};
 
     int regionCount = 20;
@@ -243,9 +248,10 @@ int main(int argc, char *argv[])
         ReduceTextureFragmentation_NoPacking(gm, minRegionSize);
     }
 
-    int c = ParameterizeGraph(gm, strategy, true, tolerance, true);
+    int c = ParameterizeGraph(gm, packingCoverage, strategy, true, tolerance, true);
     if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
 
+    /*
     double finalArea = 0.0;
     for (auto& f : m.face) {
         double area = DistortionMetric::AreaUV(f);
@@ -258,7 +264,7 @@ int main(int argc, char *argv[])
     std::cout << "[LOG] Scale factor of the packed chart = " << initialArea / finalArea << std::endl;
     //std::cout << "[LOG] Scale factor of the packed chart = " << graph->AreaUV() / areaUvBefore << std::endl;
 
-    bool normalizeArea = true;
+    bool normalizeArea = false;
     //scale parameterization
     double scale = std::sqrt(initialArea / finalArea);
     if (normalizeArea)  {
@@ -277,12 +283,14 @@ int main(int argc, char *argv[])
     RasterizedParameterizationStats after = GetRasterizationStats(m, textureObject->imgVec[0]->width(), textureObject->imgVec[0]->height());
     LogParameterizationStats(graph, after, std::string("[LOG] Raster stats after parameterizing"));
 
+    */
+
     std::cout << "Rendering texture..." << std::endl;
     TextureObjectHandle newTexture = RenderTexture(m, textureObject, filter, nullptr);
 
     std::cout << "Processing took " << t.TimeElapsed() << " seconds" << std::endl;
 
-    graph->MapDistortion(DistortionMetric::Type::Angle, ParameterizationGeometry::Texture);
+    //graph->MapDistortion(DistortionMetric::Type::Angle, ParameterizationGeometry::Texture);
 
     std::string outName = "out_" + modelName;
     if (SaveMesh(m, outName.c_str(), newTexture, true) == false) {

@@ -16,10 +16,12 @@ INCLUDEPATH += ../src $$VCGPATH $$VCGPATH/eigenlib
 
 unix {
     CONFIG += link_pkgconfig
-    PKGCONFIG += glfw3
+    PKGCONFIG += glfw3 openblas
 }
 
 LIBS += -lGL -lGLEW
+
+DEFINES += "EIGEN_USE_BLAS=1"
 
 SOURCES += texdefrag.cpp \
     ../src/energy.cpp \
@@ -43,11 +45,13 @@ HEADERS += \
     ../src/fixed_border_bijective.h \
     ../src/ext/texcoord_optimization.h \
     ../src/texture_rendering.h \
+    ../src/pushpull.h \
     ../src/iterative.h \
     ../src/energy.h \
     ../src/math_utils.h \
     ../src/texture_optimization.h \
     ../src/metric.h \
     ../src/parameterization_checker.h \
-    ../src/gl_utils.h
+    ../src/gl_utils.h \
+    ../src/texture.h
 

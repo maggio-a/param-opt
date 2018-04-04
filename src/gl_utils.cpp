@@ -133,7 +133,7 @@ void TextureObject::Bind()
         case QImage::Format_ARGB32:
             format = GL_RGBA8; channels = GL_BGRA; type = GL_UNSIGNED_BYTE; break;
         default:
-            std::cout << "Unupported texture format" << std::endl; std::exit(-1);
+            std::cout << "Unsupported texture format" << std::endl; std::exit(-1);
         }
         QImage mirrored = img.mirrored(); // mirror to match opengl convention
         glBindTexture(GL_TEXTURE_2D, _texture);

@@ -25,6 +25,13 @@ viewer/**
 !viewer/*.pro
 !viewer/readme.txt
 
+solver/**
+!solver/*.cpp
+!solver/*.h
+!solver/*.pro
+
+thesis/**
+
 *.user
 build-*
 
