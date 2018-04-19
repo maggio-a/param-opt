@@ -3,8 +3,8 @@
 #include "uv.h"
 #include "mesh_graph.h"
 #include "timer.h"
-#include "dcpsolver.h"
-#include "fixed_border_bijective.h"
+#include "dcp_solver.h"
+#include "uniform_solver.h"
 #include "iterative.h"
 #include "metric.h"
 #include "parameterization_checker.h"
@@ -195,15 +195,12 @@ bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy)
         if (strategy.padBoundaries == false) {
             // delete the faces that were added by the hole filling process
             for (auto & f : m.face) {
-                if (f.IsS()) tri::Allocator<Mesh>::DeleteFace(m, f);
+                if (f.holeFilling) tri::Allocator<Mesh>::DeleteFace(m, f);
             }
             tri::Allocator<Mesh>::CompactEveryVector(m);
         }
-        // check for inverted faces
-        //for (auto& f : m.face) {
-        //    double areaUV = (f.V(1)->T().P() - f.V(0)->T().P()) ^ (f.V(2)->T().P() - f.V(0)->T().P());
-        //    assert(areaUV > 0 && "Parameterization is not bijective");
-        //}
+    } else if (strategy.directParameterizer == DirectParameterizer::None) {
+        // do nothing
     } else {
         assert(0 && "Solver not supported");
     }
@@ -213,21 +210,25 @@ bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy)
     if (solved) { // optimize and Copy texture coords back
 
         if (strategy.optimizerIterations > 0) {
+            for (auto& f : m.face) {
+                if (!f.IsD()) assert(DistortionMetric::AreaUV(f) > 0 && "Initial parameterization is not injective");
+            }
 
-            //GradientDescent opt(std::make_shared<SymmetricDirichlet>(pm));
-            Energy::Geometry mode = Energy::Geometry::Model;
+            //Energy::Geometry mode = Energy::Geometry::Model;
+            Energy::Geometry mode = Energy::Geometry::Mixed;
             if (strategy.geometry == ParameterizationGeometry::Texture) mode = Energy::Geometry::Texture;
 
             DescentMethod *opt;
+            auto energy = std::make_shared<SymmetricDirichlet>(m, mode);
             switch(strategy.descent) {
             case DescentType::Gradient:
-                opt = new GradientDescent{std::make_shared<SymmetricDirichlet>(m, mode)};
+                opt = new GradientDescent{energy};
                 break;
             case DescentType::LimitedMemoryBFGS:
-                opt = new LBFGS{std::make_shared<SymmetricDirichlet>(m, mode), 10};
+                opt = new LBFGS{energy, 10};
                 break;
             case DescentType::ScalableLocallyInjectiveMappings:
-                opt = new SLIM{std::make_shared<SymmetricDirichlet>(m, mode)};
+                opt = new SLIM{energy};
                 break;
             default:
                 assert(0);
@@ -255,7 +256,7 @@ bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy)
                 std::cout << "Maximum number of iterations reached" << std::endl;
             }
             std::cout << "Stopped after " << i << " iterations, gradient magnitude = " << gradientNorm
-                      << ", energy value = " << energyVal << std::endl;
+                      << ", normalized energy value = " << energy->E_IgnoreMarkedFaces(true) << std::endl;
 
             std::cout << "Optimization took " << t.TimeSinceLastCheck() << " seconds" << std::endl;
 
@@ -263,38 +264,6 @@ bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy)
 
             delete opt;
 
-        }
-    }
-    return solved;
-}
-
-
-/*
- * if overlap detected
- * split chart
- * recover from split
- * for each filled hole
- *   if the hole crosses the split, remove it
- * for each edge
- *   if the edge lies on the split, duplicate it
- * the pm is now made of two distinct connected components, detach them and parameterize each independently
- * using the previously computed solution as starting point
- */
-bool ParameterizeChart(Mesh &m, GraphManager::ChartHandle ch, ParameterizationStrategy strategy)
-{
-    Mesh pm;
-    bool sanitize = (strategy.directParameterizer == DirectParameterizer::FixedBorderBijective);
-    bool copyWedgeTexCoordStorage = (strategy.geometry == ParameterizationGeometry::Texture);
-    CopyFaceGroupIntoMesh(pm, *ch, sanitize, copyWedgeTexCoordStorage);
-    //CopyFaceGroupIntoMesh(pm, *ch, sanitize, true);
-
-    bool solved = ParameterizeMesh(pm, strategy);
-    if (solved) {
-
-        for (std::size_t i = 0; i < ch->fpVec.size(); ++i) {
-            for (int k = 0; k < 3; ++k) {
-                ch->fpVec[i]->WT(k).P() = pm.face[i].WT(k).P();
-            }
         }
     }
     return solved;
@@ -342,6 +311,99 @@ static void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, 
     chartQueue.push_back(c1);
     chartQueue.push_back(c2);
     std::cout << "Recovery produced two charts of sizes " << c1->numMerges + 1 << " " << c2->numMerges + 1 << std::endl;
+}
+
+
+/*
+ * if overlap detected
+ * split chart
+ * recover from split
+ * for each filled hole
+ *   if the hole crosses the split, remove it
+ * for each edge
+ *   if the edge lies on the split, duplicate it
+ * the pm is now made of two distinct connected components, detach them and parameterize each independently
+ * using the previously computed solution as starting point
+ */
+/*
+bool ParameterizeChart(GraphManager& gm, GraphManager::ChartHandle ch, ParameterizationStrategy strategy, bool failsafe, double threshold)
+{
+    std::deque<Mesh *> meshVector;
+    std::deque<ChartHandle> chartVector;
+    Mesh *pm = new Mesh;
+    bool sanitize = (strategy.directParameterizer == DirectParameterizer::FixedBorderBijective);
+    bool copyWedgeTexCoordStorage = (strategy.geometry == ParameterizationGeometry::Texture);
+    CopyFaceGroupIntoMesh(*pm, *ch, sanitize, copyWedgeTexCoordStorage, strategy.remeshHoles);
+    //CopyFaceGroupIntoMesh(pm, *ch, sanitize, true);
+
+    meshVector.push_back(pm);
+    chartVector.push_back(ch);
+
+    do {
+        Mesh *m = meshVector.front();
+        meshVector.pop_front();
+        ChartHandle chart = chartVector.front();
+        chartVector.pop_front();
+
+        auto MFIh = tri::Allocator<Mesh>::GetPerFaceAttribute<int>(*m, "FaceIndex");
+
+        bool parameterized = ParameterizeMesh(*m, strategy);
+        assert(parameterized);
+
+        if (failsafe) {
+            RasterizedParameterizationStats stats = GetRasterizationStats(ch, 1024, 1024);
+            double fraction = stats.lostFragments / (double) stats.totalFragments;
+            if (fraction > threshold) {
+                std::vector<ChartHandle> splitCharts;
+                std::deque<ChartHandle> q;
+                gm.Split(ch->id, splitCharts);
+                RecoverFromSplit(splitCharts, gm, q);
+
+                for (auto& f : m->face) {
+
+
+
+                }
+            } else {
+                // copy the coordinates back
+            }
+        }
+
+    } while (meshVector.size() != 0);
+
+    assert(chartVector.size() == 0);
+}
+*/
+
+
+
+/*
+ * if overlap detected
+ * split chart
+ * recover from split
+ * for each filled hole
+ *   if the hole crosses the split, remove it
+ * for each edge
+ *   if the edge lies on the split, duplicate it
+ * the pm is now made of two distinct connected components, detach them and parameterize each independently
+ * using the previously computed solution as starting point
+ */
+bool ParameterizeChart(Mesh &m, ChartHandle ch, ParameterizationStrategy strategy)
+{
+    Mesh pm;
+    bool sanitize = (strategy.directParameterizer == DirectParameterizer::FixedBorderBijective);
+    CopyFaceGroupIntoMesh(pm, *ch, sanitize, true, strategy.remeshHoles);
+    //CopyFaceGroupIntoMesh(pm, *ch, sanitize, true);
+
+    bool solved = ParameterizeMesh(pm, strategy);
+    if (solved) {
+        for (std::size_t i = 0; i < ch->fpVec.size(); ++i) {
+            for (int k = 0; k < 3; ++k) {
+                ch->fpVec[i]->WT(k).P() = pm.face[i].WT(k).P();
+            }
+        }
+    }
+    return solved;
 }
 
 int ParameterizeGraph(GraphManager& gm,
@@ -478,8 +540,9 @@ int ParameterizeGraph(GraphManager& gm,
     RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Parameters packingParam;
     packingParam.costFunction  = RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Parameters::LowestHorizon;
     packingParam.doubleHorizon = true;
-    packingParam.cellSize = 4;
-    packingParam.pad = 4;
+    packingParam.cellSize = 2;
+    packingParam.pad = 16;
+    //packingParam.pad = 0;
     packingParam.rotationNum = 16; //number of rasterizations in 90°
 
     TextureObjectHandle to = gm.Graph()->textureObject;
@@ -547,7 +610,7 @@ void ReduceTextureFragmentation_NoPacking_TargetRegionCount(GraphManager &gm, st
 
     do {
         mergeCount = gm.CloseMacroRegions(minRegionSize);
-       // mergeCount = 0;
+        //mergeCount = 0;
 
         while (gm.HasNextEdge()) {
             auto we = gm.PeekNextEdge();

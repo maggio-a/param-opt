@@ -359,7 +359,7 @@ SLIM::SLIM(std::shared_ptr<SymmetricDirichlet> sd)
         Eigen::Matrix2d rt;
         rt << ct, -st, st, ct;
         Eigen::Vector2d x2 = p20.Norm() * (rt * Eigen::Vector2d{1, 0}); // rotate and scale
-*/
+        */
         /*
          * at this point the transformation from the canonical triangle (0,0) (1,0), (0,1) to the
          * mesh face is encoded in the matrix [x1 | x2], and we want the inverse
@@ -376,11 +376,14 @@ SLIM::SLIM(std::shared_ptr<SymmetricDirichlet> sd)
 
     diagAreaVector.resize(4 * m.FN());
     for (auto const& f : m.face) {
+        double area = energy->FaceArea(&f);
+        /*
         double area = 0;
         switch (energy->mode) {
         case Model: area = DistortionMetric::Area3D(m, f, ParameterizationGeometry::Model); break;
         case Texture: area = DistortionMetric::Area3D(m, f, ParameterizationGeometry::Texture); break;
         }
+        */
 
         int j = tri::Index(m, f);
         diagAreaVector(0 * m.FN() + j) = area;
@@ -511,14 +514,19 @@ void SLIM::UpdateJRW()
             U.col(U.cols() - 1) *= -1;
         }
 
+        double attenuation = 1.0;
+        if (f.holeFilling) attenuation = 0.0001;
+
         // Update weights (eq 28 in the paper)
         Eigen::Vector2d Sw;
         for (int i = 0; i < 2; ++i) {
             double den = sigma[i] - 1;
             if (std::abs(den) < 1e-8) {
-                Sw[i] = 1;
+                //Sw[i] = 1;
+                Sw[i] = attenuation * 1;
             } else {
-                Sw[i] = std::sqrt((sigma[i] - std::pow(sigma[i], -3)) / den);
+                //Sw[i] = std::sqrt((sigma[i] - std::pow(sigma[i], -3)) / den);
+                Sw[i] = std::sqrt((attenuation * (sigma[i] - std::pow(sigma[i], -3))) / den);
             }
         }
         W[f] = U * Sw.asDiagonal() * U.transpose();

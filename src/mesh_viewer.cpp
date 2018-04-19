@@ -1430,7 +1430,7 @@ void MeshViewer::ManageImGuiState()
         if (clickPack) {
             ClearSelection();
             if (meshParamData->MergeCount() > 0) {
-                int c = ParameterizeGraph(*gm, strategy, failsafe, tau, retry);
+                int c = ParameterizeGraph(*gm, 1.0, strategy, failsafe, tau, retry);
                 if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
                 updateTexcoord = true;
                 if (activeDistIndex != -1) {
@@ -1508,11 +1508,13 @@ void MeshViewer::ManageImGuiState()
         ImGui::RadioButton("Texture coords", &geometryInUse, 1);
 
         static bool padBoundaries = false;
+        static bool remeshHoles = true;
         ImGui::Text("Parameterizer");
         ImGui::RadioButton("Discrete Conformal", &parameterizerInUse, 0);
         ImGui::RadioButton("Circular border bijective", &parameterizerInUse, 1);
         if (parameterizerInUse == 1) {
             ImGui::Checkbox("Pad inner boundaries", &padBoundaries);
+            ImGui::Checkbox("Remesh holes", &remeshHoles);
         }
 
         //ImGui::Text("Descent method energy");
@@ -1530,6 +1532,7 @@ void MeshViewer::ManageImGuiState()
         strategy.geometry = geometry[geometryInUse];
         strategy.descent = descent[descentTypeInUse];
         strategy.padBoundaries = padBoundaries;
+        strategy.remeshHoles = remeshHoles;
 
         ImGui::Text("Max descent iterations");
         ImGui::InputInt("##Optimizer iterations", &strategy.optimizerIterations, 1, 100);

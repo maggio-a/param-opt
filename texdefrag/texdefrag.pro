@@ -41,8 +41,8 @@ HEADERS += \
     ../src/uv.h \
     ../src/mesh_graph.h \
     ../src/vertex_position.h \
-    ../src/dcpsolver.h \
-    ../src/fixed_border_bijective.h \
+    ../src/dcp_solver.h \
+    ../src/uniform_solver.h \
     ../src/ext/texcoord_optimization.h \
     ../src/texture_rendering.h \
     ../src/pushpull.h \

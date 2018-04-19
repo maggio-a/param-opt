@@ -15,6 +15,8 @@ TEMPLATE = app
 
 INCLUDEPATH += ../imgui ../src $$VCGPATH $$VCGPATH/eigenlib
 
+QMAKE_CXXFLAGS += -g
+
 #unix {
     CONFIG += link_pkgconfig
      PKGCONFIG += glfw3 glew
@@ -50,8 +52,6 @@ HEADERS += \
     ../src/mesh_graph.h \
     ../src/mesh_viewer.h \
     ../src/vertex_position.h \
-    ../src/dcpsolver.h \
-    ../src/fixed_border_bijective.h \
     ../src/ext/texcoord_optimization.h \
     ../src/texture_rendering.h \
     ../imgui/imconfig.h \
@@ -67,7 +67,9 @@ HEADERS += \
     ../src/texture_optimization.h \
     ../src/metric.h \
     ../src/parameterization_checker.h \
-    ../src/gl_utils.h
+    ../src/gl_utils.h \
+    ../src/uniform_solver.h \
+    ../src/dcp_solver.h
 
 DISTFILES += \
     readme.txt

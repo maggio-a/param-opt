@@ -38,8 +38,9 @@ static void CompactTextureData(Mesh& m, TextureObjectHandle texture, double *cov
     tri::Allocator<Mesh>::DeletePerMeshAttribute(m, "materialVector");
     tri::Allocator<Mesh>::DeletePerFaceAttribute(m, "materialIndex");
 
-    while (m.textures.size() > 1)
-        m.textures.pop_back();
+    std::string texName = std::string("out_") + m.textures[0];
+    m.textures.clear();
+    m.textures.push_back(texName);
 
     std::vector<Point2d> scale;
     std::vector<Point2d> translate;
@@ -68,6 +69,7 @@ static void CompactTextureData(Mesh& m, TextureObjectHandle texture, double *cov
         const QImage& imread = *(texture->imgVec[i]);
         painter.drawImage(p[0], p[1], imread);
     }
+    painter.end();
 
     assert(img->save("test.jpg", 0, 100));
     tri::io::Exporter<Mesh>::Save(m, "test.obj", tri::io::Mask::IOM_WEDGTEXCOORD);

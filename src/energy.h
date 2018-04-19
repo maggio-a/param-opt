@@ -16,23 +16,30 @@ class Energy {
 
 public:
 
-    enum Geometry { Model, Texture };
+    enum Geometry { Model, Texture, Mixed };
 
 protected:
 
     Mesh& m;
     const Geometry mode;
     double surfaceArea;
+    double holeFillingArea;
+    SimpleTempData<Mesh::FaceContainer, Point3d> P0_; // cotangents and surface area
+    SimpleTempData<Mesh::FaceContainer, Point3d> P1_; // cotangents and surface area
+    SimpleTempData<Mesh::FaceContainer, Point3d> P2_; // cotangents and surface area
+
 
 public:
 
     Energy(Mesh& mesh, Geometry geometryMode);
     virtual ~Energy() {}
 
-    virtual double E() = 0;
+    double E();
+    double E_IgnoreMarkedFaces(bool normalized = false);
     virtual double E(const Mesh::FaceType& f) = 0;
     virtual Eigen::MatrixXd Grad() = 0;
 
+    double FaceArea(Mesh::ConstFacePointer fp);
     double SurfaceArea();
     double ParameterArea();
 
@@ -57,13 +64,12 @@ public:
 
 class SymmetricDirichlet : public Energy {
 
-    SimpleTempData<Mesh::FaceContainer, Point4d> data; // cotangents and surface area
+    SimpleTempData<Mesh::FaceContainer, Point4d> data;
 
 public:
 
     SymmetricDirichlet(Mesh& mesh, Geometry geometryMode);
 
-    double E();
     double E(const Mesh::FaceType& f);
 
     Eigen::MatrixXd Grad();

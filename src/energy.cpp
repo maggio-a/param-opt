@@ -1,5 +1,6 @@
 #include "energy.h"
 #include "math_utils.h"
+#include "metric.h"
 
 #include <Eigen/Core>
 
@@ -15,19 +16,86 @@
 using Eigen::MatrixXd;
 
 
-Energy::Energy(Mesh& mesh, Geometry geometryMode) : m{mesh}, mode{geometryMode}, surfaceArea{0.0}
+Energy::Energy(Mesh& mesh, Geometry geometryMode)
+    : m{mesh},
+      mode{geometryMode},
+      surfaceArea{0.0},
+      holeFillingArea{0.0},
+      P0_{m.face},
+      P1_{m.face},
+      P2_{m.face}
+
 {
-    if (geometryMode == Geometry::Texture) {
-        tcsattr = tri::Allocator<Mesh>::FindPerFaceAttribute<TexCoordStorage>(m, "WedgeTexCoordStorage");
-        assert(tri::Allocator<Mesh>::IsValidHandle<TexCoordStorage>(m, tcsattr));
-    }
+    tcsattr = tri::Allocator<Mesh>::FindPerFaceAttribute<TexCoordStorage>(m, "WedgeTexCoordStorage");
+    assert(tri::Allocator<Mesh>::IsValidHandle<TexCoordStorage>(m, tcsattr));
+    if (geometryMode == Model) {
+        for (auto& f : m.face) {
+            P0_[f] = f.P(0);
+            P1_[f] = f.P(1);
+            P2_[f] = f.P(2);
+        }
+    } else if (geometryMode == Texture) {
+        for (auto& f : m.face) {
+            P0_[f] = Mesh::CoordType(tcsattr[f].tc[0].U(), tcsattr[f].tc[0].V(), 0);
+            P1_[f] = Mesh::CoordType(tcsattr[f].tc[1].U(), tcsattr[f].tc[1].V(), 0);
+            P2_[f] = Mesh::CoordType(tcsattr[f].tc[2].U(), tcsattr[f].tc[2].V(), 0);
+        }
+    } else if (geometryMode == Mixed) {
+        /*
+        double areaModel = 0.0;
+        double areaTexture = 0.0;
+        for (auto& f : m.face) {
+            areaModel += DistortionMetric::Area3D(f);
+            areaTexture += (tcsattr[f].tc[1].P() - tcsattr[f].tc[0].P()) ^ (tcsattr[f].tc[2].P() - tcsattr[f].tc[0].P());
+        }
+        double scale = std::sqrt(areaTexture / areaModel);*/
+        for (auto& f : m.face) {
+            double areaModel = DistortionMetric::Area3D(f);
+            double areaTexture = (tcsattr[f].tc[1].P() - tcsattr[f].tc[0].P()) ^ (tcsattr[f].tc[2].P() - tcsattr[f].tc[0].P());
+            double scale = std::sqrt(std::abs(areaTexture) / areaModel);
+            assert(std::isfinite(scale));
+            P0_[f] = f.P(0) * scale;
+            P1_[f] = f.P(1) * scale;
+            P2_[f] = f.P(2) * scale;
+        }
+    } else { assert(0); }
+
     for (auto& f : m.face) {
-        surfaceArea += (((P(&f, 1) - P(&f, 0)) ^ (P(&f, 2) - P(&f, 0))).Norm() / 2.0);
+        double area = (((P(&f, 1) - P(&f, 0)) ^ (P(&f, 2) - P(&f, 0))).Norm() / 2.0);
+        surfaceArea += area;
+        if (f.holeFilling) holeFillingArea += area;
     }
 }
 
+double Energy::E()
+{
+    double e = 0;
+    for (auto& f : m.face) e += E(f);
+    return e;
+}
+
+double Energy::E_IgnoreMarkedFaces(bool normalized)
+{
+    double e = 0;
+    for (auto& f : m.face)
+        if (f.holeFilling == false)
+            e += E(f);
+    return e / ((normalized) ? (surfaceArea - holeFillingArea) : 1.0);
+}
+
 Mesh::CoordType Energy::P(Mesh::ConstFacePointer fp, int i) {
-    assert(i>=0 && i<3);
+    switch (i) {
+    case 0:
+        return P0_[fp];
+    case 1:
+        return P1_[fp];
+    case 2:
+        return P2_[fp];
+    default:
+        assert(0 && "Energy::P()");
+    }
+
+    /*
     if (mode == Geometry::Model) {
         return fp->cP(i);
     }
@@ -38,13 +106,20 @@ Mesh::CoordType Energy::P(Mesh::ConstFacePointer fp, int i) {
         assert(0 && "Energy::P()");
         return {0, 0, 0};
     }
+    */
 }
 
 Mesh::CoordType Energy::P0(Mesh::ConstFacePointer fp, int i) { return P(fp, i); }
 Mesh::CoordType Energy::P1(Mesh::ConstFacePointer fp, int i) { return P(fp, (i+1)%3); }
 Mesh::CoordType Energy::P2(Mesh::ConstFacePointer fp, int i) { return P(fp, (i+2)%3); }
 
-double Energy::SurfaceArea() {
+double Energy::FaceArea(Mesh::ConstFacePointer fp)
+{
+    return (((P(fp, 1) - P(fp, 0)) ^ (P(fp, 2) - P(fp, 0))).Norm() / 2.0);
+}
+
+double Energy::SurfaceArea()
+{
     return surfaceArea;
 }
 
@@ -69,7 +144,8 @@ void Energy::CorrectScale()
 // Symmetric Dirichlet energy implementation
 // =========================================
 
-SymmetricDirichlet::SymmetricDirichlet(Mesh& mesh, Geometry geometryMode = Geometry::Model) : Energy{mesh, geometryMode}, data{m.face}
+SymmetricDirichlet::SymmetricDirichlet(Mesh& mesh, Geometry geometryMode = Geometry::Model)
+    : Energy{mesh, geometryMode}, data{m.face}
 {
     for (auto&f : m.face) {
         data[f][3] = (((P(&f, 1) - P(&f, 0)) ^ (P(&f, 2) - P(&f, 0))).Norm() / 2.0);
@@ -92,13 +168,6 @@ SymmetricDirichlet::SymmetricDirichlet(Mesh& mesh, Geometry geometryMode = Geome
             data[f][i] = VecCotg(a, c);
         }
     }
-}
-
-double SymmetricDirichlet::E()
-{
-    double e = 0;
-    for (auto& f : m.face) e += E(f);
-    return e;
 }
 
 double SymmetricDirichlet::E(const Mesh::FaceType& f)
@@ -136,7 +205,10 @@ double SymmetricDirichlet::E(const Mesh::FaceType& f)
     //double eee = (1 + (area3D*area3D)/(areaUV*areaUV));
     double energy = (1 + (area3D*area3D)/(areaUV*areaUV)) * (e_d);
     //assert (e_d >= 0);
-    return energy;
+
+    double attenuation = 1.0;
+    if (f.holeFilling) attenuation = 0.0001;
+    return attenuation * energy;
 }
 
 MatrixXd SymmetricDirichlet::Grad()
@@ -167,6 +239,9 @@ MatrixXd SymmetricDirichlet::Grad()
 
         //assert(areaUV > 0);
 
+        double attenuation = 1.0;
+        if (f.holeFilling) attenuation = 0.0001;
+
         for (int i = 0; i < 3; ++i) {
             int j = (i+1)%3;
             int k = (i+2)%3;
@@ -184,7 +259,7 @@ MatrixXd SymmetricDirichlet::Grad()
 
             assert(std::isnan(gu) == false && std::isnan(gv) == false);
 
-            g.row(Index(m, f.V(i))) += Eigen::Vector2d{gu, gv};
+            g.row(Index(m, f.V(i))) += attenuation * Eigen::Vector2d{gu, gv};
         }
     }
 

@@ -175,7 +175,7 @@ int main(int argc, char *argv[])
     }
 
     //assert(m.FN() < 2000000);
-    assert(m.FN() < 1000000);
+    //assert(m.FN() < 1000000);
 
     assert(textureObject->ArraySize() == 1 && "Currently only single texture is supported");
 
@@ -192,7 +192,7 @@ int main(int argc, char *argv[])
     strategy.geometry = Texture;
     //strategy.geometry = Model;
     strategy.descent = ScalableLocallyInjectiveMappings;
-    strategy.optimizerIterations = 20;
+    strategy.optimizerIterations = 50;
     strategy.padBoundaries = true;
 
     double tolerance = 0.0005;
@@ -230,7 +230,7 @@ int main(int argc, char *argv[])
     PrintParameterizationInfo(graph);
 
     RasterizedParameterizationStats before = GetRasterizationStats(m, textureObject->imgVec[0]->width(), textureObject->imgVec[0]->height());
-    LogParameterizationStats(graph, before, std::string("[LOG] Raster stats before parameterizing"));
+    //LogParameterizationStats(graph, before, std::string("[LOG] Raster stats before parameterizing"));
 
     Timer t;
 
@@ -240,9 +240,11 @@ int main(int argc, char *argv[])
     std::cout << "[LOG] Weight function " << wfct->Name() << std::endl;
     GraphManager gm{graph, std::move(wfct)};
 
+    //int regionCount = 10000;
     int regionCount = 20;
     if (regionCount > 0) {
         ReduceTextureFragmentation_NoPacking_TargetRegionCount(gm, regionCount + smallcomponents, minRegionSize);
+        //ReduceTextureFragmentation_NoPacking_TargetRegionCount(gm, regionCount + smallcomponents, 0);
     }
     else {
         ReduceTextureFragmentation_NoPacking(gm, minRegionSize);
@@ -297,9 +299,10 @@ int main(int argc, char *argv[])
         std::cout << "Model not saved correctly" << std::endl;
     }
 
-    auto graph2 = ComputeParameterizationGraph(m, textureObject, &uvMeshBorder);
     // Print optimized info
-    PrintParameterizationInfo(graph2);
+    //auto graph2 = ComputeParameterizationGraph(m, textureObject, &uvMeshBorder);
+    //PrintParameterizationInfo(graph2);
+    PrintParameterizationInfo(graph);
 
     GLTerminate();
 

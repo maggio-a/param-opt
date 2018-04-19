@@ -30,6 +30,171 @@ void PrintParameterizationInfo(std::shared_ptr<MeshGraph> pdata)
               << pdata->AreaUV() << " " << pdata->BorderUV() << std::endl;
 }
 
+void CopyFaceGroupIntoMesh(Mesh &m, FaceGroup& fg, bool sanitize, bool wtcsattr, bool remeshHoles)
+{
+    m.Clear();
+
+    auto MFIh = tri::Allocator<Mesh>::GetPerFaceAttribute<int>(m, "FaceIndex");
+
+    std::unordered_map<Mesh::VertexPointer, Mesh::VertexPointer> vpmap;
+    vpmap.reserve(fg.FN() * 3);
+
+    std::size_t vn = 0;
+    for (auto fptr : fg.fpVec) {
+        for (int i = 0; i < 3; ++i) {
+            if (vpmap.count(fptr->V(i)) == 0) {
+                vn++;
+                vpmap[fptr->V(i)] = nullptr;
+            }
+        }
+    }
+    auto mvi = tri::Allocator<Mesh>::AddVertices(m, vn);
+    auto mfi = tri::Allocator<Mesh>::AddFaces(m, fg.FN());
+
+    for (auto fptr : fg.fpVec) {
+        Mesh::FacePointer mfp = &*mfi++;
+        MFIh[mfp] = tri::Index(fg.mesh, fptr);
+        for (int i = 0; i < 3; ++i) {
+            Mesh::VertexPointer vp = fptr->V(i);
+            typename Mesh::VertexPointer& mvp = vpmap[vp];
+            if (mvp == nullptr) {
+                mvp = &*mvi++;
+                mvp->P() = vp->P();
+            }
+            mfp->V(i) = mvp;
+            mfp->WT(i) = mvp->T();
+        }
+    }
+
+    // face number before sanitizing mesh
+    int startFN = m.FN();
+
+    if (sanitize) {
+        tri::UpdateTopology<Mesh>::FaceFace(m);
+
+        int splitCount = tri::Clean<Mesh>::SplitNonManifoldVertex(m, 0);
+        if (splitCount > 0) {
+            std::cout << "Mesh was not vertex-manifold, " << splitCount << " vertices split" << std::endl;
+        }
+
+        std::vector<double> vTotalBorderLength;
+        std::vector<std::size_t> vBorderSize;
+        std::vector<std::vector<std::size_t>> vBorderFaces;
+
+        tri::UpdateFlags<Mesh>::FaceClearV(m);
+        for (auto& f : m.face) {
+            for (int i = 0; i < 3; ++i) {
+                if (!f.IsV() && face::IsBorder(f, i)) {
+                    double totalBorderLength = 0;
+                    std::vector<std::size_t> borderFaces;
+
+                    face::Pos<Mesh::FaceType> p(&f, i);
+                    face::Pos<Mesh::FaceType> startPos = p;
+                    assert(p.IsBorder());
+                    do {
+                        assert(p.IsManifold());
+                        p.F()->SetV();
+                        borderFaces.push_back(tri::Index(m, p.F()));
+                        totalBorderLength += EdgeLength(*p.F(), p.VInd());
+                        p.NextB();
+                    } while (p != startPos);
+                    vTotalBorderLength.push_back(totalBorderLength);
+                    vBorderSize.push_back(borderFaces.size());
+                    vBorderFaces.push_back(borderFaces);
+                }
+            }
+        }
+
+        tri::UpdateFlags<Mesh>::FaceClearS(m);
+        /// TODO in case multiple borders have the same size, it could be chosen randomly
+        assert(vBorderFaces.size() > 0 && "Mesh has no boundaries");
+        // select longest border (this is the only one that remains), while the others are closed
+        if (vBorderFaces.size() > 1) {
+            std::size_t k = std::distance(vTotalBorderLength.begin(), std::max_element(vTotalBorderLength.begin(), vTotalBorderLength.end()));
+
+            for (std::size_t i = 0; i < vBorderFaces.size(); ++i) {
+                if (i == k) continue;
+                for (auto j : vBorderFaces[i]) m.face[j].SetS();
+            }
+
+            // close everything that is selected
+            tri::Hole<Mesh>::EarCuttingFill<tri::MinimumWeightEar<Mesh>>(m, m.FN(), true);
+
+            /*
+            // retrieve the hole size parameter, since all holes except the peripheral border, just use the border length minus 1
+            for (std::size_t i = 0; i < vBorderVertices.size(); ++i) {
+                if (i == k) continue;
+                assert(vBorderVertices[k].size() > vBorderVertices[i].size());  // otherwise cannot close all holes below threshold
+            }
+
+            // close holes
+            int maxHoleSize = vBorderVertices[k].size() - 1 + 1; // there is an off by one in the hole size computed by the vcglib
+            tri::Hole<MeshType>::template EarCuttingFill<tri::MinimumWeightEar<MeshType>>(m, maxHoleSize, false);
+            */
+        }
+
+        bool holes = false;
+        tri::UpdateFlags<Mesh>::FaceClearS(m);
+        for (auto& f: m.face) {
+            if (int(tri::Index(m, f)) >= startFN) {
+                f.SetS();
+                holes = true;
+            }
+        }
+
+        /// remesh hole
+        double totalBorderLen = std::accumulate(vTotalBorderLength.begin(), vTotalBorderLength.end(), 0.0);
+        double totalBorderFaces = std::accumulate(vBorderSize.begin(), vBorderSize.end(), 0);
+
+        if (holes && remeshHoles) {
+            //vcg::tri::io::ExporterPLY<Mesh>::Save(m, "original.ply");
+            IsotropicRemeshing<Mesh>::Params params;
+            //params.SetTargetLen(2.0*(totalBorderLen / totalBorderFaces));
+            params.SetTargetLen(totalBorderLen / totalBorderFaces);
+            params.SetFeatureAngleDeg(45);
+            params.selectedOnly = true;
+            params.iter = 7;
+            IsotropicRemeshing<Mesh>::Do(m, params);
+            //vcg::tri::io::ExporterPLY<Mesh>::Save(m, "remesh.ply");
+        }
+
+        /// --------------------------------------------------
+
+        for (auto& f : m.face) {
+            if (int(tri::Index(m, f)) >= startFN) {
+                f.ClearS();
+                f.holeFilling = true;
+            }
+        }
+    }
+
+    if (wtcsattr) {
+        auto WTCSh = tri::Allocator<Mesh>::FindPerFaceAttribute<TexCoordStorage>(fg.mesh, "WedgeTexCoordStorage");
+        assert(tri::Allocator<Mesh>::IsValidHandle<TexCoordStorage>(fg.mesh, WTCSh));
+        auto WTCShNew = tri::Allocator<Mesh>::GetPerFaceAttribute<TexCoordStorage>(m, "WedgeTexCoordStorage");
+
+        /* if some holes were closed, the isometric parameterization of the faces is scaled to match the ratio
+         * of the FaceGroup copied */
+        double scale = std::sqrt(fg.AreaUV() / fg.Area3D());
+        for (int i = 0; i < m.FN(); ++i) {
+            if (i < startFN) {
+                WTCShNew[m.face[i]] = WTCSh[fg.fpVec[i]];
+            }
+            else { // faces added to close holes, use isometric parameterization as attribute for those
+                Mesh::FaceType& f = m.face[i];
+                Point2d u10, u20;
+                LocalIsometry(f.P(1) - f.P(0), f.P(2) - f.P(0), u10, u20);
+                u10 *= scale; u20 *= scale;
+                Point2d u0{0, 0};
+                assert((u10 ^ u20) > 0);
+                WTCShNew[&f].tc[0].P() = u0;
+                WTCShNew[&f].tc[1].P() = u0 + u10;
+                WTCShNew[&f].tc[2].P() = u0 + u20;
+            }
+        }
+    }
+}
+
 
 // FaceGroup class implementation
 // ==============================
@@ -283,9 +448,9 @@ bool GraphManager::HasNextEdge()
                 return false;
             }
             else {
-                PMesh test;
+                Mesh test;
                 GraphManager::Edge e = we.first;
-                BuildPMeshFromFacePointers<Mesh>(test, {&(e.a->fpVec), &(e.b->fpVec)});
+                BuildMeshFromFacePointers(test, {&(e.a->fpVec), &(e.b->fpVec)});
                 if (Parameterizable(test)) {
                     return true;
                 }
@@ -452,14 +617,14 @@ int GraphManager::CloseMacroRegions(std::size_t minRegionSize)
     }
 
     for (auto& entry : mergeLists) {
-        PMesh probe;
+        Mesh probe;
         std::vector<std::vector<Mesh::FacePointer>* > fpVecp;
         fpVecp.reserve(entry.second.size()+1);
         fpVecp.push_back(&(regions[entry.first]->fpVec));
         for (auto id : entry.second) {
             fpVecp.push_back(&(regions[id]->fpVec));
         }
-        BuildPMeshFromFacePointers<Mesh>(probe, fpVecp);
+        BuildMeshFromFacePointers(probe, fpVecp);
         if (Parameterizable(probe)) {
             std::cout << "Merging " << entry.second.size() << " islands from macro region " << entry.first << std::endl;
             for (auto id : entry.second) {

@@ -1,5 +1,5 @@
-#ifndef FIXEX_BORDER_BIJECTIVE_H
-#define FIXEX_BORDER_BIJECTIVE_H
+#ifndef UNIFORM_SOLVER_H
+#define UNIFORM_SOLVER_H
 
 #include <vector>
 #include <unordered_map>
@@ -15,10 +15,6 @@
 #include "math_utils.h"
 
 #include <vcg/complex/complex.h>
-#include <wrap/io_trimesh/export.h>
-
-#include <vcg/complex/algorithms/hole.h>
-
 
 template <typename MeshType>
 class UniformSolver
@@ -43,16 +39,12 @@ private:
     std::unordered_map<IndexType,CoordUV> constraints;
     std::vector<Td> coeffList;
 
-    //std::unordered_map<VertexPointer,int> vmap;
-
-    //int vn;
-
     int U(int i) { return i; }
     int V(int i) { return mesh.VN() + i; }
 
 public:
 
-    UniformSolver(MeshType &m) : mesh{m}/*, vn{0}*/ {}
+    UniformSolver(MeshType &m) : mesh{m} {}
 
 private:
 
@@ -63,14 +55,7 @@ private:
     {
         return constraints.insert(std::make_pair(vi, uv)).second;
     }
-/*
-    void BuildIndex()
-    {
-        for (auto& v : mesh.vert) {
-            vmap[&v] = vn++;
-        }
-    }
-*/
+
 public:
 
     bool Solve()
@@ -83,15 +68,6 @@ public:
         std::vector<double> vTotalBorderLength;
         std::vector<std::vector<IndexType>> vBorderVertices;
         std::vector<std::vector<double>> vCumulativeBorder;
-
-        /*
-        int splitCount = tri::Clean<MeshType>::SplitNonManifoldVertex(mesh, 0);
-        if (splitCount > 0) {
-            std::cout << "Mesh was not vertex-manifold, " << splitCount << " vertices split" << std::endl;
-        }
-        */
-
-        //tri::io::Exporter<Mesh>::Save(mesh, "surf.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
 
         tri::UpdateFlags<MeshType>::FaceClearV(mesh);
         for (auto& f : mesh.face) {
@@ -129,36 +105,6 @@ public:
             AddConstraint(vBorderVertices[0][i], uvCoord);
         }
 
-        /*
-        assert(vBorderVertices.size() > 0 && "Mesh has no boundaries");
-        // select longest border and pin it to a circle
-        std::size_t k = std::distance(vTotalBorderLength.begin(), std::max_element(vTotalBorderLength.begin(), vTotalBorderLength.end()));
-
-        // map border to the unit circle (store coord in vertex texcoord)
-        constexpr float twoPi = 2 * M_PI;
-        for (std::size_t i = 0; i < vBorderVertices[k].size(); ++i) {
-            float angle = (vCumulativeBorder[k][i] / vTotalBorderLength[k]) * twoPi;
-            Point2d uvCoord = Point2d{std::sin(angle), std::cos(angle)};
-            mesh.vert[vBorderVertices[k][i]].T().P() = uvCoord;
-            AddConstraint(vBorderVertices[k][i], uvCoord);
-        }
-
-        // close the other borders by adding a 'star' vertex for each border
-        int startVerts = mesh.VN();
-        int startFaces = mesh.FN();
-
-        if (vBorderVertices.size() > 1) {
-            // retrieve the hole size parameter, since all holes except the peripheral border, just use the border length minus 1
-            for (std::size_t i = 0; i < vBorderVertices.size(); ++i) {
-                if (i == k) continue;
-                assert(vBorderVertices[k].size() > vBorderVertices[i].size());  // otherwise cannot close all holes below threshold
-            }
-            int maxHoleSize = vBorderVertices[k].size() - 1;
-            tri::Hole<Mesh>::EarCuttingFill<tri::MinimumWeightEar<Mesh>>(mesh, maxHoleSize, false);
-            assert(mesh.VN() == int(startVerts));
-        }
-        */
-
         const int n = mesh.VN();
         Eigen::SparseMatrix<double,Eigen::ColMajor> A(n, n);
         Eigen::VectorXd b_u(Eigen::VectorXd::Zero(n));
@@ -187,7 +133,6 @@ public:
                 b_v[vi] = constraints[vi][1];
             }
             coeffList.push_back(Td(U(entry.first), U(entry.first), 1));
-            //coeffList.push_back(Td(V(entry.first), V(entry.first), 1));
         }
 
 
@@ -235,8 +180,6 @@ public:
             }
         }
 
-        //tri::io::Exporter<Mesh>::Save(mesh, "surf.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
-
         for (auto &f : mesh.face) {
             if (DistortionMetric::AreaUV(f) <= 0) {
                 std::cout << "Failed to compute injective parameterization" << std::endl;
@@ -245,25 +188,10 @@ public:
             }
         }
 
-        // delete added vertices and faces
-
-        //for (std::size_t i = 0; i < newVerts; ++i) {
-        //    VertexType& v = mesh.vert[startVerts + i];
-        //    tri::Allocator<MeshType>::DeleteVertex(mesh, v);
-        //}
-        //tri::Allocator<MeshType>::CompactVertexVector(mesh);
-        /*
-        int newFaces = mesh.FN() - startFaces;
-        for (int i = 0; i < newFaces; ++i) {
-            FaceType& f = mesh.face[startFaces + i];
-            tri::Allocator<MeshType>::DeleteFace(mesh, f);
-        }
-        tri::Allocator<MeshType>::CompactFaceVector(mesh);
-        */
         return true;
     }
 
 };
 
-#endif // DCPSOLVER_H
+#endif // UNIFORM_SOLVER_H
 

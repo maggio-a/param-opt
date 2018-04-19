@@ -21,7 +21,7 @@ struct Point2iHasher {
 
 /// TODO REFACTOR (these enums should be each in their respective headers)
 enum DirectParameterizer {
-    DCP, FixedBorderBijective
+    DCP, FixedBorderBijective, None
 };
 
 enum TexCoordOptimizer {
@@ -39,6 +39,7 @@ struct ParameterizationStrategy {
     DescentType descent = Gradient;
     int optimizerIterations = 0;
     bool padBoundaries = false; // keep holes filled while optimizing from FixedBorderBijective
+    bool remeshHoles = false;
 
     ParameterizationStrategy() = default;
 };
@@ -50,7 +51,7 @@ bool ChartParameterizationHasOverlaps(Mesh& m, GraphManager::ChartHandle chart);
 
 bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy);
 
-bool ParameterizeChart(Mesh &m, GraphManager::ChartHandle ch, ParameterizationStrategy strategy);
+bool ParameterizeChart(Mesh &m, ChartHandle ch, ParameterizationStrategy strategy);
 
 /*
  * Parameterize the mesh graph. Each region is a group of connected mesh faces, and it is assumed to be homeomorphic to a disk.
