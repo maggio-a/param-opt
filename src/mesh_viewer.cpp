@@ -10,6 +10,7 @@
 
 
 #include <vcg/complex/complex.h>
+#include <vcg/complex/algorithms/update/texture.h>
 #include <wrap/io_trimesh/export.h>
 
 #include <GL/glew.h>
@@ -650,7 +651,12 @@ void MeshViewer::UpdateSelection(const RegionID id)
         }
         // Parameterize the aggregate chart, build the vertex buffer and restore the original state
 
-        ParameterizeChart(meshParamData->mesh, aggregate, strategy);
+        Mesh shell;
+        ParameterizeChart(meshParamData->mesh, aggregate, strategy, shell);
+        auto WTCShShell = tri::Allocator<Mesh>::GetPerFaceAttribute<TexCoordStorage>(shell, "WedgeTexCoordStorage");
+
+        tri::UpdateTopology<Mesh>::FaceFace(shell);
+        tri::UpdateTexture<Mesh>::WedgeTexFromVertexTex(shell);
 
         glUseProgram(_detailView.program);
 
@@ -660,11 +666,15 @@ void MeshViewer::UpdateSelection(const RegionID id)
         glBindVertexArray(_detailView.vao);
         glGenBuffers(1, &_vertexBuffers.detail);
         glBindBuffer(GL_ARRAY_BUFFER, _vertexBuffers.detail);
-        glBufferData(GL_ARRAY_BUFFER, 12 * aggregate->FN() * sizeof(float), NULL, GL_STATIC_DRAW);
+        //glBufferData(GL_ARRAY_BUFFER, 12 * aggregate->FN() * sizeof(float), NULL, GL_STATIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, 12 * shell.FN() * sizeof(float), NULL, GL_STATIC_DRAW);
         float *buffptr = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
-        for (auto fptr : aggregate->fpVec) {
+        //for (auto fptr : aggregate->fpVec) {
+        for (auto& f : shell.face) {
+            auto fptr = &f;
             for (int i = 0; i < 3; ++i) {
-                if (face::IsBorder(*fptr, i) || CCIDh[fptr->FFp(i)] != tempID) {
+                //if (face::IsBorder(*fptr, i) || CCIDh[fptr->FFp(i)] != tempID) {
+                if (face::IsBorder(*fptr, i)) {
                     borderVertexData.push_back(fptr->WT(i).P().X());
                     borderVertexData.push_back(fptr->WT(i).P().Y());
                     borderVertexData.push_back(fptr->WT((i+1)%3).P().X());
@@ -672,13 +682,21 @@ void MeshViewer::UpdateSelection(const RegionID id)
                 }
                 *buffptr++ = fptr->WT(i).P().X();
                 *buffptr++ = fptr->WT(i).P().Y();
-                *buffptr++ = fd[fptr].wt.tc[i].P().X();
-                *buffptr++ = fd[fptr].wt.tc[i].P().Y();
+                if (f.holeFilling == false) {
+                    *buffptr++ = WTCShShell[f].tc[i].U();
+                    *buffptr++ = WTCShShell[f].tc[i].V();
+                    //*buffptr++ = fd[fptr].wt.tc[i].P().X();
+                    //*buffptr++ = fd[fptr].wt.tc[i].P().Y();
+                } else {
+                    *buffptr++ = 0.0;
+                    *buffptr++ = 0.0;
+                }
             }
         }
         glUnmapBuffer(GL_ARRAY_BUFFER);
 
-        _detailView.count = (GLsizei) (aggregate->FN() * 3);
+        //_detailView.count = (GLsizei) (aggregate->FN() * 3);
+        _detailView.count = (GLsizei) (shell.FN() * 3);
 
         _detailView.attributes.loc_position = glGetAttribLocation(_detailView.program, "position");
         glVertexAttribPointer(_detailView.attributes.loc_position, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), 0);
@@ -707,7 +725,7 @@ void MeshViewer::UpdateSelection(const RegionID id)
         glBindVertexArray(0);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-        SetupDetailView(aggregate);
+        SetupDetailView(shell);
 
         // restore state
         for (auto fptr : aggregate->fpVec) {
@@ -935,9 +953,10 @@ void MeshViewer::SetupViews()
     _textureView.highlight.uniforms.loc_primitiveColor = glGetUniformLocation(_textureView.highlight.program, "primitiveColor");
 }
 
-void MeshViewer::SetupDetailView(ChartHandle chart)
+//void MeshViewer::SetupDetailView(ChartHandle chart)
+void MeshViewer::SetupDetailView(const Mesh& detailMesh)
 {
-    Box2d bbox = chart->UVBox();
+    Box2d bbox = UVBox(detailMesh);
 
     //_detailCamera.Reset();
     _detailView.uniforms.loc_projection = glGetUniformLocation(_detailView.program, "projectionMatrix");
@@ -1439,7 +1458,7 @@ void MeshViewer::ManageImGuiState()
                     updateColor = true;
                 }
                 _currentTexture->Release();
-                _currentTexture = RenderTexture(meshParamData->mesh, meshParamData->textureObject, false, _window);
+                _currentTexture = RenderTexture(meshParamData->mesh, meshParamData->textureObject, true, _window);
                 //_currentTexture = RenderTexture(meshParamData->mesh, meshParamData->textureObject, false, _window);
            } else {
                std::cout << "No merges, nothing to do" << std::endl;

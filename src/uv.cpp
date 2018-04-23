@@ -47,3 +47,13 @@ void StoreWedgeTexCoordAsAttribute(Mesh &m)
     std::cout << "[LOG] Parameterized " << count << " zero uv area faces" << std::endl;
 }
 
+Box2d UVBox(const Mesh& m)
+{
+    Box2d uvbox;
+    for(auto const& f : m.face) {
+        for (int i = 0; i < 3; ++i) {
+            uvbox.Add(f.cWT(i).P());
+        }
+    }
+    return uvbox;
+}

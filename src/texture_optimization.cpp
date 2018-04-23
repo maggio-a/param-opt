@@ -8,9 +8,12 @@
 #include "iterative.h"
 #include "metric.h"
 #include "parameterization_checker.h"
+#include "mesh_utils.h"
 
 #include <vcg/complex/complex.h>
 #include <vcg/complex/algorithms/update/texture.h>
+#include <vcg/complex/algorithms/geodesic.h>
+#include <vcg/complex/algorithms/crease_cut.h>
 #include <vcg/space/rasterized_outline2_packer.h>
 #include <vcg/space/outline2_packer.h>
 #include <wrap/qt/outline2_rasterizer.h>
@@ -23,6 +26,7 @@
 //#include<vcg/complex/algorithms/crease_cut.h>
 
 #include <vector>
+#include <algorithm>
 
 
 static bool SegmentBoxIntersection(const Segment2<double>& seg, const Box2d& box)
@@ -178,35 +182,271 @@ void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
     std::cout << "[LOG] Newly parameterized regions: " << numParameterized << "/" << numNoParam << std::endl;
 }
 
-bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy)
+struct EdgeDistortionCounter {
+    Mesh::FacePointer fp;
+    int i;
+    double distortion;
+
+    EdgeDistortionCounter(Mesh::FacePointer fptr, int ii) : fp{fptr}, i{ii}, distortion{0}
+    {
+    }
+};
+
+
+struct FacePair {
+    int i1;
+    int i2;
+
+    bool operator==(const FacePair& other) const
+    {
+        return (i1 == other.i1 && i2 == other.i2) || (i1 == other.i2 && i2 == other.i1);
+    }
+};
+
+struct IntPairHasher {
+    std::size_t operator()(const std::pair<int, int>& p) const noexcept
+    {
+        std::size_t seed = 0;
+        int a = std::min(p.first, p.second);
+        int b = std::max(p.first, p.second);
+        seed ^= std::hash<int>()(a) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        seed ^= std::hash<int>()(b) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        return seed;
+    }
+};
+
+#include <wrap/io_trimesh/export.h>
+
+bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy, Mesh& baseMesh)
 {
-    bool solved = false;
-    if (strategy.directParameterizer == DirectParameterizer::DCP) {
-        DCPSolver<Mesh> solver(m);
-        if (strategy.geometry == ParameterizationGeometry::Model) {
-            solved = solver.Solve(DefaultVertexPosition<Mesh>{});
+    using face::Pos;
+    /* for each face, store the segment id of the initial input data
+     * this allows to keep track of existing seams, and cut along those when
+     * the optimization procedure detects excessive distortion */
+    SimpleTempData<Mesh::FaceContainer, RegionID> initialId{m.face};
+    auto MFIh = tri::Allocator<Mesh>::GetPerFaceAttribute<int>(m, "FaceIndex");
+    auto ICCh  = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(baseMesh, "InitialConnectedComponentID");
+    for (auto&f : m.face) {
+        if (f.holeFilling == false) {
+            auto fptr = &baseMesh.face[MFIh[f]];
+            initialId[f] = ICCh[fptr];
         } else {
-            WedgeTexCoordAttributePosition<Mesh> texcoordPosition{m, "WedgeTexCoordStorage"};
-            solved = solver.Solve(texcoordPosition);
+            initialId[f] = INVALID_ID;
         }
-    } else if (strategy.directParameterizer == DirectParameterizer::FixedBorderBijective) {
-        UniformSolver<Mesh> solver(m);
-        solved = solver.Solve();
-        if (strategy.padBoundaries == false) {
-            // delete the faces that were added by the hole filling process
-            for (auto & f : m.face) {
-                if (f.holeFilling) tri::Allocator<Mesh>::DeleteFace(m, f);
-            }
-            tri::Allocator<Mesh>::CompactEveryVector(m);
-        }
-    } else if (strategy.directParameterizer == DirectParameterizer::None) {
-        // do nothing
+    }
+
+    if (strategy.warmStart) {
+        // if warm start is requested, make sure that the initial parameterization is injective
+        // (should also check that it is connected...)
+        assert(CheckLocalInjectivity(m));
+        assert(CheckUVConnectivity(m));
     } else {
-        assert(0 && "Solver not supported");
+        // compute initial bijective parameterization (Tutte)
+        UniformSolver<Mesh> solver(m);
+        bool solved = solver.Solve();
+        if (!solved)
+            return false;
+    }
+
+    if (strategy.padBoundaries == false) {
+        // delete the faces that were added by the hole filling process
+        for (auto & f : m.face) {
+            if (f.holeFilling) tri::Allocator<Mesh>::DeleteFace(m, f);
+        }
+        tri::Allocator<Mesh>::CompactEveryVector(m);
+    }
+
+    /* compute and store the virtual seams, along which the procedure is allowed to cut in order
+     * to relieve the distortion of the flattening if it goes above a given threshold
+     * TODO edges or h-edges?
+     * TODO if a face is holeFilling then the distortion shouldn't really count...
+     * */
+    std::vector<EdgeDistortionCounter> seamEdges;
+    tri::UpdateFlags<Mesh>::FaceSetF(m);
+    tri::UpdateFlags<Mesh>::FaceClearV(m);
+    tri::UpdateFlags<Mesh>::FaceBorderFromFF(m);
+    tri::UpdateFlags<Mesh>::VertexBorderFromFaceBorder(m);
+    tri::UpdateTopology<Mesh>::VertexFace(m);
+    tri::Geodesic<Mesh>::DistanceFromBorder(m);
+
+    std::unordered_set<std::pair<int,int>, IntPairHasher> addedPairs; // only used to track added 'edges'
+
+    MarkInitialSeamsAsCreases(m, initialId);
+
+    float minDistancef, maxDistancef;
+    tri::Stat<Mesh>::ComputePerVertexQualityMinMax(m, minDistancef, maxDistancef);
+
+    // mark original seams as creases in m
+    tri::UpdateFlags<Mesh>::FaceSetF(m);
+    tri::UpdateFlags<Mesh>::FaceClearCreases(m);
+
+    for (auto& f : m.face) {
+        f.C() = vcg::Color4b::DarkGray;
+    }
+
+    for (auto& f : m.face) {
+        for (int i = 0; i < 3; ++i) {
+            if (!f.IsB(i)) {
+                auto& fi = *(f.FFp(i));
+                int ii = f.FFi(i);
+                auto p = std::make_pair(tri::Index(m, f), tri::Index(m, fi));
+                if (addedPairs.find(p) == addedPairs.end()) {
+                    if (initialId[f] != initialId[fi]) {
+                        seamEdges.push_back(EdgeDistortionCounter(&f, i));
+                        addedPairs.insert(p);
+                        f.MarkSeamEdge(i);
+                        fi.MarkSeamEdge(ii);
+                        f.SetCrease(i);
+                        fi.SetCrease(ii);
+                        f.C() = vcg::Color4b::Blue;
+                        fi.C() = vcg::Color4b::Blue;
+                    }
+                }
+            }
+        }
+    }
+
+    addedPairs.clear();
+
+    if (strategy.optimizerIterations > 0) {
+        tri::UpdateTopology<Mesh>::FaceFace(m);
+        int runs = 2;
+        int iterationsPerRun = 1 + (strategy.optimizerIterations / runs);
+
+        while (runs-- > 0) {
+            int mask = 0;
+            mask |= tri::io::Mask::IOM_FACECOLOR;
+            tri::io::Exporter<Mesh>::Save(m, "exported.obj", mask);
+
+            // OPTIMIZE THE FLATTENING
+
+            for (auto& f : m.face) {
+                if (!f.IsD()) assert(DistortionMetric::AreaUV(f) > 0 && "Initial parameterization is not injective");
+            }
+
+            Energy::Geometry mode = Energy::Geometry::Model;
+            if (strategy.geometry == ParameterizationGeometry::Texture) mode = Energy::Geometry::Texture;
+
+            DescentMethod *opt;
+            auto energy = std::make_shared<SymmetricDirichlet>(m, mode);
+            switch(strategy.descent) {
+            case DescentType::Gradient:
+                opt = new GradientDescent{energy};
+                break;
+            case DescentType::LimitedMemoryBFGS:
+                opt = new LBFGS{energy, 10};
+                break;
+            case DescentType::ScalableLocallyInjectiveMappings:
+                opt = new SLIM{energy};
+                break;
+            default:
+                assert(0);
+            }
+
+            Timer t;
+            int i;
+            double energyVal, gradientNorm, energyDiff;
+            for (i = 0; i < iterationsPerRun; ++i) {
+                energyVal = opt->Iterate(gradientNorm, energyDiff);
+                for (auto& f : m.face) {
+                    double areaUV = (f.V(1)->T().P() - f.V(0)->T().P()) ^ (f.V(2)->T().P() - f.V(0)->T().P());
+                    assert(areaUV > 0 && "Parameterization is not bijective");
+                }
+                if (gradientNorm < 1e-3) {
+                    std::cout << "Stopping because gradient magnitude is small enough (" << gradientNorm << ")" << std::endl;
+                    break;
+                }
+                if (energyDiff < 1e-9) {
+                    std::cout << "Stopping because energy improvement is too small (" << energyDiff << ")" << std::endl;
+                    break;
+                }
+            }
+            if (i >= iterationsPerRun) {
+                std::cout << "Maximum number of iterations for run reached" << std::endl;
+            }
+            std::cout << "Stopped after " << i << " iterations, gradient magnitude = " << gradientNorm
+                      << ", normalized energy value = " << energy->E_IgnoreMarkedFaces(true) << std::endl;
+
+            std::cout << "Optimization took " << t.TimeSinceLastCheck() << " seconds" << std::endl;
+
+            if (runs == 0) {
+                tri::io::Exporter<Mesh>::Save(m, "exported_uv.obj", mask | tri::io::Mask::IOM_VERTTEXCOORD | tri::io::Mask::IOM_VERTQUALITY);
+                break;
+            }
+
+            tri::UpdateTexture<Mesh>::WedgeTexFromVertexTex(m);
+
+            delete opt;
+
+            // update distortion values for each seam edge
+            for (auto& edc : seamEdges) {
+                double energy1 = energy->E(*edc.fp);
+                double energy2 = energy->E(*(edc.fp->FFp(edc.i)));
+                double distanceWeight = std::max(edc.fp->V(edc.i)->Q(), edc.fp->V((edc.i+1)%3)->Q());
+                edc.distortion = (energy1 + energy2) * distanceWeight;
+            }
+
+            // CUT THE SURFACE TO REDUCE DISTORTION
+            auto min_edc = std::min_element(seamEdges.begin(), seamEdges.end(), [](const EdgeDistortionCounter& edc1, const EdgeDistortionCounter& edc2) {
+                return edc1.distortion > edc2.distortion; // sort by decreasing order, most distortion first
+            });
+
+            Mesh::FacePointer startFace = min_edc->fp;
+            int i1 = min_edc->i;
+            int i2 = (i1 + 1) % 3;
+
+            double q1 = startFace->V(i1)->Q();
+            double q2 = startFace->V(i2)->Q();
+            Pos<MeshFace> p(startFace, min_edc->i, (q1 < q2) ? startFace->V(i1) : startFace->V(i2));
+            assert(!p.IsBorder() && !p.V()->IsB());
+
+            MarkShortestSeamToBorderAsNonFaux(m, p);
+
+            /*
+            //std::cout << "Cutting from " << tri::Index(m, p.F()) << " " << p.E() << " " << ((q1 < q2) ? i1 : i2) << std::endl;
+
+            auto posCmp = [](const Pos<MeshFace>& p1, const Pos<MeshFace>& p2) { return p1.V()->Q() < p2.V()->Q(); };
+            while (true) {
+                std::cout << "Path traversing " << tri::Index(m, p.F()) << " " << p.E() << " " << p.VInd() << std::endl;
+                std::vector<Pos<MeshFace>> pnext;
+                if (!p.V()->IsB()) {
+                    Pos<MeshFace> startPos = p;
+                    while (true) {
+                        p.FlipF();
+                        p.FlipE();
+                        if (p == startPos)
+                            break;
+                        std::cout << "  Probe at " << tri::Index(m, p.F()) << " " << p.E() << " " << p.VInd() << std::endl;
+                        if (p.F()->SeamEdge(p.E())) { // this is a seam edge, save it
+                            std::cout << "    HERE " << std::endl;
+                            Pos<MeshFace> seamPos = p;
+                            seamPos.FlipV();
+                            pnext.push_back(seamPos);
+                        }
+                    }
+                    assert(pnext.size() > 0);
+                }
+
+                //face::FFDetach<MeshFace>(*p.F(), p.E());
+
+                p.F()->UnmarkSeamEdge(p.E());
+                p.F()->FFp(p.E())->UnmarkSeamEdge(p.F()->FFi(p.E())); //
+                p.F()->ClearF(p.E());
+                p.F()->FFp(p.E())->ClearF(p.F()->FFi(p.E()));
+
+                if (pnext.size() == 0)
+                    break;
+                else
+                    p = *std::min_element(pnext.begin(), pnext.end(), posCmp);
+            }
+            */
+            tri::CutMeshAlongNonFauxEdges(m);
+        }
     }
 
 
 
+/*
     if (solved) { // optimize and Copy texture coords back
 
         if (strategy.optimizerIterations > 0) {
@@ -267,6 +507,8 @@ bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy)
         }
     }
     return solved;
+    */
+    return true;
 }
 
 /* Ugly function that tries to perform subsequent merges after a split. split is the vector of charts
@@ -391,19 +633,26 @@ bool ParameterizeChart(GraphManager& gm, GraphManager::ChartHandle ch, Parameter
 bool ParameterizeChart(Mesh &m, ChartHandle ch, ParameterizationStrategy strategy)
 {
     Mesh pm;
+    return ParameterizeChart(m, ch, strategy, pm);
+}
+
+bool ParameterizeChart(Mesh& m, ChartHandle ch, ParameterizationStrategy strategy, Mesh& outMesh)
+{
+    outMesh.Clear();
     bool sanitize = (strategy.directParameterizer == DirectParameterizer::FixedBorderBijective);
-    CopyFaceGroupIntoMesh(pm, *ch, sanitize, true, strategy.remeshHoles);
+    CopyFaceGroupIntoMesh(outMesh, *ch, sanitize, true, strategy.remeshHoles);
     //CopyFaceGroupIntoMesh(pm, *ch, sanitize, true);
 
-    bool solved = ParameterizeMesh(pm, strategy);
+    bool solved = ParameterizeMesh(outMesh, strategy, ch->mesh);
     if (solved) {
         for (std::size_t i = 0; i < ch->fpVec.size(); ++i) {
             for (int k = 0; k < 3; ++k) {
-                ch->fpVec[i]->WT(k).P() = pm.face[i].WT(k).P();
+                ch->fpVec[i]->WT(k).P() = outMesh.face[i].WT(k).P();
             }
         }
     }
     return solved;
+
 }
 
 int ParameterizeGraph(GraphManager& gm,

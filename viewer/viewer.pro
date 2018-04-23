@@ -35,7 +35,8 @@ SOURCES += viewer.cpp \
     ../src/texture_optimization.cpp \
     ../src/mesh_graph.cpp \
     ../src/uv.cpp \
-    ../src/gl_utils.cpp
+    ../src/gl_utils.cpp \
+    ../src/mesh_utils.cpp
 
 SOURCES += \
     ../src/mesh_viewer.cpp \
@@ -69,7 +70,8 @@ HEADERS += \
     ../src/parameterization_checker.h \
     ../src/gl_utils.h \
     ../src/uniform_solver.h \
-    ../src/dcp_solver.h
+    ../src/dcp_solver.h \
+    ../src/mesh_utils.h
 
 DISTFILES += \
     readme.txt

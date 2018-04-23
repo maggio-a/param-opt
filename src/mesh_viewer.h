@@ -281,7 +281,8 @@ public:
     void Run();
     void InitBuffers();
     void SetupViews();
-    void SetupDetailView(ChartHandle chart);
+    //void SetupDetailView(ChartHandle chart);
+    void SetupDetailView(const Mesh& detailMesh);
 
     void UpdateTransforms();
     void DrawViews();

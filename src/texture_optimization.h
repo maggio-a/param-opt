@@ -40,6 +40,7 @@ struct ParameterizationStrategy {
     int optimizerIterations = 0;
     bool padBoundaries = false; // keep holes filled while optimizing from FixedBorderBijective
     bool remeshHoles = false;
+    bool warmStart = false;
 
     ParameterizationStrategy() = default;
 };
@@ -49,7 +50,14 @@ void PreprocessMesh(Mesh& m);
 
 bool ChartParameterizationHasOverlaps(Mesh& m, GraphManager::ChartHandle chart);
 
-bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy);
+/*
+ * m: the mesh to be parameterized
+ * strategy: self-explanatory
+ * baseMesh: the input Mesh of the whole procedure
+ * */
+bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy, Mesh& baseMesh);
+
+bool ParameterizeChart(Mesh& m, ChartHandle ch, ParameterizationStrategy strategy, Mesh& outMesh);
 
 bool ParameterizeChart(Mesh &m, ChartHandle ch, ParameterizationStrategy strategy);
 

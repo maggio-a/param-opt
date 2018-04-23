@@ -3,6 +3,7 @@
 
 #include "mesh.h"
 #include <vcg/space/texcoord2.h>
+#include <vcg/space/box2.h>
 
 
 struct TexCoordStorage {
@@ -11,6 +12,8 @@ struct TexCoordStorage {
 
 /* Save a copy of the original texture coordinates (this will be used to render the new texture) */
 void StoreWedgeTexCoordAsAttribute(Mesh &m);
+
+vcg::Box2d UVBox(const Mesh& m);
 
 /* Computes per face connected component ids. Two faces with the same id belong
  * to the same connected component. Uses FaceFaceFromTexCoord topology.
