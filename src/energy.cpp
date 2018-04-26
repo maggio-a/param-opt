@@ -83,6 +83,13 @@ double Energy::E_IgnoreMarkedFaces(bool normalized)
     return e / ((normalized) ? (surfaceArea - holeFillingArea) : 1.0);
 }
 
+void Energy::MapToFaceQuality()
+{
+    for (auto& f : m.face) {
+        f.Q() = E(f);
+    }
+}
+
 Mesh::CoordType Energy::P(Mesh::ConstFacePointer fp, int i) {
     switch (i) {
     case 0:

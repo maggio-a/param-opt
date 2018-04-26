@@ -39,6 +39,8 @@ public:
     virtual double E(const Mesh::FaceType& f) = 0;
     virtual Eigen::MatrixXd Grad() = 0;
 
+    void MapToFaceQuality();
+
     double FaceArea(Mesh::ConstFacePointer fp);
     double SurfaceArea();
     double ParameterArea();

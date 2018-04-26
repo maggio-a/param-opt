@@ -261,64 +261,32 @@ bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy, Mesh& baseMesh
      * TODO edges or h-edges?
      * TODO if a face is holeFilling then the distortion shouldn't really count...
      * */
-    std::vector<EdgeDistortionCounter> seamEdges;
-    tri::UpdateFlags<Mesh>::FaceSetF(m);
-    tri::UpdateFlags<Mesh>::FaceClearV(m);
-    tri::UpdateFlags<Mesh>::FaceBorderFromFF(m);
-    tri::UpdateFlags<Mesh>::VertexBorderFromFaceBorder(m);
-    tri::UpdateTopology<Mesh>::VertexFace(m);
-    tri::Geodesic<Mesh>::DistanceFromBorder(m);
 
-    std::unordered_set<std::pair<int,int>, IntPairHasher> addedPairs; // only used to track added 'edges'
+//    MarkInitialSeamsAsCreases(m, initialId);
+//    double maxDistance = ComputeDistanceFromBorderOnSeams(m);
 
-    MarkInitialSeamsAsCreases(m, initialId);
-
-    float minDistancef, maxDistancef;
-    tri::Stat<Mesh>::ComputePerVertexQualityMinMax(m, minDistancef, maxDistancef);
-
-    // mark original seams as creases in m
-    tri::UpdateFlags<Mesh>::FaceSetF(m);
-    tri::UpdateFlags<Mesh>::FaceClearCreases(m);
-
-    for (auto& f : m.face) {
-        f.C() = vcg::Color4b::DarkGray;
-    }
-
-    for (auto& f : m.face) {
-        for (int i = 0; i < 3; ++i) {
-            if (!f.IsB(i)) {
-                auto& fi = *(f.FFp(i));
-                int ii = f.FFi(i);
-                auto p = std::make_pair(tri::Index(m, f), tri::Index(m, fi));
-                if (addedPairs.find(p) == addedPairs.end()) {
-                    if (initialId[f] != initialId[fi]) {
-                        seamEdges.push_back(EdgeDistortionCounter(&f, i));
-                        addedPairs.insert(p);
-                        f.MarkSeamEdge(i);
-                        fi.MarkSeamEdge(ii);
-                        f.SetCrease(i);
-                        fi.SetCrease(ii);
-                        f.C() = vcg::Color4b::Blue;
-                        fi.C() = vcg::Color4b::Blue;
-                    }
-                }
-            }
-        }
-    }
-
-    addedPairs.clear();
+//    tri::UpdateColor<Mesh>::PerVertexQualityRamp(m, 0, maxDistance);
+//    for (auto& v : m.vert) if (v.Q() == INFINITY) v.C() = vcg::Color4b::DarkGray;
+//    tri::io::Exporter<Mesh>::Save(m, "exported_vertcolor.obj", tri::io::Mask::IOM_VERTCOLOR | tri::io::Mask::IOM_FACECOLOR);
 
     if (strategy.optimizerIterations > 0) {
         tri::UpdateTopology<Mesh>::FaceFace(m);
-        int runs = 2;
-        int iterationsPerRun = 1 + (strategy.optimizerIterations / runs);
+        int runs = 1;
+        int iterationsPerRun = strategy.optimizerIterations;
 
         while (runs-- > 0) {
+            /* compute and store the virtual seams, along which the procedure is allowed to cut in order
+             * to relieve the distortion of the flattening if it goes above a given threshold
+             * note that if a face is holeFilling, the energy computation automatically attenuates distortion
+             * */
+            MarkInitialSeamsAsCreases(m, initialId);
+            double maxDistance = ComputeDistanceFromBorderOnSeams(m);
+
             int mask = 0;
             mask |= tri::io::Mask::IOM_FACECOLOR;
             tri::io::Exporter<Mesh>::Save(m, "exported.obj", mask);
 
-            // OPTIMIZE THE FLATTENING
+            // Minimize energy
 
             for (auto& f : m.face) {
                 if (!f.IsD()) assert(DistortionMetric::AreaUV(f) > 0 && "Initial parameterization is not injective");
@@ -369,36 +337,42 @@ bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy, Mesh& baseMesh
 
             std::cout << "Optimization took " << t.TimeSinceLastCheck() << " seconds" << std::endl;
 
-            if (runs == 0) {
+            //if (runs == 0) {
                 tri::io::Exporter<Mesh>::Save(m, "exported_uv.obj", mask | tri::io::Mask::IOM_VERTTEXCOORD | tri::io::Mask::IOM_VERTQUALITY);
-                break;
-            }
+             //   break;
+            //}
 
             tri::UpdateTexture<Mesh>::WedgeTexFromVertexTex(m);
 
+            energy->MapToFaceQuality();
+            tri::UpdateColor<Mesh>::PerFaceQualityRamp(m);
+            tri::io::Exporter<Mesh>::Save(m, "exported_facecolor.obj", mask | tri::io::Mask::IOM_FACECOLOR);
+
+            if (runs == 0) break;
+
             delete opt;
 
-            // update distortion values for each seam edge
-            for (auto& edc : seamEdges) {
-                double energy1 = energy->E(*edc.fp);
-                double energy2 = energy->E(*(edc.fp->FFp(edc.i)));
-                double distanceWeight = std::max(edc.fp->V(edc.i)->Q(), edc.fp->V((edc.i+1)%3)->Q());
-                edc.distortion = (energy1 + energy2) * distanceWeight;
+            // Select candidate crease edge for cutting
+
+            double maxEnergy = 0;
+            Mesh::FacePointer startFace = nullptr;
+            int cutEdge = -1;
+            for (auto& f : m.face) {
+                for (int i = 0; i < 3; ++i) if (f.IsCrease(i)) {
+                    double w = std::max(f.V0(i)->Q(), f.V1(i)->Q()) / maxDistance;
+                    double weightedEnergy = energy->E(f) * w;
+                    // w is INFINITY if the seam does not reach the mesh boundary
+                    if (std::isfinite(weightedEnergy) && weightedEnergy > maxEnergy) {
+                        maxEnergy = weightedEnergy;
+                        startFace = &f;
+                        cutEdge = i;
+                    }
+                }
             }
+            assert(startFace != nullptr);
 
-            // CUT THE SURFACE TO REDUCE DISTORTION
-            auto min_edc = std::min_element(seamEdges.begin(), seamEdges.end(), [](const EdgeDistortionCounter& edc1, const EdgeDistortionCounter& edc2) {
-                return edc1.distortion > edc2.distortion; // sort by decreasing order, most distortion first
-            });
-
-            Mesh::FacePointer startFace = min_edc->fp;
-            int i1 = min_edc->i;
-            int i2 = (i1 + 1) % 3;
-
-            double q1 = startFace->V(i1)->Q();
-            double q2 = startFace->V(i2)->Q();
-            Pos<MeshFace> p(startFace, min_edc->i, (q1 < q2) ? startFace->V(i1) : startFace->V(i2));
-            assert(!p.IsBorder() && !p.V()->IsB());
+            PosF p(startFace, cutEdge);
+            assert(!p.IsBorder());
 
             MarkShortestSeamToBorderAsNonFaux(m, p);
 
@@ -441,6 +415,13 @@ bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy, Mesh& baseMesh
             }
             */
             tri::CutMeshAlongNonFauxEdges(m);
+            tri::UpdateTopology<Mesh>::FaceFace(m);
+            tri::UpdateFlags<Mesh>::VertexBorderFromFaceAdj(m);
+            for (auto& f : m.face) {
+                for (int i = 0; i < 3; i++) {
+                    if (face::IsBorder(f, i)) f.ClearCrease(i);
+                }
+            }
         }
     }
 

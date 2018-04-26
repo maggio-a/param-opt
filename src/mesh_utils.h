@@ -5,11 +5,16 @@
 
 #include <vector>
 
-void MarkInitialSeamsAsCreases(Mesh& m, const SimpleTempData<TriMesh::FaceContainer, RegionID> &initialId);
+using PosF = face::Pos<MeshFace>;
 
-void MarkShortestSeamToBorderAsNonFaux(Mesh& m, const face::Pos<Mesh::FaceType>& pos);
+std::vector<PosF> GetCreasePosFan(PosF& startPos);
+void MarkInitialSeamsAsCreases(Mesh& m, SimpleTempData<Mesh::FaceContainer, RegionID> &initialId);
+void ClearCreaseLoops(Mesh& m);
 
-bool ComputePathToBoundary(Mesh& m, const face::Pos<Mesh::FaceType>& pos, std::vector<face::Pos<Mesh::FaceType>>& path);
+void MarkShortestSeamToBorderAsNonFaux(Mesh& m, const PosF& pos);
+
+double ComputeDistanceFromBorderOnSeams(Mesh& m);
+bool ComputePathToBoundary(Mesh& m, const PosF& pos, std::vector<PosF>& path);
 void ClearCreasesAlongPath(Mesh& m, std::vector<PosF>& path);
 
 #endif // MESH_UTILS_H

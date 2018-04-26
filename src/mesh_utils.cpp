@@ -8,7 +8,72 @@
 #include <algorithm>
 
 using namespace vcg;
-using PosF = face::Pos<MeshFace>;
+
+//static constexpr double INFINITY = std::numeric_limits<double>::infinity();
+
+struct PosNode {
+    PosF pos;
+    double distance;
+
+    PosNode() = default;
+    PosNode(PosF p, double d) : pos{p}, distance{d} {}
+
+    bool operator<(const PosNode& other) { return distance < other.distance; }
+};
+
+// assumption: the original texture seams are marked as crease edges
+double ComputeDistanceFromBorderOnSeams(Mesh& m)
+{
+    tri::UpdateTopology<Mesh>::FaceFace(m);
+    tri::UpdateFlags<Mesh>::VertexBorderFromFaceAdj(m);
+    tri::UpdateQuality<Mesh>::VertexConstant(m, INFINITY);
+
+    // initialize the frontier as a sequence of PosNode objects pointing to boundary vertices along texture seams
+    std::vector<PosNode> probes;
+    for (auto& f : m.face) {
+        for (int i = 0; i < 3; ++i) {
+            if (f.IsCrease(i)) {
+                PosF p{&f, i};
+                if (p.V()->IsB() && p.V()->Q() == INFINITY) {
+                    probes.push_back(PosNode{p, 0});
+                    p.V()->Q() = 0;
+                }
+                p.FlipV();
+                if (p.V()->IsB() && p.V()->Q() == INFINITY) {
+                    p.V()->Q() = 0;
+                    probes.push_back(PosNode{p, 0});
+                }
+            }
+        }
+    }
+
+    tri::EuclideanDistance<Mesh> dist;
+    std::make_heap(probes.begin(), probes.end());
+    while (!probes.empty()) {
+        std::pop_heap(probes.begin(), probes.end());
+        PosNode node = probes.back();
+        probes.pop_back();
+        if (node.distance == node.pos.V()->Q()) {
+            std::vector<PosF> fan = GetCreasePosFan(node.pos);
+            for (auto& creasePos : fan) {
+                double d = node.pos.V()->Q() + dist(node.pos.V(), creasePos.V());
+                if (d < creasePos.V()->Q()) {
+                    creasePos.V()->Q() = d;
+                    probes.push_back(PosNode{creasePos, d});
+                    std::push_heap(probes.begin(), probes.end());
+                }
+            }
+        } // otherwise the entry is obsolete
+    }
+
+    double maxDist = 0;
+    for (auto& v : m.vert) {
+        if (v.Q() < 0) assert(0);
+        if (v.Q() < INFINITY && v.Q() > maxDist) maxDist = v.Q();
+    }
+
+    return maxDist;
+}
 
 
 void MarkInitialSeamsAsCreases(Mesh& m, SimpleTempData<Mesh::FaceContainer, RegionID>& initialId)
@@ -32,10 +97,20 @@ void MarkInitialSeamsAsCreases(Mesh& m, SimpleTempData<Mesh::FaceContainer, Regi
             }
         }
     }
-
 }
 
-static std::vector<PosF> GetCreasePosFan(PosF& startPos)
+void ClearCreaseLoops(Mesh& m)
+{
+    for (auto& f : m.face) {
+        for (int i = 0; i < 3; i++) {
+            if (f.IsCrease(i)) {
+
+            }
+        }
+    }
+}
+
+std::vector<PosF> GetCreasePosFan(PosF& startPos)
 {
     std::vector<PosF> posVec;
     PosF p = startPos;
@@ -50,16 +125,6 @@ static std::vector<PosF> GetCreasePosFan(PosF& startPos)
     } while (p != startPos);
     return posVec;
 }
-
-struct PosNode {
-    PosF pos;
-    double distance;
-
-    PosNode() = default;
-    PosNode(PosF p, double d) : pos{p}, distance{d} {}
-
-    bool operator<(const PosNode& other) { return distance < other.distance; }
-};
 
 void ClearCreasesAlongPath(Mesh& m, std::vector<PosF>& path)
 {
@@ -223,7 +288,7 @@ void MarkShortestSeamToBorderAsNonFaux(Mesh& m, const PosF& pos)
 
 
     while (cutter.V() != pos.V()) {
-        //std::cout << "traversing face " << tri::Index(m, cutter.F()) << " vertex " << cutter.VInd() << std::endl;
+       // std::cout << "traversing face " << tri::Index(m, cutter.F()) << " vertex " << cutter.VInd() << std::endl;
         assert(P.count(cutter.V()) == 1);
         Mesh::FacePointer fp = cutter.F();
         cutter.F()->ClearF(cutter.E());
