@@ -90,12 +90,17 @@ inline Mesh::PerFaceAttributeHandle<CoordStorage> GetTargetShapeAttribute(Mesh& 
 
 inline bool HasTargetShapeAttribute(Mesh& shell)
 {
-    return tri::Allocator<Mesh>::IsValidHandle<RegionID>(shell, tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(shell, "FaceAttribute_TargetShape"));
+    return tri::Allocator<Mesh>::IsValidHandle<CoordStorage>(shell, tri::Allocator<Mesh>::FindPerFaceAttribute<CoordStorage>(shell, "FaceAttribute_TargetShape"));
 }
 
 inline Mesh::PerFaceAttributeHandle<int> GetFaceIndexAttribute(Mesh& shell)
 {
     return tri::Allocator<Mesh>::GetPerFaceAttribute<int>(shell, "FaceAttribute_FaceIndex");
+}
+
+inline bool HasFaceIndexAttribute(Mesh& shell)
+{
+    return tri::Allocator<Mesh>::IsValidHandle<int>(shell, tri::Allocator<Mesh>::FindPerFaceAttribute<int>(shell, "FaceAttribute_FaceIndex"));
 }
 
 #endif // MESH_ATTRIBUTE_H

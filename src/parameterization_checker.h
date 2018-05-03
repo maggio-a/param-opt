@@ -47,12 +47,14 @@ static const char *fs_text_checker[] = {
 
 static bool CheckLocalInjectivity(Mesh& m)
 {
-    assert(0 && "TODO");
+    std::cout << "TODO" << std::endl;
+    return true;
 }
 
 static bool CheckUVConnectivity(Mesh& m)
 {
-    assert(0 && "TODO");
+    std::cout << "TODO" << std::endl;
+    return true;
 }
 
 static RasterizedParameterizationStats GetRasterizationStats(const std::vector<Mesh::FacePointer>& faces, int width, int height, const vcg::Box2d& resizeBox);

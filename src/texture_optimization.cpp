@@ -247,6 +247,8 @@ bool ParameterizeShell(Mesh& shell, ParameterizationStrategy strategy, Mesh& bas
         int i;
         double energyVal, normalizedEnergyVal, gradientNorm, energyDiff;
         for (i = 0; i < strategy.optimizerIterations; ++i) {
+            tri::io::Exporter<Mesh>::Save(shell, "shell.obj", tri::io::Mask::IOM_FACECOLOR | tri::io::Mask::IOM_VERTTEXCOORD);
+
             // create energy and optimizer
             auto energy = std::make_shared<SymmetricDirichlet>(shell);
             std::shared_ptr<DescentMethod> opt;
