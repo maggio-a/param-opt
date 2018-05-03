@@ -57,9 +57,9 @@ bool ChartParameterizationHasOverlaps(Mesh& m, GraphManager::ChartHandle chart);
  * */
 bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy, Mesh& baseMesh);
 
-bool ParameterizeChart(Mesh& m, ChartHandle ch, ParameterizationStrategy strategy, Mesh& outMesh);
+bool ParameterizeChart(Mesh& m, ChartHandle ch, ParameterizationStrategy strategy, Mesh& outMesh, bool wtcsh = true);
 
-bool ParameterizeChart(Mesh &m, ChartHandle ch, ParameterizationStrategy strategy);
+bool ParameterizeChart(Mesh &m, ChartHandle ch, ParameterizationStrategy strategy, bool wtcsh = true);
 
 /*
  * Parameterize the mesh graph. Each region is a group of connected mesh faces, and it is assumed to be homeomorphic to a disk.

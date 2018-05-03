@@ -45,8 +45,10 @@ int main(int argc, char *argv[])
 
     assert(loadMask & tri::io::Mask::IOM_WEDGTEXCOORD);
 
-    PreprocessMesh(m);
+    ComputeParameterizationScaleInfo(m);
+
     StoreWedgeTexCoordAsAttribute(m);
+    PreprocessMesh(m);
 
     float uvMeshBorder;
     auto graph = ComputeParameterizationGraph(m, textureObject, &uvMeshBorder);

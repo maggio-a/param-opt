@@ -71,7 +71,8 @@ HEADERS += \
     ../src/gl_utils.h \
     ../src/uniform_solver.h \
     ../src/dcp_solver.h \
-    ../src/mesh_utils.h
+    ../src/mesh_utils.h \
+    ../src/mesh_attribute.h
 
 DISTFILES += \
     readme.txt

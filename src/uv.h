@@ -10,10 +10,17 @@ struct TexCoordStorage {
     vcg::TexCoord2d tc[3];
 };
 
+struct CoordStorage {
+    vcg::Point3d P[3];
+};
+
 /* Save a copy of the original texture coordinates (this will be used to render the new texture) */
 void StoreWedgeTexCoordAsAttribute(Mesh &m);
 
 vcg::Box2d UVBox(const Mesh& m);
+
+/* Computes and stores as attribute the scale from 3D to UV space of the existing parameterization */
+double ComputeParameterizationScaleInfo(Mesh& m);
 
 /* Computes per face connected component ids. Two faces with the same id belong
  * to the same connected component. Uses FaceFaceFromTexCoord topology.

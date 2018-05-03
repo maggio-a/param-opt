@@ -28,7 +28,6 @@
 #include <vector>
 #include <algorithm>
 
-
 static bool SegmentBoxIntersection(const Segment2<double>& seg, const Box2d& box)
 {
     Point2d isec;
@@ -127,6 +126,7 @@ bool ChartParameterizationHasOverlaps(Mesh& m, GraphManager::ChartHandle chart)
 
 void PreprocessMesh(Mesh& m)
 {
+    std::cout << "FIXME" << std::endl;
     // Compute preliminary parameterization graph
     auto graph = ComputeParameterizationGraph(m, nullptr, nullptr);
 
@@ -137,6 +137,11 @@ void PreprocessMesh(Mesh& m)
 
 void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
 {
+
+    std::cout << "TODO FIXME" << std::endl;
+    return;
+
+#if 0
     double scale;
     DistortionMetric::ComputeAreaScale(m, scale, ParameterizationGeometry::Model);
     scale = std::sqrt(1.0 / scale);
@@ -159,7 +164,7 @@ void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
         strategy.descent = ScalableLocallyInjectiveMappings;
         strategy.optimizerIterations = 200;
         std::cout << "Parameterizing region of " << chart->FN() << " zero UV area faces" << std::endl;
-        bool parameterized = ParameterizeChart(m, chart, strategy);
+        bool parameterized = ParameterizeChart(m, chart, strategy, false);
 
         if (!parameterized) {
             std::cout << "WARNING: preliminary parameterization of chart " << chart->id << " failed" << std::endl;
@@ -180,6 +185,7 @@ void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
     }
 
     std::cout << "[LOG] Newly parameterized regions: " << numParameterized << "/" << numNoParam << std::endl;
+#endif
 }
 
 struct EdgeDistortionCounter {
@@ -274,6 +280,9 @@ bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy, Mesh& baseMesh
         int runs = 1;
         int iterationsPerRun = strategy.optimizerIterations;
 
+        Energy::Geometry mode = Energy::Geometry::Model;
+        if (strategy.geometry == ParameterizationGeometry::Texture) mode = Energy::Geometry::Texture;
+
         while (runs-- > 0) {
             /* compute and store the virtual seams, along which the procedure is allowed to cut in order
              * to relieve the distortion of the flattening if it goes above a given threshold
@@ -292,48 +301,54 @@ bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy, Mesh& baseMesh
                 if (!f.IsD()) assert(DistortionMetric::AreaUV(f) > 0 && "Initial parameterization is not injective");
             }
 
-            Energy::Geometry mode = Energy::Geometry::Model;
-            if (strategy.geometry == ParameterizationGeometry::Texture) mode = Energy::Geometry::Texture;
-
-            DescentMethod *opt;
-            auto energy = std::make_shared<SymmetricDirichlet>(m, mode);
-            switch(strategy.descent) {
-            case DescentType::Gradient:
-                opt = new GradientDescent{energy};
-                break;
-            case DescentType::LimitedMemoryBFGS:
-                opt = new LBFGS{energy, 10};
-                break;
-            case DescentType::ScalableLocallyInjectiveMappings:
-                opt = new SLIM{energy};
-                break;
-            default:
-                assert(0);
-            }
-
+            int i = 0;
             Timer t;
-            int i;
-            double energyVal, gradientNorm, energyDiff;
-            for (i = 0; i < iterationsPerRun; ++i) {
-                energyVal = opt->Iterate(gradientNorm, energyDiff);
-                for (auto& f : m.face) {
-                    double areaUV = (f.V(1)->T().P() - f.V(0)->T().P()) ^ (f.V(2)->T().P() - f.V(0)->T().P());
-                    assert(areaUV > 0 && "Parameterization is not bijective");
-                }
-                if (gradientNorm < 1e-3) {
-                    std::cout << "Stopping because gradient magnitude is small enough (" << gradientNorm << ")" << std::endl;
+            double energyVal, normalizedEnergyVal, gradientNorm, energyDiff;
+            while (i <  iterationsPerRun) {
+                DescentMethod *opt;
+                auto energy = std::make_shared<SymmetricDirichlet>(m, mode);
+                switch(strategy.descent) {
+                case DescentType::Gradient:
+                    opt = new GradientDescent{energy};
                     break;
-                }
-                if (energyDiff < 1e-9) {
-                    std::cout << "Stopping because energy improvement is too small (" << energyDiff << ")" << std::endl;
+                case DescentType::LimitedMemoryBFGS:
+                    opt = new LBFGS{energy, 10};
                     break;
+                case DescentType::ScalableLocallyInjectiveMappings:
+                    opt = new SLIM{energy};
+                    break;
+                default:
+                    assert(0);
                 }
+
+               for (; i < iterationsPerRun && ((i+1) % 120) != 0; ++i) {
+                    energyVal = opt->Iterate(gradientNorm, energyDiff);
+                    for (auto& f : m.face) {
+                        double areaUV = (f.V(1)->T().P() - f.V(0)->T().P()) ^ (f.V(2)->T().P() - f.V(0)->T().P());
+                        assert(areaUV > 0 && "Parameterization is not bijective");
+                    }
+                    normalizedEnergyVal = energy->E_IgnoreMarkedFaces(true);
+                    if (gradientNorm < 1e-3) {
+                        std::cout << "Stopping because gradient magnitude is small enough (" << gradientNorm << ")" << std::endl;
+                        break;
+                    }
+                    if (energyDiff < 1e-9) {
+                        std::cout << "Stopping because energy improvement is too small (" << energyDiff << ")" << std::endl;
+                        break;
+                    }
+                }
+                if (i >= iterationsPerRun) {
+                    std::cout << "Maximum number of iterations for run reached" << std::endl;
+                } else {
+                    RemeshShellHoles(m);
+                    ++i;
+                }
+
+                delete opt;
             }
-            if (i >= iterationsPerRun) {
-                std::cout << "Maximum number of iterations for run reached" << std::endl;
-            }
+
             std::cout << "Stopped after " << i << " iterations, gradient magnitude = " << gradientNorm
-                      << ", normalized energy value = " << energy->E_IgnoreMarkedFaces(true) << std::endl;
+                      << ", normalized energy value = " << normalizedEnergyVal << std::endl;
 
             std::cout << "Optimization took " << t.TimeSinceLastCheck() << " seconds" << std::endl;
 
@@ -343,14 +358,17 @@ bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy, Mesh& baseMesh
             //}
 
             tri::UpdateTexture<Mesh>::WedgeTexFromVertexTex(m);
+            auto energy = std::make_shared<SymmetricDirichlet>(m, mode);
+            energy->MapToFaceQuality(true);
 
-            energy->MapToFaceQuality();
             tri::UpdateColor<Mesh>::PerFaceQualityRamp(m);
+            float minq, maxq;
+            tri::Stat<Mesh>::ComputePerFaceQualityMinMax(m, minq, maxq);
+            std::cout << "Min distortion value = " << minq << std::endl;
+            std::cout << "Max distortion value = " << maxq << std::endl;
             tri::io::Exporter<Mesh>::Save(m, "exported_facecolor.obj", mask | tri::io::Mask::IOM_FACECOLOR);
 
             if (runs == 0) break;
-
-            delete opt;
 
             // Select candidate crease edge for cutting
 
@@ -621,7 +639,7 @@ bool ParameterizeChart(Mesh& m, ChartHandle ch, ParameterizationStrategy strateg
 {
     outMesh.Clear();
     bool sanitize = (strategy.directParameterizer == DirectParameterizer::FixedBorderBijective);
-    CopyFaceGroupIntoMesh(outMesh, *ch, sanitize, true, strategy.remeshHoles);
+    CopyFaceGroupIntoMesh(outMesh, *ch, sanitize, wtcsh, strategy.remeshHoles);
     //CopyFaceGroupIntoMesh(pm, *ch, sanitize, true);
 
     bool solved = ParameterizeMesh(outMesh, strategy, ch->mesh);
