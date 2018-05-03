@@ -175,6 +175,8 @@ void CloseShellHoles(Mesh& shell)
         tri::Hole<Mesh>::EarCuttingFill<tri::MinimumWeightEar<Mesh>>(shell, shell.FN(), true);
     }
 
+    tri::UpdateTopology<Mesh>::FaceFace(shell);
+
     auto ia = GetFaceIndexAttribute(shell);
 
     tri::UpdateFlags<Mesh>::FaceClearS(shell);

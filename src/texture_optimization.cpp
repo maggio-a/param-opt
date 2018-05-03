@@ -128,7 +128,7 @@ void PreprocessMesh(Mesh& m)
 {
     std::cout << "FIXME" << std::endl;
     // Compute preliminary parameterization graph
-    auto graph = ComputeParameterizationGraph(m, nullptr, nullptr);
+    auto graph = ComputeParameterizationGraph(m, nullptr);
 
     // Parameterize regions that are not parameterized
     ReparameterizeZeroAreaRegions(m, graph);
@@ -223,7 +223,87 @@ struct IntPairHasher {
 
 #include <wrap/io_trimesh/export.h>
 
-bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy, Mesh& baseMesh)
+bool ParameterizeShell(Mesh& shell, ParameterizationStrategy strategy, Mesh& baseMesh)
+{
+    if (strategy.warmStart) {
+        // if warm start is requested, make sure that the initial parameterization is injective
+        // (should also check that it is connected...)
+        assert(CheckLocalInjectivity(shell));
+        assert(CheckUVConnectivity(shell));
+    } else {
+        // compute initial bijective parameterization (Tutte)
+        UniformSolver<Mesh> solver(shell);
+        bool solved = solver.Solve();
+        if (!solved)
+            return false;
+    }
+
+    if (strategy.padBoundaries == false)
+        ClearHoleFillingFaces(shell);
+
+    if (strategy.optimizerIterations > 0) {
+        // TODO
+        Timer t;
+        int i;
+        double energyVal, normalizedEnergyVal, gradientNorm, energyDiff;
+        for (i = 0; i < strategy.optimizerIterations; ++i) {
+            // create energy and optimizer
+            auto energy = std::make_shared<SymmetricDirichlet>(shell);
+            std::shared_ptr<DescentMethod> opt;
+            switch(strategy.descent) {
+            case DescentType::Gradient:
+                opt = std::make_shared<GradientDescent>(energy);
+                break;
+            case DescentType::LimitedMemoryBFGS:
+                opt = std::make_shared<LBFGS>(energy, 10);
+                break;
+            case DescentType::ScalableLocallyInjectiveMappings:
+                opt = std::make_shared<SLIM>(energy);
+                break;
+            default:
+                assert(0);
+            }
+
+            energyVal = opt->Iterate(gradientNorm, energyDiff);
+
+            for (auto& sf : shell.face) {
+                double areaUV = (sf.V(1)->T().P() - sf.V(0)->T().P()) ^ (sf.V(2)->T().P() - sf.V(0)->T().P());
+                assert(areaUV > 0 && "Parameterization is not bijective");
+            }
+            normalizedEnergyVal = energy->E_IgnoreMarkedFaces(true);
+            if (gradientNorm < 1e-3) {
+                std::cout << "Stopping because gradient magnitude is small enough (" << gradientNorm << ")" << std::endl;
+                break;
+            }
+            if (energyDiff < 1e-9) {
+                std::cout << "Stopping because energy improvement is too small (" << energyDiff << ")" << std::endl;
+                break;
+            }
+
+            tri::UpdateTexture<Mesh>::WedgeTexFromVertexTex(shell);
+            energy->MapToFaceQuality(true);
+
+            tri::UpdateColor<Mesh>::PerFaceQualityRamp(shell);
+            float minq, maxq;
+            tri::Stat<Mesh>::ComputePerFaceQualityMinMax(shell, minq, maxq);
+            std::cout << "Min distortion value = " << minq << std::endl;
+            std::cout << "Max distortion value = " << maxq << std::endl;
+
+            SyncShell(shell);
+            RemeshShellHoles(shell, strategy.geometry, baseMesh);
+        }
+        std::cout << "Stopped after " << i << " iterations, gradient magnitude = " << gradientNorm
+                  << ", normalized energy value = " << normalizedEnergyVal << std::endl;
+
+        std::cout << "Optimization took " << t.TimeSinceLastCheck() << " seconds" << std::endl;
+    }
+
+    return true;
+}
+
+
+#if 0
+static bool UNUSED_ParameterizeShell(Mesh& m, ParameterizationStrategy strategy, Mesh& baseMesh)
 {
     using face::Pos;
     /* for each face, store the segment id of the initial input data
@@ -340,7 +420,7 @@ bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy, Mesh& baseMesh
                 if (i >= iterationsPerRun) {
                     std::cout << "Maximum number of iterations for run reached" << std::endl;
                 } else {
-                    RemeshShellHoles(m);
+                    //RemeshShellHoles(m);
                     ++i;
                 }
 
@@ -510,6 +590,8 @@ bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy, Mesh& baseMesh
     return true;
 }
 
+#endif
+
 /* Ugly function that tries to perform subsequent merges after a split. split is the vector of charts
  * that formed the aggregate, chartQueue is the queue were the newly merged charts must be inserted
  * */
@@ -631,22 +713,23 @@ bool ParameterizeChart(GraphManager& gm, GraphManager::ChartHandle ch, Parameter
  */
 bool ParameterizeChart(Mesh &m, ChartHandle ch, ParameterizationStrategy strategy)
 {
-    Mesh pm;
-    return ParameterizeChart(m, ch, strategy, pm);
+    Mesh shell;
+    return ParameterizeChart(m, ch, strategy, shell);
 }
 
-bool ParameterizeChart(Mesh& m, ChartHandle ch, ParameterizationStrategy strategy, Mesh& outMesh)
+bool ParameterizeChart(Mesh& m, ChartHandle ch, ParameterizationStrategy strategy, Mesh& shell)
 {
-    outMesh.Clear();
-    bool sanitize = (strategy.directParameterizer == DirectParameterizer::FixedBorderBijective);
-    CopyFaceGroupIntoMesh(outMesh, *ch, sanitize, wtcsh, strategy.remeshHoles);
-    //CopyFaceGroupIntoMesh(pm, *ch, sanitize, true);
+    shell.Clear();
+    BuildShell(shell, *ch, strategy.geometry);
 
-    bool solved = ParameterizeMesh(outMesh, strategy, ch->mesh);
+    std::cout << "WARNING forcing warm start to true" << std::endl;
+    strategy.warmStart = true;
+
+    bool solved = ParameterizeShell(shell, strategy, ch->mesh);
     if (solved) {
         for (std::size_t i = 0; i < ch->fpVec.size(); ++i) {
             for (int k = 0; k < 3; ++k) {
-                ch->fpVec[i]->WT(k).P() = outMesh.face[i].WT(k).P();
+                ch->fpVec[i]->WT(k).P() = shell.face[i].WT(k).P();
             }
         }
     }

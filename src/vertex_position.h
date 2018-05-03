@@ -4,6 +4,7 @@
 #include <cassert>
 
 #include "uv.h"
+#include "mesh_attribute.h"
 
 template <typename MeshType>
 struct DefaultVertexPosition

@@ -209,6 +209,7 @@ private:
         struct {
             GLint loc_position;
             GLint loc_texcoord;
+            GLint loc_color;
         } attributes;
         struct {
             GLint loc_projection;

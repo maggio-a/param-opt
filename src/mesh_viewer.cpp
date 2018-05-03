@@ -29,6 +29,7 @@
 #include "texture_rendering.h"
 #include "parameterization_checker.h"
 #include "timer.h"
+#include "mesh_attribute.h"
 
 #include "linmath.h"
 
@@ -62,6 +63,7 @@ const char *vs_text_texture[] = {
     "                                                                              \n"
     "in vec2 position;                                                             \n"
     "in vec2 texcoord;                                                             \n"
+    "in vec4 distcolor;                                                            \n"
     "                                                                              \n"
     "out vec2 uv;                                                                  \n"
     "out vec4 dcol;                                                                \n"
@@ -69,7 +71,7 @@ const char *vs_text_texture[] = {
     "void main(void)                                                               \n"
     "{                                                                             \n"
     "    uv = texcoord;                                                            \n"
-    "    dcol = primitiveColor;                                                    \n"
+    "    dcol = distcolor;                                                        \n"
     "    gl_Position = projectionMatrix * vec4(position, 0.5f, 1.0f);              \n"
     "}                                                                             \n"
 };
@@ -97,7 +99,7 @@ const char *fs_text_texture[] = {
     "        color *= texture(tex0, uv);                            \n"
     "    }                                                          \n"
     "    if ((colorMask & COLOR_SRC_PRIMITIVE) != 0) {              \n"
-    "        color *= dcol;                                         \n"
+    "        color *= dcol * texture(tex0, uv);                     \n"
     "    }                                                          \n"
     "    if ((colorMask & COLOR_SRC_CHECKBOARD) != 0) {             \n"
     "        float u_mod = mod(floor(uv.s * resolution), 2.0f);     \n"
@@ -541,6 +543,7 @@ void MeshViewer::UpdateSelection(const RegionID id)
         _vertexBuffers.highlight.push_back(highlight_vbo);
 
         // generate icons - reuse detail view program
+        /*
         glUseProgram(_detailView.program);
 
         glBindBuffer(GL_ARRAY_BUFFER, selection_vbo);
@@ -610,6 +613,7 @@ void MeshViewer::UpdateSelection(const RegionID id)
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         glDeleteVertexArrays(1, &icon_vao);
         glDeleteFramebuffers(1, &fbo);
+        */
 
         CheckGLError();
     }
@@ -651,9 +655,11 @@ void MeshViewer::UpdateSelection(const RegionID id)
         }
         // Parameterize the aggregate chart, build the vertex buffer and restore the original state
 
+        Mesh& m = meshParamData->mesh;
         Mesh shell;
-        ParameterizeChart(meshParamData->mesh, aggregate, strategy, shell);
-        auto WTCShShell = tri::Allocator<Mesh>::GetPerFaceAttribute<TexCoordStorage>(shell, "WedgeTexCoordStorage");
+        ParameterizeChart(m, aggregate, strategy, shell);
+        auto ia = GetFaceIndexAttribute(shell);
+        auto wtcs = GetWedgeTexCoordStorageAttribute(m);
 
         tri::UpdateTopology<Mesh>::FaceFace(shell);
         tri::UpdateTexture<Mesh>::WedgeTexFromVertexTex(shell);
@@ -667,30 +673,35 @@ void MeshViewer::UpdateSelection(const RegionID id)
         glGenBuffers(1, &_vertexBuffers.detail);
         glBindBuffer(GL_ARRAY_BUFFER, _vertexBuffers.detail);
         //glBufferData(GL_ARRAY_BUFFER, 12 * aggregate->FN() * sizeof(float), NULL, GL_STATIC_DRAW);
-        glBufferData(GL_ARRAY_BUFFER, 12 * shell.FN() * sizeof(float), NULL, GL_STATIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, 15 * shell.FN() * sizeof(float), NULL, GL_STATIC_DRAW);
         float *buffptr = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
         //for (auto fptr : aggregate->fpVec) {
-        for (auto& f : shell.face) {
-            auto fptr = &f;
+        for (auto& sf : shell.face) {
             for (int i = 0; i < 3; ++i) {
                 //if (face::IsBorder(*fptr, i) || CCIDh[fptr->FFp(i)] != tempID) {
-                if (face::IsBorder(*fptr, i)) {
-                    borderVertexData.push_back(fptr->WT(i).P().X());
-                    borderVertexData.push_back(fptr->WT(i).P().Y());
-                    borderVertexData.push_back(fptr->WT((i+1)%3).P().X());
-                    borderVertexData.push_back(fptr->WT((i+1)%3).P().Y());
+                if (face::IsBorder(sf, i)) {
+                    borderVertexData.push_back(sf.WT(i).P().X());
+                    borderVertexData.push_back(sf.WT(i).P().Y());
+                    borderVertexData.push_back(sf.WT((i+1)%3).P().X());
+                    borderVertexData.push_back(sf.WT((i+1)%3).P().Y());
                 }
-                *buffptr++ = fptr->WT(i).P().X();
-                *buffptr++ = fptr->WT(i).P().Y();
-                if (f.holeFilling == false) {
-                    *buffptr++ = WTCShShell[f].tc[i].U();
-                    *buffptr++ = WTCShShell[f].tc[i].V();
-                    //*buffptr++ = fd[fptr].wt.tc[i].P().X();
-                    //*buffptr++ = fd[fptr].wt.tc[i].P().Y();
+                *buffptr++ = sf.WT(i).P().X();
+                *buffptr++ = sf.WT(i).P().Y();
+                if (sf.holeFilling == false) {
+                    assert(ia[sf] != -1);
+                    auto& f = m.face[ia[sf]];
+                    *buffptr++ = wtcs[f].tc[i].U();
+                    *buffptr++ = wtcs[f].tc[i].V();
                 } else {
                     *buffptr++ = 0.0;
                     *buffptr++ = 0.0;
                 }
+                unsigned char *colorptr = (unsigned char *) buffptr;
+                *colorptr++ = sf.cC()[0];
+                *colorptr++ = sf.cC()[1];
+                *colorptr++ = sf.cC()[2];
+                *colorptr++ = sf.cC()[3];
+                buffptr++;
             }
         }
         glUnmapBuffer(GL_ARRAY_BUFFER);
@@ -699,12 +710,16 @@ void MeshViewer::UpdateSelection(const RegionID id)
         _detailView.count = (GLsizei) (shell.FN() * 3);
 
         _detailView.attributes.loc_position = glGetAttribLocation(_detailView.program, "position");
-        glVertexAttribPointer(_detailView.attributes.loc_position, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), 0);
+        glVertexAttribPointer(_detailView.attributes.loc_position, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), 0);
         glEnableVertexAttribArray(_detailView.attributes.loc_position);
 
         _detailView.attributes.loc_texcoord = glGetAttribLocation(_detailView.program, "texcoord");
-        glVertexAttribPointer(_detailView.attributes.loc_texcoord, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (const GLvoid *) (2*sizeof(float)));
+        glVertexAttribPointer(_detailView.attributes.loc_texcoord, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (const GLvoid *) (2*sizeof(float)));
         glEnableVertexAttribArray(_detailView.attributes.loc_texcoord);
+
+        _detailView.attributes.loc_color = glGetAttribLocation(_detailView.program, "distcolor");
+        glVertexAttribPointer(_detailView.attributes.loc_color, 4, GL_UNSIGNED_BYTE, GL_TRUE, 5 * sizeof(float), (const GLvoid *) (4*sizeof(float)));
+        glEnableVertexAttribArray(_detailView.attributes.loc_color);
 
         glBindVertexArray(0);
         glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -1193,7 +1208,7 @@ void MeshViewer::DrawDetailView()
 
     GLint loc_colorMask = glGetUniformLocation(_detailView.program, "colorMask");
     GLint loc_weight = glGetUniformLocation(_detailView.program, "weight");
-    glUniform1i(loc_colorMask, ColorMask_TEXTURE);
+    glUniform1i(loc_colorMask, ColorMask_PRIMITIVE);
     glUniform4f(loc_weight, 1.0f, 1.0f, 1.0f, 1.0f);
 
     int *vp = info.detailViewport;
@@ -1273,26 +1288,35 @@ void MeshViewer::Run()
 
     GLint loc_tex0;
     _perspectiveView.program = CompileShaders(vs_text_3D, fs_text_texture);
+    CheckGLError();
     _perspectiveView.selection.program = CompileShaders(vs_text_3D, fs_text_texture);
+    CheckGLError();
     _textureView.program = CompileShaders(vs_text_texture, fs_text_texture);
+    CheckGLError();
     _textureView.highlight.program = CompileShaders(vs_text_texture, fs_text_texture);
+    CheckGLError();
     _detailView.program = CompileShaders(vs_text_texture, fs_text_texture);
+    CheckGLError();
 
     loc_tex0 = glGetUniformLocation(_perspectiveView.program, "tex0");
     glUseProgram(_perspectiveView.program);
     glUniform1i(loc_tex0, 0);
+    CheckGLError();
 
     loc_tex0 = glGetUniformLocation(_perspectiveView.selection.program, "tex0");
     glUseProgram(_perspectiveView.selection.program);
     glUniform1i(loc_tex0, 0);
+    CheckGLError();
 
     loc_tex0 = glGetUniformLocation(_textureView.program, "tex0");
     glUseProgram(_textureView.program);
     glUniform1i(loc_tex0, 0);
+    CheckGLError();
 
     loc_tex0 = glGetUniformLocation(_textureView.highlight.program, "tex0");
-    glUseProgram(_perspectiveView.program);
+    glUseProgram(_textureView.highlight.program);
     glUniform1i(loc_tex0, 0);
+    CheckGLError();
 
     loc_tex0 = glGetUniformLocation(_detailView.program, "tex0");
     glUseProgram(_detailView.program);
@@ -1625,6 +1649,7 @@ void MeshViewer::ManageImGuiState()
     }
 
     // selection widget
+    /*
     {
         if (selectedRegions.size() > 0) {
             ImGui::Begin("Selection widget", nullptr, 0);
@@ -1645,6 +1670,7 @@ void MeshViewer::ManageImGuiState()
             ImGui::End();
         }
     }
+    */
 
 
     if (updateTexcoord || updateColor) {

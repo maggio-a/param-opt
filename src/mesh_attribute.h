@@ -80,12 +80,17 @@ inline Mesh::PerFaceAttributeHandle<RegionID> GetInitialConnectedComponentIDAttr
 
 inline bool HasInitialConnectedComponentIDAttribute(Mesh& m)
 {
-    return tri::Allocator<Mesh>::IsValidHandle<RegionID>(m, tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(m, "ConnectedComponentID"));
+    return tri::Allocator<Mesh>::IsValidHandle<RegionID>(m, tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(m, "InitialConnectedComponentID"));
 }
 
 inline Mesh::PerFaceAttributeHandle<CoordStorage> GetTargetShapeAttribute(Mesh& shell)
 {
     return tri::Allocator<Mesh>::GetPerFaceAttribute<CoordStorage>(shell, "FaceAttribute_TargetShape");
+}
+
+inline bool HasTargetShapeAttribute(Mesh& shell)
+{
+    return tri::Allocator<Mesh>::IsValidHandle<RegionID>(shell, tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(shell, "FaceAttribute_TargetShape"));
 }
 
 inline Mesh::PerFaceAttributeHandle<int> GetFaceIndexAttribute(Mesh& shell)

@@ -5,15 +5,6 @@
 #include <vcg/space/texcoord2.h>
 #include <vcg/space/box2.h>
 
-
-struct TexCoordStorage {
-    vcg::TexCoord2d tc[3];
-};
-
-struct CoordStorage {
-    vcg::Point3d P[3];
-};
-
 /* Save a copy of the original texture coordinates (this will be used to render the new texture) */
 void StoreWedgeTexCoordAsAttribute(Mesh &m);
 

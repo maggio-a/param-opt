@@ -1,6 +1,7 @@
 #include "energy.h"
 #include "math_utils.h"
 #include "metric.h"
+#include "mesh_attribute.h"
 
 #include <Eigen/Core>
 
@@ -15,56 +16,27 @@
 
 using Eigen::MatrixXd;
 
+/* Energy interface implementation
+ * =============================== */
 
-Energy::Energy(Mesh& mesh, Geometry geometryMode)
+Energy::Energy(Mesh& mesh)
     : m{mesh},
-      mode{geometryMode},
       surfaceArea{0.0},
-      holeFillingArea{0.0},
-      P0_{m.face},
-      P1_{m.face},
-      P2_{m.face}
-
+      holeFillingArea{0.0}
 {
-    tcsattr = tri::Allocator<Mesh>::FindPerFaceAttribute<TexCoordStorage>(m, "WedgeTexCoordStorage");
-    assert(tri::Allocator<Mesh>::IsValidHandle<TexCoordStorage>(m, tcsattr));
-    if (geometryMode == Model) {
-        for (auto& f : m.face) {
-            P0_[f] = f.P(0);
-            P1_[f] = f.P(1);
-            P2_[f] = f.P(2);
-        }
-    } else if (geometryMode == Texture) {
-        for (auto& f : m.face) {
-            P0_[f] = Mesh::CoordType(tcsattr[f].tc[0].U(), tcsattr[f].tc[0].V(), 0);
-            P1_[f] = Mesh::CoordType(tcsattr[f].tc[1].U(), tcsattr[f].tc[1].V(), 0);
-            P2_[f] = Mesh::CoordType(tcsattr[f].tc[2].U(), tcsattr[f].tc[2].V(), 0);
-        }
-    } else if (geometryMode == Mixed) {
-        /*
-        double areaModel = 0.0;
-        double areaTexture = 0.0;
-        for (auto& f : m.face) {
-            areaModel += DistortionMetric::Area3D(f);
-            areaTexture += (tcsattr[f].tc[1].P() - tcsattr[f].tc[0].P()) ^ (tcsattr[f].tc[2].P() - tcsattr[f].tc[0].P());
-        }
-        double scale = std::sqrt(areaTexture / areaModel);*/
-        for (auto& f : m.face) {
-            double areaModel = DistortionMetric::Area3D(f);
-            double areaTexture = (tcsattr[f].tc[1].P() - tcsattr[f].tc[0].P()) ^ (tcsattr[f].tc[2].P() - tcsattr[f].tc[0].P());
-            double scale = std::sqrt(std::abs(areaTexture) / areaModel);
-            assert(std::isfinite(scale));
-            P0_[f] = f.P(0) * scale;
-            P1_[f] = f.P(1) * scale;
-            P2_[f] = f.P(2) * scale;
-        }
-    } else { assert(0); }
+    assert(HasTargetShapeAttribute(mesh));
+    targetShape = GetTargetShapeAttribute(mesh);
 
     for (auto& f : m.face) {
         double area = (((P(&f, 1) - P(&f, 0)) ^ (P(&f, 2) - P(&f, 0))).Norm() / 2.0);
         surfaceArea += area;
         if (f.holeFilling) holeFillingArea += area;
     }
+}
+
+Energy::~Energy()
+{
+    // empty
 }
 
 double Energy::E()
@@ -83,42 +55,23 @@ double Energy::E_IgnoreMarkedFaces(bool normalized)
     return e / ((normalized) ? (surfaceArea - holeFillingArea) : 1.0);
 }
 
-void Energy::MapToFaceQuality()
+void Energy::UpdateCache()
+{
+    // empty
+}
+
+void Energy::MapToFaceQuality(bool normalized)
 {
     for (auto& f : m.face) {
-        f.Q() = E(f);
+        f.Q() = E(f, normalized);
     }
 }
 
-Mesh::CoordType Energy::P(Mesh::ConstFacePointer fp, int i) {
-    switch (i) {
-    case 0:
-        return P0_[fp];
-    case 1:
-        return P1_[fp];
-    case 2:
-        return P2_[fp];
-    default:
-        assert(0 && "Energy::P()");
-    }
-
-    /*
-    if (mode == Geometry::Model) {
-        return fp->cP(i);
-    }
-    else if (mode == Geometry::Texture) {
-        return Mesh::CoordType(tcsattr[fp].tc[i].U(), tcsattr[fp].tc[i].V(), 0);
-    }
-    else {
-        assert(0 && "Energy::P()");
-        return {0, 0, 0};
-    }
-    */
+Mesh::CoordType Energy::P(Mesh::ConstFacePointer fp, int i)
+{
+    assert(i >= 0 && i <= 2);
+    return targetShape[fp].P[i];
 }
-
-Mesh::CoordType Energy::P0(Mesh::ConstFacePointer fp, int i) { return P(fp, i); }
-Mesh::CoordType Energy::P1(Mesh::ConstFacePointer fp, int i) { return P(fp, (i+1)%3); }
-Mesh::CoordType Energy::P2(Mesh::ConstFacePointer fp, int i) { return P(fp, (i+2)%3); }
 
 double Energy::FaceArea(Mesh::ConstFacePointer fp)
 {
@@ -148,36 +101,16 @@ void Energy::CorrectScale()
 }
 
 
-// Symmetric Dirichlet energy implementation
-// =========================================
+/* Symmetric Dirichlet energy implementation
+ * ========================================= */
 
-SymmetricDirichlet::SymmetricDirichlet(Mesh& mesh, Geometry geometryMode = Geometry::Model)
-    : Energy{mesh, geometryMode}, data{m.face}
+SymmetricDirichlet::SymmetricDirichlet(Mesh& mesh)
+    : Energy{mesh}, data{m.face}
 {
-    for (auto&f : m.face) {
-        data[f][3] = (((P(&f, 1) - P(&f, 0)) ^ (P(&f, 2) - P(&f, 0))).Norm() / 2.0);
-        //if ((data[f][3] > 0) == false) {
-        //    std::cout << P(&f, 0).X() << " " << P(&f, 0).Y() << " " <<  P(&f, 0).Z() << std::endl;
-        //    std::cout << P(&f, 1).X() << " " << P(&f, 1).Y() << " " <<  P(&f, 1).Z() << std::endl;
-        //    std::cout << P(&f, 2).X() << " " << P(&f, 2).Y() << " " <<  P(&f, 2).Z() << std::endl;
-        //}
-        assert(data[f][3] > 0);
-    }
-
-    for (auto& f : m.face) {
-        for (int i=0; i<3; i++) {
-            // Numerically stable (?) cotangents
-            Point3d a = P1(&f, i) - P0(&f, i);
-            //Point3d b = P2(&f, i) - P1(&f, i);
-            Point3d c = P2(&f, i) - P0(&f, i);
-            //double cotg = (a.SquaredNorm() + c.SquaredNorm() - b.SquaredNorm())/(2.0*data[f][3])/2.0;
-            //data[f][i] = cotg;
-            data[f][i] = VecCotg(a, c);
-        }
-    }
+    UpdateCache();
 }
 
-double SymmetricDirichlet::E(const Mesh::FaceType& f)
+double SymmetricDirichlet::E(const Mesh::FaceType& f, bool normalized)
 {
     double o[3] = { // (opposite edge)^2
         (   u1-u2).SquaredNorm(),
@@ -187,31 +120,11 @@ double SymmetricDirichlet::E(const Mesh::FaceType& f)
 
     double area3D = data[f][3];
     double areaUV = 0.5 * ((u1 - u0) ^ (u2 - u0));
-
     double e_d = 0.5 * (data[f][0] * o[0] + data[f][1] * o[1] + data[f][2] * o[2]);
-    //double e_d = (data[f][0] * o[0] + data[f][1] * o[1] + data[f][2] * o[2]) / (2.0 * area3D);
-    //double a = std::atan(1.0 / data[f][0]);
-    //double b = std::atan(1.0 / data[f][1]);
-    //double c = std::atan(1.0 / data[f][2]);
 
-    /*double angle[3];
-    Point2d coord[3];
-    for (int i=0; i<3; i++) {
-        coord[i] = Point2d(P(&f, i)[0], P(&f, i)[1]);
-        angle[i] = std::max(vcg::Angle(P1(&f, i) - P0(&f, i), P2(&f, i) - P0(&f, i)), float(1e-8));
-    }*/
-
-    //double test = (coord[1] - coord[0]) ^ (coord[2] - coord[0]);
-
-    //Point3f pa = P0(&f);
-    //Point3f pb = P1(&f);
-    //Point3f pc = P2(&f);
-
-
-    //double energy = area3D * (1 + (area3D*area3D)/(areaUV*areaUV)) * (e_d);
-    //double eee = (1 + (area3D*area3D)/(areaUV*areaUV));
     double energy = (1 + (area3D*area3D)/(areaUV*areaUV)) * (e_d);
-    //assert (e_d >= 0);
+
+    if (normalized) energy /= area3D;
 
     double attenuation = 1.0;
     if (f.holeFilling) attenuation = 0.0001;
@@ -223,16 +136,9 @@ MatrixXd SymmetricDirichlet::Grad()
     MatrixXd g = MatrixXd::Zero(m.VN(), 2);
 
     for(auto& f : m.face) {
-        double o[3] = { // (opposite edge)^2
-            (   u1-u2).SquaredNorm(),
-            (u0   -u2).SquaredNorm(),
-            (u0-u1   ).SquaredNorm(),
-        };
-
         double area3D = data[f][3];
         double areaUV = 0.5 * ((u1 - u0) ^ (u2 - u0));
 
-        //double e_d = 0.5 * (data[f][0] * o[0] + data[f][1] * o[1] + data[f][2] * o[2]);
         double angleTermLeft = (u2-u0).SquaredNorm() * (P(&f, 1) - P(&f, 0)).SquaredNorm() + (u1-u0).SquaredNorm() * (P(&f, 2) - P(&f, 0)).SquaredNorm();
         angleTermLeft /= 4.0 * area3D;
 
@@ -243,8 +149,6 @@ MatrixXd SymmetricDirichlet::Grad()
 
         double areaTermRatio = - (area3D*area3D) / std::pow(areaUV, 3);
         double e_a = (1 + (area3D*area3D) / (areaUV*areaUV));
-
-        //assert(areaUV > 0);
 
         double attenuation = 1.0;
         if (f.holeFilling) attenuation = 0.0001;
@@ -259,9 +163,7 @@ MatrixXd SymmetricDirichlet::Grad()
             double gu_angle = (data[f][k]*(ui.X() - uj.X()) + data[f][j]*(ui.X() - uk.X()));
             double gv_angle = (data[f][k]*(ui.Y() - uj.Y()) + data[f][j]*(ui.Y() - uk.Y()));
 
-            //double gu = gu_area * e_d + e_a * gu_angle;
             double gu = gu_area * angleTerm + e_a * gu_angle;
-            //double gv = gv_area * e_d + e_a * gv_angle;
             double gv = gv_area * angleTerm + e_a * gv_angle;
 
             assert(std::isnan(gu) == false && std::isnan(gv) == false);
@@ -271,6 +173,22 @@ MatrixXd SymmetricDirichlet::Grad()
     }
 
     return g;
+}
+
+void SymmetricDirichlet::UpdateCache()
+{
+    data.UpdateSize();
+    for (auto&f : m.face) {
+        data[f][3] = (((P(&f, 1) - P(&f, 0)) ^ (P(&f, 2) - P(&f, 0))).Norm() / 2.0);
+        assert(data[f][3] > 0);
+    }
+    for (auto& f : m.face) {
+        for (int i=0; i<3; i++) {
+            Point3d a = P1(&f, i) - P0(&f, i);
+            Point3d c = P2(&f, i) - P0(&f, i);
+            data[f][i] = VecCotg(a, c);
+        }
+    }
 }
 
 #undef u0

@@ -43,10 +43,10 @@ void CopyToMesh(FaceGroup& fg, Mesh& m);
  * coordinates as its current texture coordinates. The operation is performed
  * per-vertex, without any kind of safety check. The assumption is that the
  * shell remains connected during the optimization process */
-void SyncShell(Mesh& shell)
+void SyncShell(Mesh& shell);
 
 /* Removes any hole-filling face from the shell and compacts its containers */
-void ClearHoleFillingFaces(Mesh& shell)
+void ClearHoleFillingFaces(Mesh& shell);
 
 /* Closes shell holes, updating the shell attributes accordingly. Note that
  * faces that have a direct correspondence with the input mesh faces are not

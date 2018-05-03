@@ -52,14 +52,14 @@ bool ChartParameterizationHasOverlaps(Mesh& m, GraphManager::ChartHandle chart);
 
 /*
  * m: the mesh to be parameterized
- * strategy: self-explanatory
+ * strategy: parameterizer configuration
  * baseMesh: the input Mesh of the whole procedure
  * */
-bool ParameterizeMesh(Mesh& m, ParameterizationStrategy strategy, Mesh& baseMesh);
+bool ParameterizeShell(Mesh& m, ParameterizationStrategy strategy, Mesh& baseMesh);
 
-bool ParameterizeChart(Mesh& m, ChartHandle ch, ParameterizationStrategy strategy, Mesh& outMesh, bool wtcsh = true);
+bool ParameterizeChart(Mesh& m, ChartHandle ch, ParameterizationStrategy strategy, Mesh& shell);
 
-bool ParameterizeChart(Mesh &m, ChartHandle ch, ParameterizationStrategy strategy, bool wtcsh = true);
+bool ParameterizeChart(Mesh &m, ChartHandle ch, ParameterizationStrategy strategy);
 
 /*
  * Parameterize the mesh graph. Each region is a group of connected mesh faces, and it is assumed to be homeomorphic to a disk.
