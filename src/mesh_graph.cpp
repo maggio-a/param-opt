@@ -32,6 +32,36 @@ void PrintParameterizationInfo(std::shared_ptr<MeshGraph> pdata)
               << pdata->AreaUV() << " " << pdata->BorderUV() << std::endl;
 }
 
+std::shared_ptr<MeshGraph> ComputeParameterizationGraph(Mesh &m, TextureObjectHandle textureObject)
+{
+    std::size_t numRegions = ComputePerFaceConnectedComponentIdAttribute(m);
+
+    std::shared_ptr<MeshGraph> graph = std::make_shared<MeshGraph>(m);
+    graph->textureObject = textureObject;
+    graph->charts.reserve(numRegions);
+
+    auto CCIDh = GetConnectedComponentIDAttribute(m);
+
+    auto ICCIDh  = GetInitialConnectedComponentIDAttribute(m);
+    ICCIDh._handle->data.assign(CCIDh._handle->data.begin(), CCIDh._handle->data.end());
+
+    // build parameterization graph
+    tri::UpdateTopology<Mesh>::FaceFace(m);
+    for (auto &f : m.face) {
+        RegionID regionId = CCIDh[&f];
+        graph->GetChart_Insert(regionId)->AddFace(&f);
+        // TODO this may be refactored into AddFace
+        for (int i = 0; i < f.VN(); ++i) {
+            RegionID adjId = CCIDh[f.FFp(i)];
+            if (regionId != adjId) {
+                (graph->GetChart_Insert(regionId)->adj).insert(graph->GetChart_Insert(adjId));
+            }
+        }
+    }
+
+    return graph;
+}
+
 void CopyToMesh(FaceGroup& fg, Mesh& m)
 {
     m.Clear();
@@ -99,12 +129,6 @@ void ComputeBorderInfo(Mesh& m, BorderInfo& info)
     }
 }
 
-/*
- * This function 'synchronizes' a shell, that is it updates its spatial coordinates as
- * its current texture coordinates. The operation is performed per-vertex, without any
- * kind of safety check. The assumption is that the shell remains connected in parameter
- * space throughout the optimization  process
- * */
 void SyncShell(Mesh& shell)
 {
     for (auto& v : shell.vert) {
@@ -648,11 +672,11 @@ void GraphManager::Split(const RegionID id, std::vector<ChartHandle>& splitChart
 {
     assert(g->charts.count(id) == 1);
 
-    auto CCIDh  = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(g->mesh, "ConnectedComponentID");
-    assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(g->mesh, CCIDh));
+    assert(HasConnectedComponentIDAttribute(g->mesh));
+    auto CCIDh = GetConnectedComponentIDAttribute(g->mesh);
 
-    auto ICCh  = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(g->mesh, "InitialConnectedComponentID");
-    assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(g->mesh, ICCh));
+    assert(HasInitialConnectedComponentIDAttribute(g->mesh));
+    auto ICCh  = GetInitialConnectedComponentIDAttribute(g->mesh);
 
     ChartHandle chart = g->GetChart(id);
     if (chart->numMerges == 0) {

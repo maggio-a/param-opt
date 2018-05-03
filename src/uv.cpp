@@ -4,20 +4,6 @@
 #include "mesh_attribute.h"
 
 using namespace vcg;
-/*
-       if (DistortionMetric::AreaUV(f) == 0) {
-            Point2d u10, u20;
-            LocalIsometry(f.P(1) - f.P(0), f.P(2) - f.P(0), u10, u20);
-            u10 *= scale; u20 *= scale;
-            double u0_u = -1.0 - (rand() / (double) RAND_MAX);
-            double u0_v = rand() / (double) RAND_MAX;
-            Point2d u0{u0_u, u0_v};
-            f.WT(0).P() = u0;
-            f.WT(1).P() = u0 + u10;
-            f.WT(2).P() = u0 + u20;
-            assert((u10 ^ u20) > 0);
-            count++;
-            */
 
 void StoreWedgeTexCoordAsAttribute(Mesh &m)
 {
@@ -56,4 +42,38 @@ double ComputeParameterizationScaleInfo(Mesh& m)
         }
     }
     info().scale = std::sqrt(info().parameterArea / info().surfaceArea);
+}
+
+std::size_t ComputePerFaceConnectedComponentIdAttribute(Mesh &m)
+{
+    auto CCIDh = GetConnectedComponentIDAttribute(m);
+
+    tri::UpdateFlags<Mesh>::FaceClearV(m);
+    tri::UpdateTopology<Mesh>::FaceFaceFromTexCoord(m);
+
+    std::stack<Mesh::FacePointer> s;
+    size_t regionCounter = 0;
+    for (auto &f : m.face) {
+        if (!f.IsV()) {
+            f.SetV();
+            s.push(&f);
+            size_t id = regionCounter++;
+            while (!s.empty()) {
+                auto fp = s.top();
+                s.pop();
+                CCIDh[fp] = id;
+                for (int i = 0; i < fp->VN(); ++i) {
+                    if (!face::IsBorder(*fp, i)) {
+                        auto adj = fp->FFp(i);
+                        if (!adj->IsV()) {
+                            adj->SetV();
+                            s.push(adj);
+                        }
+                    }
+                }
+
+            }
+        }
+    }
+    return regionCounter;
 }

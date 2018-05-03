@@ -50,8 +50,7 @@ int main(int argc, char *argv[])
     StoreWedgeTexCoordAsAttribute(m);
     PreprocessMesh(m);
 
-    float uvMeshBorder;
-    auto graph = ComputeParameterizationGraph(m, textureObject, &uvMeshBorder);
+    auto graph = ComputeParameterizationGraph(m, textureObject);
 
     // Print original info
     PrintParameterizationInfo(graph);

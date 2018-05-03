@@ -31,29 +31,54 @@ using ChartHandle = std::shared_ptr<FaceGroup>;
 
 void PrintParameterizationInfo(std::shared_ptr<MeshGraph> pdata);
 
-/*
- * Constructs the MeshGraph for the given mesh, returning a smart pointer as the handle to the object
- */
-template <class MeshType>
-std::shared_ptr<MeshGraph> ComputeParameterizationGraph(MeshType &m, TextureObjectHandle textureObject, float *uvMeshBorder = nullptr);
+/* Constructs the MeshGraph for the given mesh, returning a smart pointer as the
+ * handle to the object */
+std::shared_ptr<MeshGraph> ComputeParameterizationGraph(Mesh &m, TextureObjectHandle textureObject);
 
-/*
- * Constructs a mesh from a FaceGroup. If sanitize == true closes the holes and splits non manifold vertices.
- * If wtcsattr == false does not copy the WedgeTexCoordStorage attribute into the new mesh. Extra faces added
- * in the hole filling process get an isometric parameterization scaled according to the chart attributes.
- * The added faces are visited.
- */
-void CopyFaceGroupIntoMesh(Mesh &m, FaceGroup& fg, bool sanitize, bool wtcsattr, bool remeshHoles);
+/* Constructs a mesh from a FaceGroup, the created mesh has the FaceIndex
+ * attribute defined (see mesh_attribute.h) */
+void CopyToMesh(FaceGroup& fg, Mesh& m);
+
+/* This function 'synchronizes' a shell, that is it updates its spatial
+ * coordinates as its current texture coordinates. The operation is performed
+ * per-vertex, without any kind of safety check. The assumption is that the
+ * shell remains connected during the optimization process */
+void SyncShell(Mesh& shell)
+
+/* Removes any hole-filling face from the shell and compacts its containers */
+void ClearHoleFillingFaces(Mesh& shell)
+
+/* Closes shell holes, updating the shell attributes accordingly. Note that
+ * faces that have a direct correspondence with the input mesh faces are not
+ * touched by this procedure.
+ * WARNING FIXME XXX as of now, this operation performed on the shell is not
+ * guaranteed to always elect the same boundary as the one to be preserved
+ * because it choses the longest one, but the boundary of the shell can change
+ * during optimization */
+void CloseShellHoles(Mesh& shell);
+
+/* Remeshes the hole filling faces of the shell, which can get heavily distorted
+ * during the optimization and lock the descent step-size. What this function
+ * does is remove any hole-filling face, close the holes again, and compute
+ * the target shape of the newly added faces */
+void RemeshShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& inputMesh);
+
+/* Builds a shell for the given chart. A shell is a mesh object specifically
+ * constructed to compute the parameterization of a chart. In order to support
+ * the various operations that we need to perform on it, it is more convenient
+ * to keep its shape as the parameter-space configuration of the chart (possibly
+ * not updated). The shell has suitable attributes to retrieve information about
+ * the shell-face to input mesh-face mappings, as well as the target shape
+ * features of each face to guide the parameterization process.
+ * See mesh_attribute.h */
+void BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeometry);
 
 /* Computes the texture outlines of a given chart */
 template <typename ScalarType = float>
 void ChartOutlinesUV(Mesh& m, ChartHandle chart, std::vector<std::vector<Point2<ScalarType>>> &outline2Vec);
 
-/*
- * FaceGroup class
- *
- * Used to store a mesh chart as an array of Face pointers
- */
+/* FaceGroup class
+ * Used to store a mesh chart as an array of Face pointers */
 struct FaceGroup {
     Mesh& mesh;
     const RegionID id;
@@ -444,50 +469,6 @@ struct WUV : EdgeWeightFunction {
 
 // Template functions implementation
 // =================================
-
-template <class MeshType>
-std::shared_ptr<MeshGraph> ComputeParameterizationGraph(MeshType &m, TextureObjectHandle textureObject, float *uvMeshBorder)
-{
-    std::size_t numRegions = ComputePerFaceConnectedComponentIdAttribute<MeshType>(m);
-
-    std::shared_ptr<MeshGraph> paramData = std::make_shared<MeshGraph>(m);
-    paramData->textureObject = textureObject;
-    paramData->charts.reserve(numRegions);
-    auto CCIDh = tri::Allocator<MeshType>::template GetPerFaceAttribute<RegionID>(m, "ConnectedComponentID");
-
-    auto ICCIDh = tri::Allocator<MeshType>::template GetPerFaceAttribute<RegionID>(m, "InitialConnectedComponentID");
-    ICCIDh._handle->data.assign(CCIDh._handle->data.begin(), CCIDh._handle->data.end());
-
-    // build parameterization graph
-    tri::UpdateTopology<Mesh>::FaceFace(m);
-    for (auto &f : m.face) {
-        RegionID regionId = CCIDh[&f];
-        paramData->GetChart_Insert(regionId)->AddFace(&f);
-        // TODO this may be refactored into AddFace
-        for (int i = 0; i < f.VN(); ++i) {
-            RegionID adjId = CCIDh[f.FFp(i)];
-            if (regionId != adjId) {
-                (paramData->GetChart_Insert(regionId)->adj).insert(paramData->GetChart_Insert(adjId));
-            }
-        }
-    }
-
-    // compute uv mesh border if required
-    if (uvMeshBorder) {
-        *uvMeshBorder = 0.0f;
-        for (auto &f : m.face) {
-            for (int i = 0; i < f.VN(); ++i) {
-                if (face::IsBorder(f, i)) {
-                   *uvMeshBorder += (f.cWT((i+1)%f.VN()).P() - f.cWT(i).P()).Norm();
-                }
-            }
-        }
-    }
-
-    return paramData;
-}
-
-
 
 /// FIXME if the chart is an aggregate that has not been reparameterized this breaks...
 template <typename ScalarType>
