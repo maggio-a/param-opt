@@ -96,10 +96,11 @@ const char *fs_text_texture[] = {
     "{                                                              \n"
     "    color = weight;                                            \n"
     "    if ((colorMask & COLOR_SRC_TEXTURE) != 0) {                \n"
-    "        color *= texture(tex0, uv);                            \n"
+    "        if (uv != vec2(0,0)) color *= texture(tex0, uv);       \n"
+    "        else color = vec4(0.0, 0.0, 0.0, 1.0);                 \n"
     "    }                                                          \n"
     "    if ((colorMask & COLOR_SRC_PRIMITIVE) != 0) {              \n"
-    "        color *= dcol * texture(tex0, uv);                     \n"
+    "        color *= dcol;                                         \n"
     "    }                                                          \n"
     "    if ((colorMask & COLOR_SRC_CHECKBOARD) != 0) {             \n"
     "        float u_mod = mod(floor(uv.s * resolution), 2.0f);     \n"
@@ -679,7 +680,7 @@ void MeshViewer::UpdateSelection(const RegionID id)
         for (auto& sf : shell.face) {
             for (int i = 0; i < 3; ++i) {
                 //if (face::IsBorder(*fptr, i) || CCIDh[fptr->FFp(i)] != tempID) {
-                if (face::IsBorder(sf, i)) {
+                if (face::IsBorder(sf, i) || sf.IsF(i)) {
                     borderVertexData.push_back(sf.WT(i).P().X());
                     borderVertexData.push_back(sf.WT(i).P().Y());
                     borderVertexData.push_back(sf.WT((i+1)%3).P().X());
@@ -687,6 +688,7 @@ void MeshViewer::UpdateSelection(const RegionID id)
                 }
                 *buffptr++ = sf.WT(i).P().X();
                 *buffptr++ = sf.WT(i).P().Y();
+                vcg::Color4b faceColor;
                 if (sf.holeFilling == false) {
                     if (ia[sf] == -1) {
                         std::cout << tri::Index<Mesh>(shell, sf) << std::endl;
@@ -695,15 +697,17 @@ void MeshViewer::UpdateSelection(const RegionID id)
                     auto& f = m.face[ia[sf]];
                     *buffptr++ = wtcs[f].tc[i].U();
                     *buffptr++ = wtcs[f].tc[i].V();
+                    faceColor = sf.cC();
                 } else {
                     *buffptr++ = 0.0;
                     *buffptr++ = 0.0;
+                    faceColor = vcg::Color4b::White;
                 }
                 unsigned char *colorptr = (unsigned char *) buffptr;
-                *colorptr++ = sf.cC()[0];
-                *colorptr++ = sf.cC()[1];
-                *colorptr++ = sf.cC()[2];
-                *colorptr++ = sf.cC()[3];
+                *colorptr++ = faceColor[0];
+                *colorptr++ = faceColor[1];
+                *colorptr++ = faceColor[2];
+                *colorptr++ = faceColor[3];
                 buffptr++;
             }
         }
@@ -1211,7 +1215,7 @@ void MeshViewer::DrawDetailView()
 
     GLint loc_colorMask = glGetUniformLocation(_detailView.program, "colorMask");
     GLint loc_weight = glGetUniformLocation(_detailView.program, "weight");
-    glUniform1i(loc_colorMask, ColorMask_PRIMITIVE);
+    glUniform1i(loc_colorMask, ColorMask_TEXTURE | ColorMask_PRIMITIVE);
     glUniform4f(loc_weight, 1.0f, 1.0f, 1.0f, 1.0f);
 
     int *vp = info.detailViewport;
@@ -1231,7 +1235,7 @@ void MeshViewer::DrawDetailView()
 
     glBindVertexArray(_detailView.borderVao);
     glUniform1i(loc_colorMask, ColorMask_EMPTY);
-    glUniform4f(loc_weight, 0.3f, 1.0f, 0.3f, 1.0f);
+    glUniform4f(loc_weight, 0.2f, 0.75f, 0.2f, 1.0f);
     glDrawArrays(GL_LINES, 0, _detailView.borderCount);
 
     glBindVertexArray(0);
@@ -1281,6 +1285,7 @@ void MeshViewer::Run()
     GLenum err = glewInit();
     if (err) {
         cout << "Failed to initialize glew: " << glewGetErrorString(err) << endl;
+        std::exit(-1);
     }
 
     glGetError(); // suppress possible error on glew init
@@ -1291,35 +1296,26 @@ void MeshViewer::Run()
 
     GLint loc_tex0;
     _perspectiveView.program = CompileShaders(vs_text_3D, fs_text_texture);
-    CheckGLError();
     _perspectiveView.selection.program = CompileShaders(vs_text_3D, fs_text_texture);
-    CheckGLError();
     _textureView.program = CompileShaders(vs_text_texture, fs_text_texture);
-    CheckGLError();
     _textureView.highlight.program = CompileShaders(vs_text_texture, fs_text_texture);
-    CheckGLError();
     _detailView.program = CompileShaders(vs_text_texture, fs_text_texture);
-    CheckGLError();
 
     loc_tex0 = glGetUniformLocation(_perspectiveView.program, "tex0");
     glUseProgram(_perspectiveView.program);
     glUniform1i(loc_tex0, 0);
-    CheckGLError();
 
     loc_tex0 = glGetUniformLocation(_perspectiveView.selection.program, "tex0");
     glUseProgram(_perspectiveView.selection.program);
     glUniform1i(loc_tex0, 0);
-    CheckGLError();
 
     loc_tex0 = glGetUniformLocation(_textureView.program, "tex0");
     glUseProgram(_textureView.program);
     glUniform1i(loc_tex0, 0);
-    CheckGLError();
 
     loc_tex0 = glGetUniformLocation(_textureView.highlight.program, "tex0");
     glUseProgram(_textureView.highlight.program);
     glUniform1i(loc_tex0, 0);
-    CheckGLError();
 
     loc_tex0 = glGetUniformLocation(_detailView.program, "tex0");
     glUseProgram(_detailView.program);

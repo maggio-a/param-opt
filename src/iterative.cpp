@@ -52,6 +52,40 @@ static double ComputeStepSizeNoFlip(const Vector2d& pi, const Vector2d& pj, cons
 // Descent Method implementation
 // =============================
 
+DescentMethod::DescentMethod(std::shared_ptr<Energy> e)
+    : m{e->m},
+      energy{e}
+{
+    // empty
+}
+
+DescentMethod::~DescentMethod()
+{
+    // empty
+}
+
+double DescentMethod::Iterate(double& gradientNorm, double& objValDiff)
+{
+    double energyPrev = energy->E();
+
+    MatrixXd uv = X();
+    MatrixXd grad = energy->Grad();
+    MatrixXd dir = ComputeDescentDirection();
+    Search(uv, grad, dir);
+
+    double energyCurr = energy->E();
+    MatrixXd newGrad = energy->Grad();
+    gradientNorm = std::sqrt(newGrad.cwiseProduct(newGrad).sum());
+    objValDiff = energyPrev - energyCurr;
+
+    return energyCurr;
+}
+
+void DescentMethod::UpdateCache()
+{
+    // empty
+}
+
 double DescentMethod::SearchStrongWolfe(const MatrixXd& uv, const MatrixXd& grad, const MatrixXd& dir)
 {
     double c1 = 0.2;
@@ -172,12 +206,9 @@ double DescentMethod::Search(const MatrixXd& uv, const MatrixXd& grad, const Mat
 
     double t = std::numeric_limits<double>::max();
     for (auto& f : m.face) {
-        double tFace = ComputeStepSizeNoFlip(uv.row(Index(m, f.V(0))),
-                                             uv.row(Index(m, f.V(1))),
-                                             uv.row(Index(m, f.V(2))),
-                                             dir.row(Index(m, f.V(0))),
-                                             dir.row(Index(m, f.V(1))),
-                                             dir.row(Index(m, f.V(2))));
+        double tFace = ComputeStepSizeNoFlip(
+                    uv.row(Index(m, f.V(0))), uv.row(Index(m, f.V(1))), uv.row(Index(m, f.V(2))),
+                    dir.row(Index(m, f.V(0))), dir.row(Index(m, f.V(1))), dir.row(Index(m, f.V(2))));
         if (tFace < t) t = tFace;
     }
     t = std::min(1.0, t*0.8);
@@ -197,23 +228,6 @@ double DescentMethod::Search(const MatrixXd& uv, const MatrixXd& grad, const Mat
 //    std::cout << "Descent took " << numIter << " iterations to decrease function" << std::endl;
 
     return E_t;
-}
-
-double DescentMethod::Iterate(double& gradientNorm, double& objValDiff)
-{
-    double energyPrev = energy->E();
-
-    MatrixXd uv = X();
-    MatrixXd grad = energy->Grad();
-    MatrixXd dir = ComputeDescentDirection();
-    Search(uv, grad, dir);
-
-    double energyCurr = energy->E();
-    MatrixXd newGrad = energy->Grad();
-    gradientNorm = std::sqrt(newGrad.cwiseProduct(newGrad).sum());
-    objValDiff = energyPrev - energyCurr;
-
-    return energyCurr;
 }
 
 MatrixXd DescentMethod::X()
@@ -256,7 +270,10 @@ MatrixXd GradientDescent::ComputeDescentDirection()
 
 LBFGS::LBFGS(std::shared_ptr<Energy> energy, std::size_t memory)
     : DescentMethod(energy),
-      m{memory}
+      m{memory},
+      sVec{},
+      yVec{},
+      rho{}
 {
     energy->CorrectScale();
 }
@@ -315,18 +332,28 @@ double LBFGS::Iterate(double& gradientNorm, double& objValDiff)
     return energyCurr;
 }
 
+/* Since the dimension of the problem changes, simply clear the history. Note
+ * that this will have a rather large impact on the convergence rate of the
+ * method if it is used too often */
+void LBFGS::UpdateCache()
+{
+    sVec.clear();
+    yVec.clear();
+    rho.clear();
+}
+
 // Scalable locally injective mappings
 // ===================================
-
 
 /*
  * CREDITS
  *
- * The code for the least squares solver is based on the reference implemenation from libigl available at
+ * The code for the least squares solver is based on the reference implemenation
+ * from libigl available at
  *
- * https://github.com/libigl/libigl
+ *   https://github.com/libigl/libigl
  *
- * and in particular the file slim.cpp
+ * The code can be found in the file slim.cpp
  *
  * */
 
@@ -377,20 +404,34 @@ SLIM::SLIM(std::shared_ptr<SymmetricDirichlet> sd)
     diagAreaVector.resize(4 * m.FN());
     for (auto const& f : m.face) {
         double area = energy->FaceArea(&f);
-        /*
-        double area = 0;
-        switch (energy->mode) {
-        case Model: area = DistortionMetric::Area3D(m, f, ParameterizationGeometry::Model); break;
-        case Texture: area = DistortionMetric::Area3D(m, f, ParameterizationGeometry::Texture); break;
-        }
-        */
-
         int j = tri::Index(m, f);
         diagAreaVector(0 * m.FN() + j) = area;
         diagAreaVector(1 * m.FN() + j) = area;
         diagAreaVector(2 * m.FN() + j) = area;
         diagAreaVector(3 * m.FN() + j) = area;
     }
+}
+
+Eigen::MatrixXd SLIM::ComputeDescentDirection()
+{
+    // Update jacobians, rotations and weights for each face
+    UpdateJRW();
+
+    // Find solution to the proxy energy minimization
+    Eigen::MatrixXd p_k;
+    MinimizeProxyEnergy(p_k);
+
+    // The descent direction is the one that points towards the proxy solution from the current point
+    for (auto const& v : m.vert) {
+        p_k.row(tri::Index(m, v)) -= Eigen::Vector2d{v.T().U(), v.T().V()};
+    }
+    return p_k;
+}
+
+void SLIM::UpdateCache()
+{
+    std::cout << "TODO SLIM::UpdateCache()" << std::endl;
+    assert(0);
 }
 
 void SLIM::PrecomputeD12(const Mesh& m, Eigen::SparseMatrix<double>& D1, Eigen::SparseMatrix<double>& D2)
@@ -515,7 +556,7 @@ void SLIM::UpdateJRW()
         }
 
         double attenuation = 1.0;
-        if (f.holeFilling) attenuation = 0.0001;
+        //if (f.holeFilling) attenuation = 0.0001;
 
         // Update weights (eq 28 in the paper)
         Eigen::Vector2d Sw;
@@ -531,54 +572,6 @@ void SLIM::UpdateJRW()
         }
         W[f] = U * Sw.asDiagonal() * U.transpose();
     }
-}
-
-Eigen::MatrixXd SLIM::ComputeDescentDirection()
-{
-    // Update jacobians, rotations and weights for each face
-    UpdateJRW();
-
-    // Find solution to the proxy energy minimization
-    Eigen::MatrixXd p_k;
-    MinimizeProxyEnergy(p_k);
-
-    // The descent direction is the one that points towards the proxy solution from the current point
-    for (auto const& v : m.vert) {
-        p_k.row(tri::Index(m, v)) -= Eigen::Vector2d{v.T().U(), v.T().V()};
-    }
-    return p_k;
-}
-
-void SLIM::MinimizeProxyEnergy(Eigen::MatrixXd& p_k)
-{
-    // solves using least squares (so build the normal equations system)
-    Eigen::SparseMatrix<double> A(4 * m.FN(), 2 * m.VN());
-    BuildA(A);
-    Eigen::SparseMatrix<double> At = A.transpose();
-    At.makeCompressed();
-    Eigen::SparseMatrix<double> id_m(At.rows(), At.rows());
-    id_m.setIdentity();
-    // add proximal penalty
-    Eigen::SparseMatrix<double> L = At * diagAreaVector.asDiagonal() * A + lambda * id_m; //add also a proximal term
-    L.makeCompressed();
-    Eigen::VectorXd rhs;
-    BuildRhs(At, rhs);
-
-    Eigen::VectorXd sol;
-
-    if (firstSolve) {
-        solver.analyzePattern(L);
-        firstSolve = false;
-    }
-
-    solver.factorize(L);
-    sol = solver.solve(rhs);
-
-    assert((solver.info() == Eigen::Success) && "SLIM::MinimizeProxyEnergy solve failed");
-
-    p_k.resize(m.VN(), 2);
-    p_k.col(0) = sol.block(0, 0, m.VN(), 1);
-    p_k.col(1) = sol.block(m.VN(), 0, m.VN(), 1);
 }
 
 void SLIM::BuildA(Eigen::SparseMatrix<double>& A)
@@ -652,4 +645,36 @@ void SLIM::BuildRhs(const Eigen::SparseMatrix<double>& At, Eigen::VectorXd& rhs)
     }
 
     rhs = (At * diagAreaVector.asDiagonal() * f_rhs + lambda * uv_flat);
+}
+
+void SLIM::MinimizeProxyEnergy(Eigen::MatrixXd& p_k)
+{
+    // solves using least squares (so build the normal equations system)
+    Eigen::SparseMatrix<double> A(4 * m.FN(), 2 * m.VN());
+    BuildA(A);
+    Eigen::SparseMatrix<double> At = A.transpose();
+    At.makeCompressed();
+    Eigen::SparseMatrix<double> id_m(At.rows(), At.rows());
+    id_m.setIdentity();
+    // add proximal penalty
+    Eigen::SparseMatrix<double> L = At * diagAreaVector.asDiagonal() * A + lambda * id_m; //add also a proximal term
+    L.makeCompressed();
+    Eigen::VectorXd rhs;
+    BuildRhs(At, rhs);
+
+    Eigen::VectorXd sol;
+
+    if (firstSolve) {
+        solver.analyzePattern(L);
+        firstSolve = false;
+    }
+
+    solver.factorize(L);
+    sol = solver.solve(rhs);
+
+    assert((solver.info() == Eigen::Success) && "SLIM::MinimizeProxyEnergy solve failed");
+
+    p_k.resize(m.VN(), 2);
+    p_k.col(0) = sol.block(0, 0, m.VN(), 1);
+    p_k.col(1) = sol.block(m.VN(), 0, m.VN(), 1);
 }

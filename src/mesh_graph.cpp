@@ -249,7 +249,6 @@ void DoRemesh(Mesh& shell)
         if (sf.holeFilling) sf.SetS();
     }
 
-
     int startFN = 0;
     int max_i  = 0;
     for (auto& sf : shell.face) {
@@ -259,9 +258,6 @@ void DoRemesh(Mesh& shell)
             max_i = std::max(max_i, int(tri::Index<Mesh>(shell, sf)));
         }
     }
-
-    std::cout << "Input shell has size " << shell.FN() << std::endl;
-    std::cout << startFN << " faces are not hole filling before the remesh " << max_i << std::endl;
 
     // Remesh filled hole
     ColorFace(shell);
@@ -282,10 +278,6 @@ void DoRemesh(Mesh& shell)
     tri::Allocator<Mesh>::CompactEveryVector(shell);
     ColorFace(shell);
     vcg::tri::io::ExporterPLY<Mesh>::Save(shell, "remesh.ply", tri::io::Mask::IOM_FACECOLOR);
-
-    std::cout << "Remeshing done" << std::endl;
-    std::cout << "startFN " << startFN << std::endl;
-    std::cout << "shell.FN() " << shell.FN() << "   " << shell.face.size() << std::endl;
 
     for (auto& sf : shell.face) {
         if (int(tri::Index(shell, sf)) >= startFN) {

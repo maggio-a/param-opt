@@ -18,16 +18,34 @@ protected:
 
 public:
 
-    DescentMethod(std::shared_ptr<Energy> e) : m{e->m}, energy{e} {}
-    virtual ~DescentMethod() {}
+    DescentMethod(std::shared_ptr<Energy> e);
+    virtual ~DescentMethod();
+
+    // Interface
 
     virtual Eigen::MatrixXd ComputeDescentDirection() = 0;
-
-    double SearchStrongWolfe(const Eigen::MatrixXd& uv, const Eigen::MatrixXd& grad, const Eigen::MatrixXd& dir);
-    double Search(const Eigen::MatrixXd& uv, const Eigen::MatrixXd& grad, const Eigen::MatrixXd& dir);
     virtual double Iterate(double& gradientNorm, double& objValDiff);
 
+    /* Utility function to update cached data. This must be called whenever the
+     * underlying mesh changes. We need it to update the cached data of the
+     * hole-filling faces when they are remeshed. */
+    virtual void UpdateCache();
+
+
+    // Member functions
+
+    /* Line search that satisfies the strong Wolfe conditions.
+     * Reference: Nocedal and Wright (2006), "Numerical Optimization" */
+    double SearchStrongWolfe(const Eigen::MatrixXd& uv, const Eigen::MatrixXd& grad, const Eigen::MatrixXd& dir);
+
+    /* Simple bisection based line search (Armijo) */
+    double Search(const Eigen::MatrixXd& uv, const Eigen::MatrixXd& grad, const Eigen::MatrixXd& dir);
+
+    /* Returns the current solution as a VN-by-2 matrix of doubles */
     Eigen::MatrixXd X();
+
+    /* Sets VN-by-2 matrix of doubles as the vertex texture coordinates of the
+     * underlying mesh object */
     void SetX(const Eigen::MatrixXd& x);
 };
 
@@ -55,6 +73,7 @@ public:
 
     Eigen::MatrixXd ComputeDescentDirection();
     virtual double Iterate(double& gradientNorm, double& objValDiff);
+    virtual void UpdateCache();
 };
 
 
@@ -82,6 +101,7 @@ public:
     SLIM(std::shared_ptr<SymmetricDirichlet> sd);
 
     virtual Eigen::MatrixXd ComputeDescentDirection();
+    virtual void UpdateCache();
 
 private:
 

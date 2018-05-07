@@ -30,6 +30,9 @@ public:
     virtual double E(const Mesh::FaceType& f, bool normalized = false) = 0;
     virtual Eigen::MatrixXd Grad() = 0;
 
+    /* Utility function to update cached data. This must be called whenever the
+     * underlying mesh changes. We need it to update the cached data of the
+     * hole-filling faces when they are remeshed. */
     virtual void UpdateCache();
 
     void MapToFaceQuality(bool normalized);
@@ -38,14 +41,18 @@ public:
     double SurfaceArea();
     double ParameterArea();
 
-    /* Hack to speed up the convergence of iterative methods
-     * Scales the parameterization so that its area matches the total area of the model (either the actual 3D area or
-     * the area of the original parameterized faces, according to the geometry mode).
-     * This can be used by iterative methods on energies that penalize area mismatches, in order to scale the initial solution
-     * and reduce the scaling process that happens during the iterations (thereby lowering the number of iterations required
+    /* Hack to speed up the convergence of iterative methods.
+     * Scales the parameterization so that its area matches the total area of
+     * the model (either the actual 3D area or the area of the original
+     * parameterized faces, according to the geometry mode). This can be used by
+     * iterative methods on energies that penalize area mismatches, in order to
+     * scale the initial solution and reduce the scaling process that happens
+     * during the iterations (thereby lowering the number of iterations required
      * to converge) */
     void CorrectScale();
 
+    /* Accessor functions to retrieve the positions of the target shape for each
+     * face */
     Mesh::CoordType P(Mesh::ConstFacePointer fp, int i);
     Mesh::CoordType P0(Mesh::ConstFacePointer fp, int i = 0);
     Mesh::CoordType P1(Mesh::ConstFacePointer fp, int i = 0);
@@ -59,6 +66,7 @@ inline Mesh::CoordType Energy::P2(Mesh::ConstFacePointer fp, int i) { return P(f
 
 class SymmetricDirichlet : public Energy {
 
+    /* Precomputed cotangents and area of each target shape */
     SimpleTempData<Mesh::FaceContainer, Point4d> data;
 
 public:

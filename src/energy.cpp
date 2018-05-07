@@ -127,7 +127,7 @@ double SymmetricDirichlet::E(const Mesh::FaceType& f, bool normalized)
     if (normalized) energy /= area3D;
 
     double attenuation = 1.0;
-    if (f.holeFilling) attenuation = 0.0001;
+    //if (f.holeFilling) attenuation = 0.0001;
     return attenuation * energy;
 }
 
@@ -151,7 +151,7 @@ MatrixXd SymmetricDirichlet::Grad()
         double e_a = (1 + (area3D*area3D) / (areaUV*areaUV));
 
         double attenuation = 1.0;
-        if (f.holeFilling) attenuation = 0.0001;
+        //if (f.holeFilling) attenuation = 0.0001;
 
         for (int i = 0; i < 3; ++i) {
             int j = (i+1)%3;
