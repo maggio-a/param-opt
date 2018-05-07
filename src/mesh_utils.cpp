@@ -9,8 +9,6 @@
 
 using namespace vcg;
 
-//static constexpr double INFINITY = std::numeric_limits<double>::infinity();
-
 struct PosNode {
     PosF pos;
     double distance;
@@ -224,9 +222,6 @@ bool ComputePathToBoundaryAlongSeams(Mesh& m, const PosF& pos, std::vector<PosF>
     }
 
 }
-
-
-
 
 // assumes initial texture seams are marked as creases
 void MarkShortestSeamToBorderAsNonFaux(Mesh& m, const PosF& pos)

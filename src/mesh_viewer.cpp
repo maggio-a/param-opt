@@ -688,7 +688,10 @@ void MeshViewer::UpdateSelection(const RegionID id)
                 *buffptr++ = sf.WT(i).P().X();
                 *buffptr++ = sf.WT(i).P().Y();
                 if (sf.holeFilling == false) {
-                    assert(ia[sf] != -1);
+                    if (ia[sf] == -1) {
+                        std::cout << tri::Index<Mesh>(shell, sf) << std::endl;
+                        assert(ia[sf] != -1);
+                    }
                     auto& f = m.face[ia[sf]];
                     *buffptr++ = wtcs[f].tc[i].U();
                     *buffptr++ = wtcs[f].tc[i].V();

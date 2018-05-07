@@ -13,7 +13,7 @@ QT = core gui svg
 
 TEMPLATE = app
 
-INCLUDEPATH += ../imgui ../src $$VCGPATH $$VCGPATH/eigenlib
+INCLUDEPATH += ../imgui ../src $$VCGPATH $$VCGPATH/eigenlib $(HOME)/include/earcut/include
 
 QMAKE_CXXFLAGS += -g
 
@@ -72,7 +72,8 @@ HEADERS += \
     ../src/uniform_solver.h \
     ../src/dcp_solver.h \
     ../src/mesh_utils.h \
-    ../src/mesh_attribute.h
+    ../src/mesh_attribute.h \
+    ../src/polygon2_triangulator.h
 
 DISTFILES += \
     readme.txt

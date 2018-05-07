@@ -286,16 +286,17 @@ bool ParameterizeShell(Mesh& shell, ParameterizationStrategy strategy, Mesh& bas
             energy->MapToFaceQuality(true);
 
             tri::UpdateColor<Mesh>::PerFaceQualityRamp(shell);
-            float minq, maxq;
-            tri::Stat<Mesh>::ComputePerFaceQualityMinMax(shell, minq, maxq);
-            std::cout << "Min distortion value = " << minq << std::endl;
-            std::cout << "Max distortion value = " << maxq << std::endl;
-
             SyncShell(shell);
-            RemeshShellHoles(shell, strategy.geometry, baseMesh);
+            if (i > 0 && (i % 10) == 0)
+                RemeshShellHoles(shell, strategy.geometry, baseMesh);
         }
         std::cout << "Stopped after " << i << " iterations, gradient magnitude = " << gradientNorm
                   << ", normalized energy value = " << normalizedEnergyVal << std::endl;
+
+        float minq, maxq;
+        tri::Stat<Mesh>::ComputePerFaceQualityMinMax(shell, minq, maxq);
+        std::cout << "Min distortion value = " << minq << std::endl;
+        std::cout << "Max distortion value = " << maxq << std::endl;
 
         std::cout << "Optimization took " << t.TimeSinceLastCheck() << " seconds" << std::endl;
     }
@@ -637,70 +638,6 @@ static void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, 
     chartQueue.push_back(c2);
     std::cout << "Recovery produced two charts of sizes " << c1->numMerges + 1 << " " << c2->numMerges + 1 << std::endl;
 }
-
-
-/*
- * if overlap detected
- * split chart
- * recover from split
- * for each filled hole
- *   if the hole crosses the split, remove it
- * for each edge
- *   if the edge lies on the split, duplicate it
- * the pm is now made of two distinct connected components, detach them and parameterize each independently
- * using the previously computed solution as starting point
- */
-/*
-bool ParameterizeChart(GraphManager& gm, GraphManager::ChartHandle ch, ParameterizationStrategy strategy, bool failsafe, double threshold)
-{
-    std::deque<Mesh *> meshVector;
-    std::deque<ChartHandle> chartVector;
-    Mesh *pm = new Mesh;
-    bool sanitize = (strategy.directParameterizer == DirectParameterizer::FixedBorderBijective);
-    bool copyWedgeTexCoordStorage = (strategy.geometry == ParameterizationGeometry::Texture);
-    CopyFaceGroupIntoMesh(*pm, *ch, sanitize, copyWedgeTexCoordStorage, strategy.remeshHoles);
-    //CopyFaceGroupIntoMesh(pm, *ch, sanitize, true);
-
-    meshVector.push_back(pm);
-    chartVector.push_back(ch);
-
-    do {
-        Mesh *m = meshVector.front();
-        meshVector.pop_front();
-        ChartHandle chart = chartVector.front();
-        chartVector.pop_front();
-
-        auto MFIh = tri::Allocator<Mesh>::GetPerFaceAttribute<int>(*m, "FaceIndex");
-
-        bool parameterized = ParameterizeMesh(*m, strategy);
-        assert(parameterized);
-
-        if (failsafe) {
-            RasterizedParameterizationStats stats = GetRasterizationStats(ch, 1024, 1024);
-            double fraction = stats.lostFragments / (double) stats.totalFragments;
-            if (fraction > threshold) {
-                std::vector<ChartHandle> splitCharts;
-                std::deque<ChartHandle> q;
-                gm.Split(ch->id, splitCharts);
-                RecoverFromSplit(splitCharts, gm, q);
-
-                for (auto& f : m->face) {
-
-
-
-                }
-            } else {
-                // copy the coordinates back
-            }
-        }
-
-    } while (meshVector.size() != 0);
-
-    assert(chartVector.size() == 0);
-}
-*/
-
-
 
 /*
  * if overlap detected
