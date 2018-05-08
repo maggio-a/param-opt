@@ -392,6 +392,12 @@ void CloseShellHoles(Mesh& shell)
  * */
 void RemeshShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& inputMesh)
 {
+    int c = 0;
+    for (auto& sf : shell.face) {
+        if (sf.holeFilling) c++;
+    }
+    if (c == 0) return;
+
     //ClearHoleFillingFaces(shell);
     //CloseShellHoles(shell);
     DoRemesh(shell);

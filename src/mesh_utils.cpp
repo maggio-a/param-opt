@@ -83,27 +83,30 @@ double ComputeDistanceFromBorderOnSeams(Mesh& m)
                 }
                 p.FlipV();
                 if (p.V()->IsB() && p.V()->Q() == INFINITY) {
-                    p.V()->Q() = 0;
                     probes.push_back(PosNode{p, 0});
+                    p.V()->Q() = 0;
                 }
             }
         }
     }
 
     tri::EuclideanDistance<Mesh> dist;
-    std::make_heap(probes.begin(), probes.end());
+    auto posNodeComp = [] (const PosNode& a, const PosNode& b) { return a.distance > b.distance; };
+    //std::make_heap(probes.begin(), probes.end(), posNodeComp);
     while (!probes.empty()) {
-        std::pop_heap(probes.begin(), probes.end());
+        std::pop_heap(probes.begin(), probes.end(), posNodeComp);
         PosNode node = probes.back();
         probes.pop_back();
         if (node.distance == node.pos.V()->Q()) {
             std::vector<PosF> fan = GetFauxPosFan(node.pos);
-            for (auto& creasePos : fan) {
-                double d = node.pos.V()->Q() + dist(node.pos.V(), creasePos.V());
-                if (d < creasePos.V()->Q()) {
-                    creasePos.V()->Q() = d;
-                    probes.push_back(PosNode{creasePos, d});
-                    std::push_heap(probes.begin(), probes.end());
+            for (auto& fauxPos : fan) {
+                double d = node.pos.V()->Q() + dist(node.pos.V(), fauxPos.V());
+                assert(d > node.pos.V()->Q());
+                if (d < fauxPos.V()->Q()) {
+                    assert(fauxPos.V()->IsB() == false);
+                    fauxPos.V()->Q() = d;
+                    probes.push_back(PosNode{fauxPos, d});
+                    std::push_heap(probes.begin(), probes.end(), posNodeComp);
                 }
             }
         } // otherwise the entry is obsolete

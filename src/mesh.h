@@ -23,47 +23,6 @@ class MeshFace : public Face<MeshUsedTypes, face::VertexRef, face::FFAdj, face::
 {
 public:
     bool holeFilling = false;
-    unsigned char isb = 0;
-
-    void MarkSeamEdge(int i)
-    {
-        switch (i) {
-        case 0:
-            isb |= 1;
-            break;
-        case 1:
-            isb |= 2;
-            break;
-        case 2:
-            isb |= 4;
-            break;
-        default:
-            assert(0 && "MarkSeamEdge");
-        }
-    }
-
-    void UnmarkSeamEdge(int i)
-    {
-        switch (i) {
-        case 0:
-            isb &= ~1;
-            break;
-        case 1:
-            isb &= ~2;
-            break;
-        case 2:
-            isb &= ~4;
-            break;
-        default:
-            assert(0 && "UnmarkSeamEdge");
-        }
-    }
-
-    bool SeamEdge(int i)
-    {
-        assert(i >= 0 && i <= 2);
-        return isb & (1 << i);
-    }
 };
 
 //class MeshEdge : public Edge<MeshUsedTypes, edge::VertexRef, edge::VEAdj, edge::EEAdj, edge::BitFlags> {};

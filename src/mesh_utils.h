@@ -18,7 +18,7 @@ struct PosNode {
     PosNode() = default;
     PosNode(PosF p, double d) : pos{p}, distance{d} {}
 
-    bool operator<(const PosNode& other) { return distance < other.distance; }
+    bool operator<(const PosNode& other) const { return distance < other.distance; }
 };
 
 /* Mark initial texture seam edges as faux */
