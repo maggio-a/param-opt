@@ -241,39 +241,41 @@ bool ParameterizeShell(Mesh& shell, ParameterizationStrategy strategy, Mesh& bas
     if (strategy.padBoundaries == false)
         ClearHoleFillingFaces(shell);
 
+    bool needsRemeshing = false;
+    for (auto& sf : shell.face) {
+        if (sf.holeFilling) needsRemeshing = true;
+        double areaUV = (sf.V(1)->T().P() - sf.V(0)->T().P()) ^ (sf.V(2)->T().P() - sf.V(0)->T().P());
+        assert(areaUV > 0 && "Parameterization is not bijective");
+    }
+
     if (strategy.optimizerIterations > 0) {
         Timer t;
         int i;
         double energyVal, normalizedEnergyVal, gradientNorm, energyDiff;
-        std::cout << "TODO optimize loop ParameterizeShell(): avoid recreating descent and energy objects" << std::endl;
+
+        // create energy and optimizer
+        auto energy = std::make_shared<SymmetricDirichlet>(shell);
+        std::shared_ptr<DescentMethod> opt;
+        switch(strategy.descent) {
+        case DescentType::Gradient:
+            opt = std::make_shared<GradientDescent>(energy);
+            break;
+        case DescentType::LimitedMemoryBFGS:
+            opt = std::make_shared<LBFGS>(energy, 10);
+            break;
+        case DescentType::ScalableLocallyInjectiveMappings:
+            opt = std::make_shared<SLIM>(energy);
+            break;
+        default:
+            assert(0);
+        }
 
         bool appliedCut = false;
         for (i = 0; i < strategy.optimizerIterations; ++i) {
             tri::io::Exporter<Mesh>::Save(shell, "shell.obj", tri::io::Mask::IOM_FACECOLOR | tri::io::Mask::IOM_VERTTEXCOORD);
 
-            // create energy and optimizer
-            auto energy = std::make_shared<SymmetricDirichlet>(shell);
-            std::shared_ptr<DescentMethod> opt;
-            switch(strategy.descent) {
-            case DescentType::Gradient:
-                opt = std::make_shared<GradientDescent>(energy);
-                break;
-            case DescentType::LimitedMemoryBFGS:
-                opt = std::make_shared<LBFGS>(energy, 10);
-                break;
-            case DescentType::ScalableLocallyInjectiveMappings:
-                opt = std::make_shared<SLIM>(energy);
-                break;
-            default:
-                assert(0);
-            }
-
             energyVal = opt->Iterate(gradientNorm, energyDiff);
 
-            for (auto& sf : shell.face) {
-                double areaUV = (sf.V(1)->T().P() - sf.V(0)->T().P()) ^ (sf.V(2)->T().P() - sf.V(0)->T().P());
-                assert(areaUV > 0 && "Parameterization is not bijective");
-            }
             normalizedEnergyVal = energy->E_IgnoreMarkedFaces(true);
             if (gradientNorm < 1e-3) {
                 std::cout << "Stopping because gradient magnitude is small enough (" << gradientNorm << ")" << std::endl;
@@ -286,35 +288,34 @@ bool ParameterizeShell(Mesh& shell, ParameterizationStrategy strategy, Mesh& bas
 
             tri::UpdateColor<Mesh>::PerFaceQualityRamp(shell);
             SyncShell(shell);
-            if (i > 0 && (i % 10) == 0) {
+            bool shellChanged = false;
+
+            if (needsRemeshing && (i > 0) && (i % 30) == 0) {
                 RemeshShellHoles(shell, strategy.geometry, baseMesh);
-                energy->UpdateCache();
+                shellChanged = true;
             }
 
             tri::UpdateTexture<Mesh>::WedgeTexFromVertexTex(shell);
             energy->MapToFaceQuality(true);
 
-
-            if (i > 25 && i > (strategy.optimizerIterations / 2) && appliedCut == false) {
+            if (strategy.applyCut && i > (100) && appliedCut == false) {
+                std::cout << "Applying cut at iteration " << i << std::endl;
                 tri::UpdateTexture<Mesh>::WedgeTexFromVertexTex(shell);
                 energy->UpdateCache();
                 energy->MapToFaceQuality(true);
 
-                // Mark texture seams in the shell mesh along which the procedure is
-                // allowed to cut in order to relieve the distortion of the flattening
-                // if it goes above a given threshold. Note that if a face is
-                // hole-Filling, the energy computation automatically attenuates distortion
                 MarkInitialSeamsAsFaux(shell, baseMesh);
 
                 // code to mark all edges as candidates for the shortest path
-                //tri::UpdateTopology<Mesh>::FaceFace(shell);
-                //tri::UpdateFlags<Mesh>::FaceBorderFromFF(shell);
-                //tri::UpdateFlags<Mesh>::FaceSetF(shell);
-                //for (auto& sf : shell.face) {
-                //    for (int i = 0; i < 3; ++i) {
-                //        if (sf.IsB(i)) sf.ClearF(i);
-                //    }
-                //}
+                // tri::UpdateTopology<Mesh>::FaceFace(shell);
+                // tri::UpdateFlags<Mesh>::FaceBorderFromFF(shell);
+                // tri::UpdateFlags<Mesh>::FaceSetF(shell);
+                // for (auto& sf : shell.face) {
+                //     for (int i = 0; i < 3; ++i) {
+                //         if (sf.IsB(i)) sf.ClearF(i);
+                //     }
+                // }
+
                 double maxDistance = ComputeDistanceFromBorderOnSeams(shell);
 
                 tri::UpdateColor<Mesh>::PerFaceQualityRamp(shell);
@@ -346,19 +347,20 @@ bool ParameterizeShell(Mesh& shell, ParameterizationStrategy strategy, Mesh& bas
                 assert(!p.IsBorder());
 
                 SelectShortestSeamPathToBoundary(shell, p);
+                SelectShortestSeamPathToPeak(shell, p);
 
                 tri::CutMeshAlongSelectedFaceEdges(shell);
-                tri::UpdateTopology<Mesh>::FaceFace(shell);
-                tri::UpdateFlags<Mesh>::VertexBorderFromFaceAdj(shell);
-                for (auto& sf : shell.face) {
-                    for (int i = 0; i < 3; i++) {
-                        if (face::IsBorder(sf, i)) sf.ClearF(i);
-                    }
-                }
+
+                CleanupShell(shell);
 
                 tri::io::Exporter<Mesh>::Save(shell, "shell_cut.obj", tri::io::Mask::IOM_FACECOLOR);
+
                 appliedCut = true;
-            }
+                shellChanged = true;
+            } // if cutting
+
+            if (shellChanged)
+                opt->UpdateCache();
         }
         std::cout << "Stopped after " << i << " iterations, gradient magnitude = " << gradientNorm
                   << ", normalized energy value = " << normalizedEnergyVal << std::endl;

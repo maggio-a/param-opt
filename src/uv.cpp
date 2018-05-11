@@ -1,3 +1,4 @@
+#include "mesh.h"
 #include "uv.h"
 #include "metric.h"
 #include "math_utils.h"
@@ -42,6 +43,7 @@ double ComputeParameterizationScaleInfo(Mesh& m)
         }
     }
     info().scale = std::sqrt(info().parameterArea / info().surfaceArea);
+    return info().scale;
 }
 
 std::size_t ComputePerFaceConnectedComponentIdAttribute(Mesh &m)
@@ -76,4 +78,16 @@ std::size_t ComputePerFaceConnectedComponentIdAttribute(Mesh &m)
         }
     }
     return regionCounter;
+}
+
+void MarkSeamsAsFaux(Mesh& m)
+{
+    tri::UpdateTopology<Mesh>::FaceFaceFromTexCoord(m);
+    for (auto& f : m.face) {
+        for (int i = 0; i < 3; ++i) {
+            if (face::IsBorder(f, i)) {
+                f.SetF(i);
+            }
+        }
+    }
 }

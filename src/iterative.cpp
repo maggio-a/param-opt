@@ -83,7 +83,7 @@ double DescentMethod::Iterate(double& gradientNorm, double& objValDiff)
 
 void DescentMethod::UpdateCache()
 {
-    // empty
+    energy->UpdateCache();
 }
 
 double DescentMethod::SearchStrongWolfe(const MatrixXd& uv, const MatrixXd& grad, const MatrixXd& dir)
@@ -337,6 +337,7 @@ double LBFGS::Iterate(double& gradientNorm, double& objValDiff)
  * method if it is used too often */
 void LBFGS::UpdateCache()
 {
+    DescentMethod::UpdateCache();
     sVec.clear();
     yVec.clear();
     rho.clear();
@@ -370,46 +371,7 @@ SLIM::SLIM(std::shared_ptr<SymmetricDirichlet> sd)
       solver{},
       firstSolve{true}
 {
-    for (auto& f : m.face) {
-        /*
-         * find 2d coords for the vertices of the faces relative to the frame which is coplanar with
-         * the face and has the origin in P0. x0 is (0,0), x1 is (lenght(p1-p0), 0) and x2 is (1,0) rotated
-         * by the angle betwen (p1-p0) and (p2-p0)
-         * */
-        Point3d p10 = energy->P1(&f) - energy->P0(&f);
-        Point3d p20 = energy->P2(&f) - energy->P0(&f);
-        /*
-        double theta = VecAngle(p10, p20);
-        Eigen::Vector2d x1{p10.Norm(), 0};
-        double st = std::sin(theta);
-        double ct = std::cos(theta);
-        Eigen::Matrix2d rt;
-        rt << ct, -st, st, ct;
-        Eigen::Vector2d x2 = p20.Norm() * (rt * Eigen::Vector2d{1, 0}); // rotate and scale
-        */
-        /*
-         * at this point the transformation from the canonical triangle (0,0) (1,0), (0,1) to the
-         * mesh face is encoded in the matrix [x1 | x2], and we want the inverse
-         * */
-        Eigen::Matrix2d fm;
-        Eigen::Vector2d x1, x2;
-        LocalIsometry(p10, p20, x1, x2);
-        fm.col(0) = x1;
-        fm.col(1) = x2;
-        fm_inv[f] = fm.inverse();
-    }
-
-    PrecomputeD12(m, D1, D2);
-
-    diagAreaVector.resize(4 * m.FN());
-    for (auto const& f : m.face) {
-        double area = energy->FaceArea(&f);
-        int j = tri::Index(m, f);
-        diagAreaVector(0 * m.FN() + j) = area;
-        diagAreaVector(1 * m.FN() + j) = area;
-        diagAreaVector(2 * m.FN() + j) = area;
-        diagAreaVector(3 * m.FN() + j) = area;
-    }
+    UpdateCache();
 }
 
 Eigen::MatrixXd SLIM::ComputeDescentDirection()
@@ -430,8 +392,45 @@ Eigen::MatrixXd SLIM::ComputeDescentDirection()
 
 void SLIM::UpdateCache()
 {
-    std::cout << "TODO SLIM::UpdateCache()" << std::endl;
-    assert(0);
+    DescentMethod::UpdateCache();
+
+    // Clear
+    fm_inv.UpdateSize();
+    J.UpdateSize();
+    R.UpdateSize();
+    W.UpdateSize();
+    D1 = Eigen::SparseMatrix<double>{};
+    D2 = Eigen::SparseMatrix<double>{};
+    firstSolve = true;
+
+    // Find 2d coords for the vertices of the faces relative to the frame that
+    // is coplanar with the surface and has the origin in P0. x0 is (0,0), x1 is
+    // (lenght(p1-p0), 0) and x2 is (1,0) rotated by the angle betwen (p1-p0)
+    // and (p2-p0)
+    for (auto& f : m.face) {
+        Point3d p10 = energy->P1(&f) - energy->P0(&f);
+        Point3d p20 = energy->P2(&f) - energy->P0(&f);
+        Eigen::Matrix2d fm;
+        Eigen::Vector2d x1, x2;
+        LocalIsometry(p10, p20, x1, x2);
+        fm.col(0) = x1;
+        fm.col(1) = x2;
+        // at this point the transformation from the canonical triangle (0,0) (1,0), (0,1) to the
+        // mesh face is encoded in the matrix [x1 | x2], and we want the inverse
+        fm_inv[f] = fm.inverse();
+    }
+
+    // Update rest of the solver state
+    PrecomputeD12(m, D1, D2);
+    diagAreaVector.resize(4 * m.FN());
+    for (auto const& f : m.face) {
+        double area = energy->FaceArea(&f);
+        int j = tri::Index(m, f);
+        diagAreaVector(0 * m.FN() + j) = area;
+        diagAreaVector(1 * m.FN() + j) = area;
+        diagAreaVector(2 * m.FN() + j) = area;
+        diagAreaVector(3 * m.FN() + j) = area;
+    }
 }
 
 void SLIM::PrecomputeD12(const Mesh& m, Eigen::SparseMatrix<double>& D1, Eigen::SparseMatrix<double>& D2)

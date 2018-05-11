@@ -46,7 +46,7 @@ int main(int argc, char *argv[])
     assert(loadMask & tri::io::Mask::IOM_WEDGTEXCOORD);
 
     ComputeParameterizationScaleInfo(m);
-
+    MarkSeamsAsFaux(m);
     StoreWedgeTexCoordAsAttribute(m);
     PreprocessMesh(m);
 

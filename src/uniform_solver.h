@@ -15,6 +15,7 @@
 #include "math_utils.h"
 
 #include <vcg/complex/complex.h>
+#include <vcg/complex/algorithms/clean.h>
 
 template <typename MeshType>
 class UniformSolver
@@ -44,7 +45,11 @@ private:
 
 public:
 
-    UniformSolver(MeshType &m) : mesh{m} {}
+    UniformSolver(MeshType &m) : mesh{m}
+    {
+        tri::UpdateTopology<MeshType>::FaceFace(m);
+        assert(tri::Clean<MeshType>::MeshGenus(m) == 0);
+    }
 
 private:
 

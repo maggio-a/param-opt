@@ -39,7 +39,7 @@ struct ParameterizationStrategy {
     DescentType descent = Gradient;
     int optimizerIterations = 0;
     bool padBoundaries = false; // keep holes filled while optimizing from FixedBorderBijective
-    bool remeshHoles = false;
+    bool applyCut = false;
     bool warmStart = false;
 
     ParameterizationStrategy() = default;

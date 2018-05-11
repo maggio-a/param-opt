@@ -30,6 +30,7 @@
 #include "parameterization_checker.h"
 #include "timer.h"
 #include "mesh_attribute.h"
+#include "mesh_utils.h"
 
 #include "linmath.h"
 
@@ -664,6 +665,7 @@ void MeshViewer::UpdateSelection(const RegionID id)
 
         tri::UpdateTopology<Mesh>::FaceFace(shell);
         tri::UpdateTexture<Mesh>::WedgeTexFromVertexTex(shell);
+        MarkInitialSeamsAsFaux(shell, m);
 
         glUseProgram(_detailView.program);
 
@@ -1192,7 +1194,6 @@ void MeshViewer::DrawTextureView()
     CheckGLError();
 }
 
-// as of now it shows the atlas of primary charts
 void MeshViewer::DrawDetailView()
 {
     glBindVertexArray(_detailView.vao);
@@ -1550,13 +1551,13 @@ void MeshViewer::ManageImGuiState()
         ImGui::RadioButton("Texture coords", &geometryInUse, 1);
 
         static bool padBoundaries = false;
-        static bool remeshHoles = true;
+        static bool applyCut = true;
         ImGui::Text("Parameterizer");
         ImGui::RadioButton("Discrete Conformal", &parameterizerInUse, 0);
         ImGui::RadioButton("Circular border bijective", &parameterizerInUse, 1);
         if (parameterizerInUse == 1) {
             ImGui::Checkbox("Pad inner boundaries", &padBoundaries);
-            ImGui::Checkbox("Remesh holes", &remeshHoles);
+            ImGui::Checkbox("Apply cut", &applyCut);
         }
 
         //ImGui::Text("Descent method energy");
@@ -1574,7 +1575,7 @@ void MeshViewer::ManageImGuiState()
         strategy.geometry = geometry[geometryInUse];
         strategy.descent = descent[descentTypeInUse];
         strategy.padBoundaries = padBoundaries;
-        strategy.remeshHoles = remeshHoles;
+        strategy.applyCut = applyCut;
 
         ImGui::Text("Max descent iterations");
         ImGui::InputInt("##Optimizer iterations", &strategy.optimizerIterations, 1, 100);

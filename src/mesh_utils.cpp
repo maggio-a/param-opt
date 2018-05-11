@@ -10,34 +10,19 @@
 
 using namespace vcg;
 
-//void MarkInitialSeamsAsFaux(Mesh& m, SimpleTempData<Mesh::FaceContainer, RegionID>& initialId)
 void MarkInitialSeamsAsFaux(Mesh& shell, Mesh& baseMesh)
 {
     tri::UpdateTopology<Mesh>::FaceFace(shell);
     tri::UpdateFlags<Mesh>::FaceBorderFromFF(shell);
     tri::UpdateFlags<Mesh>::FaceClearF(shell);
     assert(HasFaceIndexAttribute(shell));
-    assert(HasInitialConnectedComponentIDAttribute(baseMesh));
     auto ia = GetFaceIndexAttribute(shell);
-    auto icc = GetInitialConnectedComponentIDAttribute(baseMesh);
     for (auto& sf : shell.face) {
         if (sf.holeFilling == false) {
             for (int i = 0; i < 3; ++i) {
-                auto& sff = *(sf.FFp(i));
-                bool seam = false;
-                if (sff.holeFilling) {
-                    seam = true;
-                } else {
-                    auto& f = baseMesh.face[ia[sf]];
-                    auto& ff = baseMesh.face[ia[sff]];
-                    if (!sf.IsF(i) && icc[f] != icc[ff]) {
-                        seam = true;
-                    }
-                }
-                if (seam) {
+                auto& f = baseMesh.face[ia[sf]];
+                if (f.IsF(i))
                     sf.SetF(i);
-                    sff.SetF(sf.FFi(i));
-                }
             }
         }
     }
@@ -59,11 +44,21 @@ std::vector<PosF> GetFauxPosFan(PosF& startPos)
     return posVec;
 }
 
-void ClearFauxLoops(Mesh& m)
-{
-    std::cout << "TODO ClearFauxLoops()" << std::endl;
-    assert(0);
-}
+/* Function object to compute the average length across an edge, according
+ * to the target shape of the shell faces. This allows to compute meaningful
+ * seam path lengths on shell objects */
+struct FeatureBasedEdgeLength {
+    Mesh::PerFaceAttributeHandle<CoordStorage> targetShape;
+
+    double operator()(PosF p) {
+        CoordStorage cs = targetShape[p.F()];
+        double l1 = (cs.P[p.E()] - cs.P[(p.E()+1)%3]).Norm();
+        p.FlipF();
+        double l2 = (cs.P[p.E()] - cs.P[(p.E()+1)%3]).Norm();
+        return (l1 + l2) / 2.0;
+    };
+
+};
 
 double ComputeDistanceFromBorderOnSeams(Mesh& m)
 {
@@ -90,7 +85,9 @@ double ComputeDistanceFromBorderOnSeams(Mesh& m)
         }
     }
 
-    tri::EuclideanDistance<Mesh> dist;
+    assert(HasTargetShapeAttribute(m));
+    auto targetShape = GetTargetShapeAttribute(m);
+    FeatureBasedEdgeLength dist{targetShape};
     auto posNodeComp = [] (const PosNode& a, const PosNode& b) { return a.distance > b.distance; };
     //std::make_heap(probes.begin(), probes.end(), posNodeComp);
     while (!probes.empty()) {
@@ -100,7 +97,7 @@ double ComputeDistanceFromBorderOnSeams(Mesh& m)
         if (node.distance == node.pos.V()->Q()) {
             std::vector<PosF> fan = GetFauxPosFan(node.pos);
             for (auto& fauxPos : fan) {
-                double d = node.pos.V()->Q() + dist(node.pos.V(), fauxPos.V());
+                double d = node.pos.V()->Q() + dist(fauxPos);
                 assert(d > node.pos.V()->Q());
                 if (d < fauxPos.V()->Q()) {
                     assert(fauxPos.V()->IsB() == false);
@@ -121,38 +118,11 @@ double ComputeDistanceFromBorderOnSeams(Mesh& m)
     return maxDist;
 }
 
-/*
-void ClearCreasesAlongPath(Mesh& m, std::vector<PosF>& path)
-{
-    for (auto p : path) {
-        Mesh::FacePointer startF = p.F();
-        p.F()->ClearCrease(p.E());
-        p.FlipF();
-        p.F()->ClearCrease(p.E());
-        assert(p.F() == startF && "Mesh is non-manifold along path");
-        assert(!p.IsBorder());
-        assert(!p.V()->IsB());
-    }
-}
-*/
-/*
-void MarkPathAsNonFaux(Mesh& m, std::vector<PosF>& path)
-{
-    tri::UpdateFlags<Mesh>::FaceSetF(m);
-    for (auto p : path) {
-        Mesh::FacePointer startF = p.F();
-        p.F()->ClearF(p.E());
-        p.FlipF();
-        p.F()->ClearF(p.E());
-        assert(p.F() == startF && "Mesh is non-manifold along path");
-    }
-}
-*/
-
 void SelectShortestSeamPathToBoundary(Mesh& m, const PosF& pos)
 {
-    tri::UpdateFlags<Mesh>::VertexClearV(m);
+    assert(pos.IsFaux());
 
+    tri::UpdateFlags<Mesh>::VertexClearV(m);
 
     // each 'node' is a pair <Pos, d>
     // the Pos references a vertex and edge on the path
@@ -206,9 +176,7 @@ void SelectShortestSeamPathToBoundary(Mesh& m, const PosF& pos)
     // edges are marked on each face otherwise the cutting function does not work
     tri::UpdateFlags<Mesh>::FaceClearFaceEdgeS(m);
 
-
     while (cutter.V() != pos.V()) {
-       // std::cout << "traversing face " << tri::Index(m, cutter.F()) << " vertex " << cutter.VInd() << std::endl;
         assert(P.count(cutter.V()) == 1);
         Mesh::FacePointer fp = cutter.F();
         cutter.F()->SetFaceEdgeS(cutter.E());
@@ -220,5 +188,86 @@ void SelectShortestSeamPathToBoundary(Mesh& m, const PosF& pos)
         assert(!pn.pos.IsBorder());
         cutter = pn.pos;
     }
-
 }
+
+void SelectShortestSeamPathToPeak(Mesh& m, const PosF& pos)
+{
+    assert(pos.IsFaux());
+    tri::UpdateFlags<Mesh>::VertexClearV(m);
+    PosF curPos = pos;
+    if (curPos.V()->Q() < curPos.VFlip()->Q())
+        curPos.FlipV();
+    curPos.VFlip()->SetV();
+    double curDistance = pos.V()->Q();
+    auto posQualityComparator = [](const PosF& p1, const PosF& p2) {
+        return p1.V()->Q() < p2.V()->Q();
+    };
+    while (true) {
+        Mesh::FacePointer fp = curPos.F();
+        assert(curPos.VFlip()->IsV());
+        curPos.F()->SetFaceEdgeS(curPos.E());
+        curPos.FlipF();
+        curPos.F()->SetFaceEdgeS(curPos.E());
+        curPos.FlipF();
+        assert(curPos.F() == fp && "Mesh is not edge manifold along path");
+        curPos.V()->SetV();
+        auto pred = [&](const PosF& p){
+            return p.V()->IsV() || (p.V()->Q() < curDistance);
+        };
+        std::vector<PosF> fan = GetFauxPosFan(curPos);
+        fan.erase(std::remove_if(fan.begin(), fan.end(), pred), fan.end());
+        if (fan.empty())
+            break;
+        else {
+            //curPos = *(std::min_element(fan.begin(), fan.end(), posQualityComparator));
+            curPos = *(std::max_element(fan.begin(), fan.end(), posQualityComparator));
+            assert(curDistance <= curPos.V()->Q());
+            curDistance = curPos.V()->Q();
+        }
+    }
+}
+
+void CleanupShell(Mesh& shell)
+{
+    tri::UpdateTopology<Mesh>::FaceFace(shell);
+    tri::UpdateFlags<Mesh>::VertexBorderFromFaceAdj(shell);
+    for (auto& sf : shell.face) {
+        for (int i = 0; i < 3; i++) {
+            if (face::IsBorder(sf, i)) sf.ClearF(i);
+        }
+    }
+    tri::UpdateFlags<Mesh>::FaceClearV(shell);
+    for (auto& sf : shell.face) {
+        if (sf.holeFilling && !sf.IsV()) {
+            bool boundary = false;
+            for (int i = 0; i < 3; ++i) {
+                if (face::IsBorder(sf, i)) boundary = true;
+            }
+            if (boundary) {
+                // vist the holeFilling region
+                std::stack<Mesh::FacePointer> s;
+                s.push(&sf);
+                while (!s.empty()) {
+                    Mesh::FacePointer fp = s.top();
+                    s.pop();
+                    fp->SetV();
+                    for (int i = 0; i < 3; ++i) {
+                        if (!fp->FFp(i)->IsV() && fp->FFp(i)->holeFilling) {
+                            s.push(fp->FFp(i));
+                        }
+                    }
+                }
+            }
+        }
+    }
+    for (auto& sf : shell.face) {
+        if (sf.IsV()) tri::Allocator<Mesh>::DeleteFace(shell, sf);
+    }
+    int removed = tri::Clean<Mesh>::RemoveUnreferencedVertex(shell);
+    if (removed > 0) {
+        std::cout << removed << " unreferenced vertices removed after cutting" << std::endl;
+        tri::Allocator<Mesh>::CompactVertexVector(shell);
+    }
+    tri::Allocator<Mesh>::CompactEveryVector(shell);
+}
+
