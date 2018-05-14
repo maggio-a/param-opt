@@ -9,6 +9,8 @@
  * PER MESH
  *
  *   - ParameterizationScaleInfo (GetParameterizationScaleInfoAttribute)
+ *       The scale factor from 3D to UV. Only parameterized faces are taken into
+ *       account
  *
  * PER FACE
  *
@@ -50,23 +52,6 @@
  *       A boolean indicating whether the shell face is added to fill holes or
  *       is a genuine face.
  * */
-
-class FaceIndex {
-    int val;
-public:
-    FaceIndex() : val{-1} {}
-    FaceIndex& operator=(int value) { val = value; return *this; }
-    operator int() const { return val; }
-};
-
-static void test() {
-    FaceIndex fi;
-    fi = 5;
-    fi == 3;
-    fi == 5.0;
-    int a[10];
-    a[fi] = 5;
-}
 
 struct TexCoordStorage {
     vcg::TexCoord2d tc[3];
@@ -120,6 +105,12 @@ inline void BoundaryInfo::Clear()
 inline Mesh::PerMeshAttributeHandle<ParameterizationScaleInfo> GetParameterizationScaleInfoAttribute(Mesh& m)
 {
     return tri::Allocator<Mesh>::GetPerMeshAttribute<ParameterizationScaleInfo>(m, "MeshAttribute_ParameterizationScaleInfo");
+}
+
+inline bool HasParameterizationScaleInfoAttribute(Mesh& m)
+{
+    return tri::Allocator<Mesh>::IsValidHandle<ParameterizationScaleInfo>(
+                m, tri::Allocator<Mesh>::FindPerMeshAttribute<ParameterizationScaleInfo>(m, "MeshAttribute_ParameterizationScaleInfo"));
 }
 
 inline Mesh::PerFaceAttributeHandle<TexCoordStorage> GetWedgeTexCoordStorageAttribute(Mesh& m)

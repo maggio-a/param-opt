@@ -117,7 +117,7 @@ double ComputeDistanceFromBorderOnSeams(Mesh& m)
 
     return maxDist;
 }
-
+/*
 void SelectShortestSeamPathToBoundary(Mesh& m, const PosF& pos)
 {
     assert(pos.IsFaux());
@@ -187,6 +187,40 @@ void SelectShortestSeamPathToBoundary(Mesh& m, const PosF& pos)
         PosNode& pn = P[cutter.V()];
         assert(!pn.pos.IsBorder());
         cutter = pn.pos;
+    }
+}
+*/
+void SelectShortestSeamPathToBoundary(Mesh& m, const PosF& pos)
+{
+    assert(pos.IsFaux());
+    tri::UpdateFlags<Mesh>::VertexBorderFromFaceAdj(m);
+    tri::UpdateFlags<Mesh>::VertexClearV(m);
+    PosF curPos = pos;
+    if (curPos.V()->Q() > curPos.VFlip()->Q())
+        curPos.FlipV();
+    curPos.VFlip()->SetV();
+    double curDistance = pos.V()->Q();
+    auto posQualityComparator = [](const PosF& p1, const PosF& p2) {
+        return p1.V()->Q() < p2.V()->Q();
+    };
+    while (true) {
+        Mesh::FacePointer fp = curPos.F();
+        assert(curPos.VFlip()->IsV());
+        curPos.F()->SetFaceEdgeS(curPos.E());
+        curPos.FlipF();
+        curPos.F()->SetFaceEdgeS(curPos.E());
+        curPos.FlipF();
+        assert(curPos.F() == fp && "Mesh is not edge manifold along path");
+        curPos.V()->SetV();
+        if (curPos.V()->IsB())
+            break;
+        else {
+            std::vector<PosF> fan = GetFauxPosFan(curPos);
+            curPos = *(std::min_element(fan.begin(), fan.end(), posQualityComparator));
+            assert(curDistance >= curPos.V()->Q());
+            assert(!curPos.V()->IsS());
+            curDistance = curPos.V()->Q();
+        }
     }
 }
 
@@ -263,11 +297,7 @@ void CleanupShell(Mesh& shell)
     for (auto& sf : shell.face) {
         if (sf.IsV()) tri::Allocator<Mesh>::DeleteFace(shell, sf);
     }
-    int removed = tri::Clean<Mesh>::RemoveUnreferencedVertex(shell);
-    if (removed > 0) {
-        std::cout << removed << " unreferenced vertices removed after cutting" << std::endl;
-        tri::Allocator<Mesh>::CompactVertexVector(shell);
-    }
+    tri::Clean<Mesh>::RemoveUnreferencedVertex(shell);
     tri::Allocator<Mesh>::CompactEveryVector(shell);
 }
 

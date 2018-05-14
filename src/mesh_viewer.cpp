@@ -72,7 +72,7 @@ const char *vs_text_texture[] = {
     "void main(void)                                                               \n"
     "{                                                                             \n"
     "    uv = texcoord;                                                            \n"
-    "    dcol = distcolor;                                                        \n"
+    "    dcol = distcolor;                                                         \n"
     "    gl_Position = projectionMatrix * vec4(position, 0.5f, 1.0f);              \n"
     "}                                                                             \n"
 };
@@ -97,8 +97,7 @@ const char *fs_text_texture[] = {
     "{                                                              \n"
     "    color = weight;                                            \n"
     "    if ((colorMask & COLOR_SRC_TEXTURE) != 0) {                \n"
-    "        if (uv != vec2(0,0)) color *= texture(tex0, uv);       \n"
-    "        else color = vec4(0.0, 0.0, 0.0, 1.0);                 \n"
+    "        color *= texture(tex0, uv);                            \n"
     "    }                                                          \n"
     "    if ((colorMask & COLOR_SRC_PRIMITIVE) != 0) {              \n"
     "        color *= dcol;                                         \n"
@@ -670,6 +669,7 @@ void MeshViewer::UpdateSelection(const RegionID id)
         glUseProgram(_detailView.program);
 
         std::vector<float> borderVertexData;
+        std::vector<float> seamVertexData;
 
         glGenVertexArrays(1, &_detailView.vao);
         glBindVertexArray(_detailView.vao);
@@ -682,12 +682,18 @@ void MeshViewer::UpdateSelection(const RegionID id)
         for (auto& sf : shell.face) {
             for (int i = 0; i < 3; ++i) {
                 //if (face::IsBorder(*fptr, i) || CCIDh[fptr->FFp(i)] != tempID) {
-                if (face::IsBorder(sf, i) || sf.IsF(i)) {
+                if (face::IsBorder(sf, i)) {
                     borderVertexData.push_back(sf.WT(i).P().X());
                     borderVertexData.push_back(sf.WT(i).P().Y());
                     borderVertexData.push_back(sf.WT((i+1)%3).P().X());
                     borderVertexData.push_back(sf.WT((i+1)%3).P().Y());
+                } else if (sf.IsF(i)) {
+                    seamVertexData.push_back(sf.WT(i).P().X());
+                    seamVertexData.push_back(sf.WT(i).P().Y());
+                    seamVertexData.push_back(sf.WT((i+1)%3).P().X());
+                    seamVertexData.push_back(sf.WT((i+1)%3).P().Y());
                 }
+
                 *buffptr++ = sf.WT(i).P().X();
                 *buffptr++ = sf.WT(i).P().Y();
                 vcg::Color4b faceColor;
@@ -737,8 +743,11 @@ void MeshViewer::UpdateSelection(const RegionID id)
         glBindVertexArray(_detailView.borderVao);
         glGenBuffers(1, &_vertexBuffers.detailBorder);
         glBindBuffer(GL_ARRAY_BUFFER, _vertexBuffers.detailBorder);
-        glBufferData(GL_ARRAY_BUFFER, borderVertexData.size() * sizeof(float), &borderVertexData[0], GL_STATIC_DRAW);
+        glBufferData(GL_ARRAY_BUFFER, (borderVertexData.size() + seamVertexData.size()) * sizeof(float), NULL, GL_STATIC_DRAW);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, borderVertexData.size() * sizeof(float), &borderVertexData[0]);
+        glBufferSubData(GL_ARRAY_BUFFER, borderVertexData.size() * sizeof(float), seamVertexData.size() * sizeof(float), &seamVertexData[0]);
         _detailView.borderCount = (GLsizei) (borderVertexData.size()/2);
+        _detailView.seamCount = (GLsizei) (seamVertexData.size()/2);
 
         glVertexAttribPointer(_detailView.attributes.loc_position, 2, GL_FLOAT, GL_FALSE, 0, 0);
         glEnableVertexAttribArray(_detailView.attributes.loc_position);
@@ -870,8 +879,13 @@ void MeshViewer::InitBuffers()
             *buffptr++ = f.cV(i)->P().X();
             *buffptr++ = f.cV(i)->P().Y();
             *buffptr++ = f.cV(i)->P().Z();
-            *buffptr++ = f.cWT(i).U();
-            *buffptr++ = f.cWT(i).V();
+            if (f.cWT(i).U() < 0.0) {
+                *buffptr++ = 0.0;
+                *buffptr++ = 0.0;
+            } else {
+                *buffptr++ = f.cWT(i).U();
+                *buffptr++ = f.cWT(i).V();
+            }
             unsigned char *colorptr = (unsigned char *) buffptr;
             *colorptr++ = f.cC()[0];
             *colorptr++ = f.cC()[1];
@@ -1236,8 +1250,14 @@ void MeshViewer::DrawDetailView()
 
     glBindVertexArray(_detailView.borderVao);
     glUniform1i(loc_colorMask, ColorMask_EMPTY);
-    glUniform4f(loc_weight, 0.2f, 0.75f, 0.2f, 1.0f);
+
+    // draw boundary
+    glUniform4f(loc_weight, 0.2f, 0.9f, 0.2f, 1.0f);
     glDrawArrays(GL_LINES, 0, _detailView.borderCount);
+
+    // draw seams
+    glUniform4f(loc_weight, 0.9f, 0.9f, 0.9f, 1.0f);
+    glDrawArrays(GL_LINES, _detailView.borderCount, _detailView.seamCount);
 
     glBindVertexArray(0);
     CheckGLError();

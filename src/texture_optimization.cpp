@@ -21,6 +21,8 @@
 #include <vcg/space/segment2.h>
 #include <vcg/space/intersection2.h>
 
+#include <wrap/io_trimesh/export.h>
+
 //#include<vcg/complex/algorithms/cut_tree.h>
 //#include<vcg/complex/algorithms/curve_on_manifold.h>
 //#include<vcg/complex/algorithms/crease_cut.h>
@@ -137,14 +139,9 @@ void PreprocessMesh(Mesh& m)
 
 void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
 {
-
-    std::cout << "TODO FIXME" << std::endl;
-    return;
-
-#if 0
-    double scale;
-    DistortionMetric::ComputeAreaScale(m, scale, ParameterizationGeometry::Model);
-    scale = std::sqrt(1.0 / scale);
+    assert(HasParameterizationScaleInfoAttribute(m));
+    auto info = GetParameterizationScaleInfoAttribute(m);
+    double scale = info().scale;
 
     int numNoParam = 0;
     int numParameterized = 0;
@@ -153,24 +150,24 @@ void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
     strategy.directParameterizer = FixedBorderBijective;
     strategy.optimizer = SymmetricDirichletOpt;
     strategy.geometry = Model;
+    strategy.descent = ScalableLocallyInjectiveMappings;
+    strategy.optimizerIterations = 200;
+    strategy.padBoundaries = true;
+    strategy.applyCut = false;
+    strategy.warmStart = false;
 
     for (auto& entry : graph->charts) {
         auto chart = entry.second;
-
-        if (chart->AreaUV() > 0) continue;
-
+        if (chart->AreaUV() > 0)
+            continue;
         numNoParam++;
-
-        strategy.descent = ScalableLocallyInjectiveMappings;
-        strategy.optimizerIterations = 200;
         std::cout << "Parameterizing region of " << chart->FN() << " zero UV area faces" << std::endl;
-        bool parameterized = ParameterizeChart(m, chart, strategy, false);
-
+        bool parameterized = ParameterizeChart(m, chart, strategy);
         if (!parameterized) {
             std::cout << "WARNING: preliminary parameterization of chart " << chart->id << " failed" << std::endl;
         } else {
-            /* as convenience to detect regions that originally did not have a parameterization, the texcoords
-             * of such regions have negative u and a randomly displaced v */
+            // As convenience to detect regions that originally did not have a parameterization, the texcoords
+            // of such regions have negative u and a randomly displaced v
             Box2d box = chart->UVBox();
             double randomDisplacementU = rand() / (double) RAND_MAX;
             for (auto fptr : chart->fpVec) {
@@ -185,43 +182,7 @@ void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
     }
 
     std::cout << "[LOG] Newly parameterized regions: " << numParameterized << "/" << numNoParam << std::endl;
-#endif
 }
-
-struct EdgeDistortionCounter {
-    Mesh::FacePointer fp;
-    int i;
-    double distortion;
-
-    EdgeDistortionCounter(Mesh::FacePointer fptr, int ii) : fp{fptr}, i{ii}, distortion{0}
-    {
-    }
-};
-
-
-struct FacePair {
-    int i1;
-    int i2;
-
-    bool operator==(const FacePair& other) const
-    {
-        return (i1 == other.i1 && i2 == other.i2) || (i1 == other.i2 && i2 == other.i1);
-    }
-};
-
-struct IntPairHasher {
-    std::size_t operator()(const std::pair<int, int>& p) const noexcept
-    {
-        std::size_t seed = 0;
-        int a = std::min(p.first, p.second);
-        int b = std::max(p.first, p.second);
-        seed ^= std::hash<int>()(a) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-        seed ^= std::hash<int>()(b) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-        return seed;
-    }
-};
-
-#include <wrap/io_trimesh/export.h>
 
 bool ParameterizeShell(Mesh& shell, ParameterizationStrategy strategy, Mesh& baseMesh)
 {
@@ -454,7 +415,6 @@ bool ParameterizeChart(Mesh& m, ChartHandle ch, ParameterizationStrategy strateg
         }
     }
     return solved;
-
 }
 
 int ParameterizeGraph(GraphManager& gm,

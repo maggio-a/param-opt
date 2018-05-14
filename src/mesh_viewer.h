@@ -217,6 +217,7 @@ private:
         bool wireframe = false;
         GLsizei count = 0;
         GLsizei borderCount = 0;
+        GLsizei seamCount = 0;
     } _detailView;
 
     struct {
