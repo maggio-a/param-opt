@@ -53,7 +53,6 @@ HEADERS += \
     ../src/mesh_graph.h \
     ../src/mesh_viewer.h \
     ../src/vertex_position.h \
-    ../src/ext/texcoord_optimization.h \
     ../src/texture_rendering.h \
     ../imgui/imconfig.h \
     ../imgui/imgui_internal.h \
@@ -67,6 +66,8 @@ HEADERS += \
     ../src/math_utils.h \
     ../src/texture_optimization.h \
     ../src/metric.h \
+    ../src/texture.h \
+    ../src/pushpull.h \
     ../src/parameterization_checker.h \
     ../src/gl_utils.h \
     ../src/uniform_solver.h \

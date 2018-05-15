@@ -1354,16 +1354,13 @@ void MeshViewer::Run()
     bool show_test_window = false;
 
     while (!glfwWindowShouldClose(_window)) {
-
         glDrawBuffer(GL_BACK);
         glScissor(0, 0, info.width, info.height);
         glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
 
         glfwPollEvents();
-
         ImGui_ImplGlfwGL3_NewFrame();
-
         ManageImGuiState();
         UpdateTransforms();
         DrawViews();
@@ -1372,11 +1369,9 @@ void MeshViewer::Run()
             ImGui::SetNextWindowPosCenter(ImGuiCond_FirstUseEver);
             ImGui::ShowTestWindow(&show_test_window);
         }
-
         ImGui::Render();
 
         glfwSwapBuffers(_window);
-
     }
 
     ImGui_ImplGlfwGL3_Shutdown();

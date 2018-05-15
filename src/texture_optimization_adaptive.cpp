@@ -232,7 +232,6 @@ bool ParameterizeShell(Mesh& shell, ParameterizationStrategy strategy, Mesh& bas
         double normalizedEnergyVal;
         double gradientNorm;
         double energyDiff;
-        bool appliedCut = false;
         const int adaptiveCutMemory = 5;
         std::deque<double> energyDiffHistory;
 
@@ -243,7 +242,7 @@ bool ParameterizeShell(Mesh& shell, ParameterizationStrategy strategy, Mesh& bas
             energyVal = opt->Iterate(gradientNorm, energyDiff);
 
             double newNormalizedEnergyVal = energy->E_IgnoreMarkedFaces(true);
-            //assert(normalizedEnergyVal > newNormalizedEnergyVal);
+            assert(normalizedEnergyVal > newNormalizedEnergyVal);
             energyDiffHistory.push_front(normalizedEnergyVal - newNormalizedEnergyVal);
             normalizedEnergyVal = newNormalizedEnergyVal;
 
@@ -277,36 +276,16 @@ bool ParameterizeShell(Mesh& shell, ParameterizationStrategy strategy, Mesh& bas
 
             // Attempt cut
             if (normalizedEnergyVal > 6.0 && avgNormalizedEnergyDiff < 0.5) {
-
-            }
-
-            if (strategy.applyCut && i > (100) && appliedCut == false) {
-                std::cout << "Applying cut at iteration " << i << std::endl;
+                std::cout << "Attempting cut at iteration " << i << std::endl;
                 energy->UpdateCache();
                 energy->MapToFaceQuality(true);
 
                 MarkInitialSeamsAsFaux(shell, baseMesh);
 
-                // code to mark all edges as candidates for the shortest path
-                // tri::UpdateTopology<Mesh>::FaceFace(shell);
-                // tri::UpdateFlags<Mesh>::FaceBorderFromFF(shell);
-                // tri::UpdateFlags<Mesh>::FaceSetF(shell);
-                // for (auto& sf : shell.face) {
-                //     for (int i = 0; i < 3; ++i) {
-                //         if (sf.IsB(i)) sf.ClearF(i);
-                //     }
-                // }
-
                 double maxDistance = ComputeDistanceFromBorderOnSeams(shell);
-
-                tri::UpdateColor<Mesh>::PerFaceQualityRamp(shell);
-                float minq, maxq;
-                tri::Stat<Mesh>::ComputePerFaceQualityMinMax(shell, minq, maxq);
-                std::cout << "Min distortion value = " << minq << std::endl;
-                std::cout << "Max distortion value = " << maxq << std::endl;
+                if (maxDistance == INFINITY) goto cut_end;
 
                 // Select candidate crease edge for cutting
-
                 double maxEnergy = 0;
                 Mesh::FacePointer startFace = nullptr;
                 int cutEdge = -1;
@@ -330,14 +309,17 @@ bool ParameterizeShell(Mesh& shell, ParameterizationStrategy strategy, Mesh& bas
                 SelectShortestSeamPathToBoundary(shell, p);
                 SelectShortestSeamPathToPeak(shell, p);
 
+                // Cache info on the cut before applying it, so the shell can be
+                // stitched back...
+
                 tri::CutMeshAlongSelectedFaceEdges(shell);
                 CleanupShell(shell);
 
                 tri::io::Exporter<Mesh>::Save(shell, "shell_cut.obj", tri::io::Mask::IOM_FACECOLOR);
 
-                appliedCut = true;
                 shellChanged = true;
             } // if cutting
+            cut_end:
 
             if (shellChanged)
                 opt->UpdateCache();

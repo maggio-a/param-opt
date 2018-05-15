@@ -33,14 +33,14 @@ namespace vcg
 {
     /* pull push filling algorithm */
 
-    int mean4w(int p1,byte w1,int p2,byte w2,int p3,byte w3,int p4,byte w4)
+    static int mean4w(int p1,byte w1,int p2,byte w2,int p3,byte w3,int p4,byte w4)
     {
         int result =(p1*int(w1) + p2*int(w2)  +p3*int(w3) + p4*int(w4) )
         / ( int(w1)+int(w2)+int(w3)+int(w4)  ) ;
         return result;
     }
 
-    QRgb mean4Pixelw(QRgb p1,byte w1,QRgb p2,byte w2,QRgb p3,byte w3,QRgb p4,byte w4)
+    static QRgb mean4Pixelw(QRgb p1,byte w1,QRgb p2,byte w2,QRgb p3,byte w3,QRgb p4,byte w4)
     {
         int r= mean4w(qRed(p1),w1,qRed(p2),w2,qRed(p3),w3,qRed(p4),w4);
         int g= mean4w(qGreen(p1),w1,qGreen(p2),w2,qGreen(p3),w3,qGreen(p4),w4);
@@ -52,7 +52,7 @@ namespace vcg
     }
 
     // Genera una mipmap pesata
-    void PullPushMip( QImage & p, QImage & mip, QRgb  bkcolor )
+    static void PullPushMip( QImage & p, QImage & mip, QRgb  bkcolor )
     {
         assert(p.width()/2==mip.width());
         assert(p.height()/2==mip.height());
@@ -75,7 +75,7 @@ namespace vcg
     }
 
     // interpola a partire da una mipmap
-    void PullPushFill( QImage & p, QImage & mip, QRgb  bkg )
+    static void PullPushFill( QImage & p, QImage & mip, QRgb  bkg )
     {
         assert(p.width()/2==mip.width());
         assert(p.height()/2==mip.height());
@@ -109,7 +109,7 @@ namespace vcg
     }
 
 
-    void PullPush( QImage & p, QRgb  bkcolor )
+    static void PullPush( QImage & p, QRgb  bkcolor )
     {
         int i=0;
         std::vector<QImage> mip(16);
