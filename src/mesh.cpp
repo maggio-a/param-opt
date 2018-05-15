@@ -56,6 +56,10 @@ bool LoadMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject,
 bool SaveMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject, bool color)
 {
     int mask = tri::io::Mask::IOM_WEDGTEXCOORD;
+
+    // Quick and dirty, make sure the texture extension is consistent
+    for (std::string& textureName : m.textures) textureName.append(".png");
+
     if (color) mask = mask | tri::io::Mask::IOM_FACEQUALITY | tri::io::Mask::IOM_FACECOLOR;
     if (tri::io::Exporter<Mesh>::Save(m, fileName, mask)) {
         std::cout << "Error saving mesh file " << fileName << std::endl;
@@ -69,7 +73,7 @@ bool SaveMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject,
     QDir::setCurrent(fi.absoluteDir().absolutePath());
 
     for (std::size_t i = 0; i < textureObject->imgVec.size(); ++i) {
-        if(textureObject->imgVec[i]->save(m.textures[i].c_str(), 0, 100) == false) {
+        if(textureObject->imgVec[i]->save(m.textures[i].c_str(), "png", 100) == false) {
             std::cout << "Error saving texture file " << m.textures[0] << std::endl;
             return false;
         }
