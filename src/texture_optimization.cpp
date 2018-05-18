@@ -146,7 +146,7 @@ void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
 
     ParameterizationStrategy strategy;
     strategy.directParameterizer = FixedBorderBijective;
-    strategy.optimizer = SymmetricDirichletOpt;
+    strategy.energy = EnergyType::SymmetricDirichlet;
     strategy.geometry = Model;
     strategy.descent = ScalableLocallyInjectiveMappings;
     strategy.optimizerIterations = 200;
@@ -209,7 +209,7 @@ bool ParameterizeShell(Mesh& shell, ParameterizationStrategy strategy, Mesh& bas
 
     if (strategy.optimizerIterations > 0) {
         // create energy and optimizer
-        auto energy = std::make_shared<SymmetricDirichlet>(shell);
+        auto energy = std::make_shared<SymmetricDirichletEnergy>(shell);
         std::shared_ptr<DescentMethod> opt;
         switch(strategy.descent) {
         case DescentType::Gradient:
@@ -313,6 +313,7 @@ bool ParameterizeShell(Mesh& shell, ParameterizationStrategy strategy, Mesh& bas
                 for (auto& sf : shell.face) {
                     for (int i = 0; i < 3; ++i) if (sf.IsF(i)) {
                         double w = std::max(sf.V0(i)->Q(), sf.V1(i)->Q()) / maxDistance;
+                        if (w < INFINITY) w = 1.0;
                         double weightedEnergy = energy->E(sf, true) * w;
                         // w is INFINITY if the seam does not reach the mesh boundary
                         if (std::isfinite(weightedEnergy) && weightedEnergy > maxEnergy) {
@@ -328,7 +329,7 @@ bool ParameterizeShell(Mesh& shell, ParameterizationStrategy strategy, Mesh& bas
                 assert(!p.IsBorder());
 
                 SelectShortestSeamPathToBoundary(shell, p);
-                SelectShortestSeamPathToPeak(shell, p);
+                //SelectShortestSeamPathToPeak(shell, p);
 
                 tri::CutMeshAlongSelectedFaceEdges(shell);
                 CleanupShell(shell);
@@ -343,7 +344,8 @@ bool ParameterizeShell(Mesh& shell, ParameterizationStrategy strategy, Mesh& bas
                 opt->UpdateCache();
         }
         std::cout << "Stopped after " << i << " iterations, gradient magnitude = " << gradientNorm
-                  << ", normalized energy value = " << normalizedEnergyVal << std::endl;
+                  << ", normalized energy value = " << normalizedEnergyVal
+                  << ", energy value = " << energy->E_IgnoreMarkedFaces() << std::endl;
 
         float minq, maxq;
         tri::Stat<Mesh>::ComputePerFaceQualityMinMax(shell, minq, maxq);

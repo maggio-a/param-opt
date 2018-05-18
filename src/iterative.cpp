@@ -358,7 +358,7 @@ void LBFGS::UpdateCache()
  *
  * */
 
-SLIM::SLIM(std::shared_ptr<SymmetricDirichlet> sd)
+SLIM::SLIM(std::shared_ptr<SymmetricDirichletEnergy> sd)
     : DescentMethod(sd),
       fm_inv{sd->m.face},
       J{sd->m.face},

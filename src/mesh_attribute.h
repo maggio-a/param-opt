@@ -47,10 +47,6 @@
  *   - FaceAttribute_FaceIndex (GetFaceIndexAttribute)
  *       The index of the input mesh face that corresponds to the shell face.
  *       For faces added to fill holes, the index is -1
- *
- *   - FaceAttribute_HoleFilling (GetHoleFillingAttribute)
- *       A boolean indicating whether the shell face is added to fill holes or
- *       is a genuine face.
  * */
 
 struct TexCoordStorage {

@@ -7,9 +7,11 @@
 
 #include <GL/glew.h>
 
+#include "mesh.h"
 #include "mesh_graph.h"
 #include "texture_optimization.h"
 #include "linmath.h"
+#include "parameterization.h"
 
 class GLFWwindow;
 
@@ -79,8 +81,6 @@ public:
 
 private:
 
-    using ChartHandle = std::shared_ptr<FaceGroup>;
-
     // TODO the mesh graph (meshParamData) should be encapsulated by the GraphManager object
     // and queried through it
     std::shared_ptr<MeshGraph> meshParamData;
@@ -104,18 +104,11 @@ private:
     DragMode _dragMode = DISABLED;
 
     float _dragX = 0.0f, _dragY = 0.0f;
-/*
-    struct SelectedRegionInfo {
-        std::shared_ptr<FaceGroup> chart;
-        GLint first;
-        GLsizei count;
-    };
 
-    enum SelectionType { None, Chart, Edge };
+    // Selection related information
+    std::shared_ptr<FaceGroup> shellGroup;
+    std::shared_ptr<ParameterizerObject> parameterizer;
 
-    SelectionType selectionType = None;
-    std::vector<SelectedRegionInfo> selectionVector;
-*/
     struct SelectionBufferInfo {
         ChartHandle chart;
         std::size_t bufferIndex;
@@ -125,8 +118,6 @@ private:
         GLuint texicon;
         int referenceCount;
     };
-
-    Mesh selectionMesh;
 
     std::unordered_map<RegionID, SelectionBufferInfo> selectedRegions;
     std::unordered_map<RegionID, int> primaryCharts;  // charts selected and ready for merge
@@ -282,6 +273,7 @@ public:
     MeshViewer(std::shared_ptr<MeshGraph> meshParamData_, std::size_t minRegionSize_, const std::string &fileName_);
     void Run();
     void InitBuffers();
+    void UpdateDetailBuffers();
     void SetupViews();
     //void SetupDetailView(ChartHandle chart);
     void SetupDetailView(const Mesh& detailMesh);

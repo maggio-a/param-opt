@@ -31,6 +31,7 @@
 #include "timer.h"
 #include "mesh_attribute.h"
 #include "mesh_utils.h"
+#include "parameterization.h"
 
 #include "linmath.h"
 
@@ -335,6 +336,7 @@ MeshViewer::MeshViewer(std::shared_ptr<MeshGraph> meshParamData_, std::size_t mi
         auto color = vcg::Color4f::Scatter(20, c.first % 20, 0.75f);
         regionColors.insert(std::make_pair(c.first, color/255.0f));
     }
+    strategy = DefaultStrategy();
 }
 
 bool MeshViewer::InPerspectiveView()
@@ -394,7 +396,10 @@ void MeshViewer::ClearSelection()
         glDeleteVertexArrays(1, &_detailView.vao);
         glDeleteVertexArrays(1, &_detailView.borderVao);
         glDeleteBuffers(1, &_vertexBuffers.detail);
+        _detailView.count = 0;
         glDeleteBuffers(1, &_vertexBuffers.detailBorder);
+        _detailView.borderCount = 0;
+        _detailView.seamCount = 0;
 
         for (auto& entry : selectedRegions) glDeleteTextures(1, &entry.second.texicon);
 
@@ -411,6 +416,9 @@ void MeshViewer::ClearSelection()
 
         selectedRegions.clear();
         primaryCharts.clear();
+
+        shellGroup = nullptr;
+        parameterizer = nullptr;
     }
 }
 
@@ -418,6 +426,120 @@ void MeshViewer::Select(const RegionID id)
 {
     assert(meshParamData->GetChart(id) != nullptr);
     UpdateSelection(id);
+}
+
+void MeshViewer::UpdateDetailBuffers()
+{
+    glUseProgram(_detailView.program);
+
+    Mesh& shell = parameterizer->Shell();
+    Mesh& m = meshParamData->mesh;
+    auto ia = GetFaceIndexAttribute(shell);
+    auto wtcs = GetWedgeTexCoordStorageAttribute(m);
+
+    // Shell buffer
+
+    glBindVertexArray(_detailView.vao);
+    glBindBuffer(GL_ARRAY_BUFFER, _vertexBuffers.detail);
+
+    GLint buffersz;
+    glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &buffersz);
+    GLint requiredsz = 15 * shell.FN() * sizeof(float);
+    if (buffersz < requiredsz) { // resize buffer
+        glBufferData(GL_ARRAY_BUFFER, requiredsz, NULL, GL_DYNAMIC_DRAW);
+    }
+
+    std::vector<float> borderVertexData;
+    std::vector<float> seamVertexData;
+
+    float *buffptr = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+    for (auto& sf : shell.face) {
+        for (int i = 0; i < 3; ++i) {
+            if (face::IsBorder(sf, i)) {
+                borderVertexData.push_back(sf.P(i).X());
+                borderVertexData.push_back(sf.P(i).Y());
+                borderVertexData.push_back(sf.P((i+1)%3).X());
+                borderVertexData.push_back(sf.P((i+1)%3).Y());
+            } else if (sf.IsF(i)) {
+                seamVertexData.push_back(sf.P(i).X());
+                seamVertexData.push_back(sf.P(i).Y());
+                seamVertexData.push_back(sf.P((i+1)%3).X());
+                seamVertexData.push_back(sf.P((i+1)%3).Y());
+            }
+            *buffptr++ = sf.P(i).X();
+            *buffptr++ = sf.P(i).Y();
+            vcg::Color4b faceColor;
+            if (sf.holeFilling == false) {
+                if (ia[sf] == -1) {
+                    std::cout << tri::Index<Mesh>(shell, sf) << std::endl;
+                    assert(ia[sf] != -1);
+                }
+                auto& f = m.face[ia[sf]];
+                *buffptr++ = wtcs[f].tc[i].U();
+                *buffptr++ = wtcs[f].tc[i].V();
+                faceColor = sf.cC();
+            } else {
+                *buffptr++ = 0.0;
+                *buffptr++ = 0.0;
+                faceColor = vcg::Color4b::White;
+            }
+            unsigned char *colorptr = (unsigned char *) buffptr;
+            *colorptr++ = faceColor[0];
+            *colorptr++ = faceColor[1];
+            *colorptr++ = faceColor[2];
+            *colorptr++ = faceColor[3];
+            buffptr++;
+        }
+    }
+    glUnmapBuffer(GL_ARRAY_BUFFER);
+
+    _detailView.count = (GLsizei) (shell.FN() * 3);
+
+    _detailView.attributes.loc_position = glGetAttribLocation(_detailView.program, "position");
+    glVertexAttribPointer(_detailView.attributes.loc_position, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), 0);
+    glEnableVertexAttribArray(_detailView.attributes.loc_position);
+
+    _detailView.attributes.loc_texcoord = glGetAttribLocation(_detailView.program, "texcoord");
+    glVertexAttribPointer(_detailView.attributes.loc_texcoord, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (const GLvoid *) (2*sizeof(float)));
+    glEnableVertexAttribArray(_detailView.attributes.loc_texcoord);
+
+    _detailView.attributes.loc_color = glGetAttribLocation(_detailView.program, "distcolor");
+    glVertexAttribPointer(_detailView.attributes.loc_color, 4, GL_UNSIGNED_BYTE, GL_TRUE, 5 * sizeof(float), (const GLvoid *) (4*sizeof(float)));
+    glEnableVertexAttribArray(_detailView.attributes.loc_color);
+
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    // Border buffer
+
+    glBindVertexArray(_detailView.borderVao);
+    glBindBuffer(GL_ARRAY_BUFFER, _vertexBuffers.detailBorder);
+
+    glGetBufferParameteriv(GL_ARRAY_BUFFER, GL_BUFFER_SIZE, &buffersz);
+    requiredsz = (borderVertexData.size() + seamVertexData.size()) * sizeof(float);
+    if (buffersz < requiredsz) { // resize buffer
+        glBufferData(GL_ARRAY_BUFFER, requiredsz, NULL, GL_DYNAMIC_DRAW);
+    }
+
+    CheckGLError();
+    glBufferSubData(GL_ARRAY_BUFFER, 0, borderVertexData.size() * sizeof(float), &borderVertexData[0]);
+    CheckGLError();
+    glBufferSubData(GL_ARRAY_BUFFER, borderVertexData.size() * sizeof(float), seamVertexData.size() * sizeof(float), &seamVertexData[0]);
+    _detailView.borderCount = (GLsizei) (borderVertexData.size()/2);
+    _detailView.seamCount = (GLsizei) (seamVertexData.size()/2);
+
+    CheckGLError();
+    glVertexAttribPointer(_detailView.attributes.loc_position, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(_detailView.attributes.loc_position);
+
+    CheckGLError();
+    glVertexAttribPointer(_detailView.attributes.loc_texcoord, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(_detailView.attributes.loc_texcoord);
+
+    CheckGLError();
+    glBindVertexArray(0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    CheckGLError();
 }
 
 void MeshViewer::UpdateSelection(const RegionID id)
@@ -621,152 +743,41 @@ void MeshViewer::UpdateSelection(const RegionID id)
 
     // parameterize selection and generate rendering data
 
+    /*
     if (_vertexBuffers.detail != 0) {
         glDeleteBuffers(1, &_vertexBuffers.detail);
         _vertexBuffers.detail = 0;
+        _detailView.count = 0;
+        glDeleteBuffers(1, &_vertexBuffers.detailBorder);
+        _detailView.borderCount = 0;
+        _detailView.seamCount = 0;
     }
+    */
 
     std::vector<ChartHandle> charts;
     for (auto& entry : primaryCharts) charts.push_back(meshParamData->GetChart(entry.first));
-
     auto status = gm->CollapseAllowed(charts.begin(), charts.end());
-
-    auto CCIDh = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(meshParamData->mesh, "ConnectedComponentID");
-    assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(meshParamData->mesh, CCIDh));
-
     if (status.first == gm->Collapse_OK) { // the regions can be parameterized together
-        // Note that this passes even if there is only a single primary chart
-
-        struct FaceData { RegionID id; TexCoordStorage wt; };
-        std::unordered_map<Mesh::FacePointer,FaceData> fd;
-        constexpr RegionID tempID = 0xffffffff;
-
-        auto aggregate = std::make_shared<FaceGroup>(meshParamData->mesh, tempID);
-
-        for (auto& c : charts) {
-            for (auto fptr : c->fpVec) {
-                TexCoordStorage wt;
-                for (int i = 0; i < 3; ++i) {
-                    wt.tc[i] = fptr->WT(i);
-                }
-                fd.insert(std::make_pair(fptr, FaceData{CCIDh[fptr], wt}));
-                CCIDh[fptr] = tempID;
-                aggregate->AddFace(fptr);
-            }
-        }
+        // Build the face group that needs to be parameterized
+        shellGroup = std::make_shared<FaceGroup>(meshParamData->mesh, INVALID_ID);
+        for (auto& c : charts)
+            for (auto fptr : c->fpVec)
+                shellGroup->AddFace(fptr);
         // Parameterize the aggregate chart, build the vertex buffer and restore the original state
+        parameterizer = std::make_shared<ParameterizerObject>(shellGroup, strategy);
 
-        Mesh& m = meshParamData->mesh;
-        Mesh shell;
-        ParameterizeChart(m, aggregate, strategy, shell);
-        auto ia = GetFaceIndexAttribute(shell);
-        auto wtcs = GetWedgeTexCoordStorageAttribute(m);
-
-        tri::UpdateTopology<Mesh>::FaceFace(shell);
-        tri::UpdateTexture<Mesh>::WedgeTexFromVertexTex(shell);
-        MarkInitialSeamsAsFaux(shell, m);
-
-        glUseProgram(_detailView.program);
-
-        std::vector<float> borderVertexData;
-        std::vector<float> seamVertexData;
-
-        glGenVertexArrays(1, &_detailView.vao);
-        glBindVertexArray(_detailView.vao);
-        glGenBuffers(1, &_vertexBuffers.detail);
-        glBindBuffer(GL_ARRAY_BUFFER, _vertexBuffers.detail);
-        //glBufferData(GL_ARRAY_BUFFER, 12 * aggregate->FN() * sizeof(float), NULL, GL_STATIC_DRAW);
-        glBufferData(GL_ARRAY_BUFFER, 15 * shell.FN() * sizeof(float), NULL, GL_STATIC_DRAW);
-        float *buffptr = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
-        //for (auto fptr : aggregate->fpVec) {
-        for (auto& sf : shell.face) {
-            for (int i = 0; i < 3; ++i) {
-                //if (face::IsBorder(*fptr, i) || CCIDh[fptr->FFp(i)] != tempID) {
-                if (face::IsBorder(sf, i)) {
-                    borderVertexData.push_back(sf.WT(i).P().X());
-                    borderVertexData.push_back(sf.WT(i).P().Y());
-                    borderVertexData.push_back(sf.WT((i+1)%3).P().X());
-                    borderVertexData.push_back(sf.WT((i+1)%3).P().Y());
-                } else if (sf.IsF(i)) {
-                    seamVertexData.push_back(sf.WT(i).P().X());
-                    seamVertexData.push_back(sf.WT(i).P().Y());
-                    seamVertexData.push_back(sf.WT((i+1)%3).P().X());
-                    seamVertexData.push_back(sf.WT((i+1)%3).P().Y());
-                }
-
-                *buffptr++ = sf.WT(i).P().X();
-                *buffptr++ = sf.WT(i).P().Y();
-                vcg::Color4b faceColor;
-                if (sf.holeFilling == false) {
-                    if (ia[sf] == -1) {
-                        std::cout << tri::Index<Mesh>(shell, sf) << std::endl;
-                        assert(ia[sf] != -1);
-                    }
-                    auto& f = m.face[ia[sf]];
-                    *buffptr++ = wtcs[f].tc[i].U();
-                    *buffptr++ = wtcs[f].tc[i].V();
-                    faceColor = sf.cC();
-                } else {
-                    *buffptr++ = 0.0;
-                    *buffptr++ = 0.0;
-                    faceColor = vcg::Color4b::White;
-                }
-                unsigned char *colorptr = (unsigned char *) buffptr;
-                *colorptr++ = faceColor[0];
-                *colorptr++ = faceColor[1];
-                *colorptr++ = faceColor[2];
-                *colorptr++ = faceColor[3];
-                buffptr++;
-            }
+        // if necessary, initialized detail vaos and buffers
+        if (_detailView.vao == 0) {
+            glGenVertexArrays(1, &_detailView.vao);
+            glGenBuffers(1, &_vertexBuffers.detail);
+            glGenVertexArrays(1, &_detailView.borderVao);
+            glGenBuffers(1, &_vertexBuffers.detailBorder);
         }
-        glUnmapBuffer(GL_ARRAY_BUFFER);
 
-        //_detailView.count = (GLsizei) (aggregate->FN() * 3);
-        _detailView.count = (GLsizei) (shell.FN() * 3);
+        UpdateDetailBuffers();
 
-        _detailView.attributes.loc_position = glGetAttribLocation(_detailView.program, "position");
-        glVertexAttribPointer(_detailView.attributes.loc_position, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), 0);
-        glEnableVertexAttribArray(_detailView.attributes.loc_position);
-
-        _detailView.attributes.loc_texcoord = glGetAttribLocation(_detailView.program, "texcoord");
-        glVertexAttribPointer(_detailView.attributes.loc_texcoord, 2, GL_FLOAT, GL_FALSE, 5 * sizeof(float), (const GLvoid *) (2*sizeof(float)));
-        glEnableVertexAttribArray(_detailView.attributes.loc_texcoord);
-
-        _detailView.attributes.loc_color = glGetAttribLocation(_detailView.program, "distcolor");
-        glVertexAttribPointer(_detailView.attributes.loc_color, 4, GL_UNSIGNED_BYTE, GL_TRUE, 5 * sizeof(float), (const GLvoid *) (4*sizeof(float)));
-        glEnableVertexAttribArray(_detailView.attributes.loc_color);
-
-        glBindVertexArray(0);
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-        glGenVertexArrays(1, &_detailView.borderVao);
-        glBindVertexArray(_detailView.borderVao);
-        glGenBuffers(1, &_vertexBuffers.detailBorder);
-        glBindBuffer(GL_ARRAY_BUFFER, _vertexBuffers.detailBorder);
-        glBufferData(GL_ARRAY_BUFFER, (borderVertexData.size() + seamVertexData.size()) * sizeof(float), NULL, GL_STATIC_DRAW);
-        glBufferSubData(GL_ARRAY_BUFFER, 0, borderVertexData.size() * sizeof(float), &borderVertexData[0]);
-        glBufferSubData(GL_ARRAY_BUFFER, borderVertexData.size() * sizeof(float), seamVertexData.size() * sizeof(float), &seamVertexData[0]);
-        _detailView.borderCount = (GLsizei) (borderVertexData.size()/2);
-        _detailView.seamCount = (GLsizei) (seamVertexData.size()/2);
-
-        glVertexAttribPointer(_detailView.attributes.loc_position, 2, GL_FLOAT, GL_FALSE, 0, 0);
-        glEnableVertexAttribArray(_detailView.attributes.loc_position);
-
-        glVertexAttribPointer(_detailView.attributes.loc_texcoord, 2, GL_FLOAT, GL_FALSE, 0, 0);
-        glEnableVertexAttribArray(_detailView.attributes.loc_texcoord);
-
-        glBindVertexArray(0);
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
-
-        SetupDetailView(shell);
-
-        // restore state
-        for (auto fptr : aggregate->fpVec) {
-            CCIDh[fptr] = fd[fptr].id;
-            for (int i = 0; i < 3; ++i) {
-                fptr->WT(i) = fd[fptr].wt.tc[i];
-            }
-        }
+        SetupDetailView(parameterizer->Shell());
+        CheckGLError();
     } else {
         /// todo check error code
         std::cout << "Warning: current selection cannot be parameterized: ";
@@ -994,12 +1005,15 @@ void MeshViewer::SetupViews()
 //void MeshViewer::SetupDetailView(ChartHandle chart)
 void MeshViewer::SetupDetailView(const Mesh& detailMesh)
 {
-    Box2d bbox = UVBox(detailMesh);
+    Box2d bbox;
+    for (auto& sv : detailMesh.vert) {
+        bbox.Add(sv.T().P());
+    }
 
     //_detailCamera.Reset();
     _detailView.uniforms.loc_projection = glGetUniformLocation(_detailView.program, "projectionMatrix");
 
-    std::cout << "UVBox = " << bbox.DimX() << " by " << bbox.DimY() << std::endl;
+    //std::cout << "UVBox = " << bbox.DimX() << " by " << bbox.DimY() << std::endl;
 
     float scale = 1.0f / std::max(bbox.Dim().X(), bbox.Dim().Y());
 
@@ -1210,6 +1224,7 @@ void MeshViewer::DrawTextureView()
 
 void MeshViewer::DrawDetailView()
 {
+    SetupDetailView(parameterizer->Shell());
     glBindVertexArray(_detailView.vao);
     glUseProgram(_detailView.program);
 
@@ -1267,7 +1282,9 @@ void MeshViewer::DrawViews()
 {
     Draw3DView();
     DrawTextureView();
-    if (selectedRegions.size() > 0) DrawDetailView();
+    if (selectedRegions.size() > 0) {
+        DrawDetailView();
+    }
 }
 
 
@@ -1355,14 +1372,20 @@ void MeshViewer::Run()
 
     while (!glfwWindowShouldClose(_window)) {
         glDrawBuffer(GL_BACK);
+        CheckGLError();
         glScissor(0, 0, info.width, info.height);
         glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT);
+        CheckGLError();
 
         glfwPollEvents();
+        CheckGLError();
         ImGui_ImplGlfwGL3_NewFrame();
+        CheckGLError();
         ManageImGuiState();
+        CheckGLError();
         UpdateTransforms();
+        CheckGLError();
         DrawViews();
 
         if (show_test_window) {
@@ -1393,14 +1416,14 @@ void MeshViewer::ManageImGuiState()
     static int activeDistIndex = -1;
 
     // parameterization strategy
-    static DirectParameterizer parameterizer[] = { DCP, FixedBorderBijective };
-    static TexCoordOptimizer optimizer[] = { AreaPreserving, SymmetricDirichletOpt, MIPS };
+    static DirectParameterizer dirparameterizer[] = { DCP, FixedBorderBijective };
+    static EnergyType optimizer[] = { SymmetricDirichlet};
     static DescentType descent[] = { Gradient, LimitedMemoryBFGS, ScalableLocallyInjectiveMappings };
     static ParameterizationGeometry geometry[] = { Model, Texture };
 
     static int parameterizerInUse = 0;
-    static int optimizerInUse = 1;
-    static int descentTypeInUse = 1;
+    static int optimizerInUse = 0;
+    static int descentTypeInUse = 2;
     static int geometryInUse = 0;
 
     // data to update
@@ -1547,7 +1570,7 @@ void MeshViewer::ManageImGuiState()
             ImGui::InputText("file name", exportFileName, 256);
             if (ImGui::Button("Export", ImVec2(120,0))) {
                 Mesh& m = meshParamData->mesh;
-                if(SaveMesh(m, exportFileName, _currentTexture, true) == false) {
+                if (SaveMesh(m, exportFileName, _currentTexture, true) == false) {
                     std::cout << "Model not saved correctly" << std::endl;
                 }
                 ImGui::CloseCurrentPopup();
@@ -1585,8 +1608,8 @@ void MeshViewer::ManageImGuiState()
         ImGui::RadioButton("LBFGS", &descentTypeInUse, 1);
         ImGui::RadioButton("SLIM", &descentTypeInUse, 2);
 
-        strategy.directParameterizer = parameterizer[parameterizerInUse];
-        strategy.optimizer = optimizer[optimizerInUse];
+        strategy.directParameterizer = dirparameterizer[parameterizerInUse];
+        strategy.energy = optimizer[optimizerInUse];
         strategy.geometry = geometry[geometryInUse];
         strategy.descent = descent[descentTypeInUse];
         strategy.padBoundaries = padBoundaries;
@@ -1686,6 +1709,41 @@ void MeshViewer::ManageImGuiState()
         }
     }
     */
+
+    // shell parameterization controls
+    static bool colorize = false;
+    bool shellChanged = false;
+    if (selectedRegions.size() > 0) {
+        ImGui::Begin("Shell parameterization", nullptr, 0);
+        if (ImGui::Checkbox("Colorize", &colorize)) {
+            if (colorize) parameterizer->MapEnergyToShellFaceColor();
+            else parameterizer->ClearShellFaceColor();
+            shellChanged = true;
+        }
+
+        if (ImGui::Button("Reset")) {
+            parameterizer->Reset();
+            shellChanged = true;
+        }
+        if (ImGui::Button("Iterate")) {
+            IterationInfo info = parameterizer->Iterate();
+            std::cout << "Energy = " << info.energyVal << ", DeltaE = " << info.energyDiff << ", Gradient norm = " << info.gradientNorm << std::endl;
+            if (colorize) parameterizer->MapEnergyToShellFaceColor();
+            else parameterizer->ClearShellFaceColor();
+            shellChanged = true;
+        }
+        ImGui::SameLine();
+        ImGui::Text("Iterations: %d", parameterizer->IterationCount());
+        if (ImGui::Button("Place cut")) {
+            parameterizer->PlaceCut();
+            shellChanged = true;
+        }
+        ImGui::End();
+    }
+
+    if (shellChanged) {
+        UpdateDetailBuffers();
+    }
 
 
     if (updateTexcoord || updateColor) {

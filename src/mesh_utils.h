@@ -48,5 +48,8 @@ void SelectShortestSeamPathToPeak(Mesh &m, const PosF& pos);
  * has been applied */
 void CleanupShell(Mesh& shell);
 
+/* Copies a shell object with all its attributes */
+void CopyShell(Mesh& shell, Mesh& out);
+
 #endif // MESH_UTILS_H
 

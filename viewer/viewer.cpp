@@ -191,7 +191,7 @@ int main_cmd(int argc, char *argv[])
 
     ParameterizationStrategy strategy;
     strategy.directParameterizer = FixedBorderBijective;
-    strategy.optimizer = SymmetricDirichletOpt;
+    strategy.energy = EnergyType::SymmetricDirichlet;
     strategy.geometry = Texture;
     //strategy.geometry = Model;
     strategy.descent = ScalableLocallyInjectiveMappings;

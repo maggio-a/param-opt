@@ -182,6 +182,56 @@ void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
     std::cout << "[LOG] Newly parameterized regions: " << numParameterized << "/" << numNoParam << std::endl;
 }
 
+/* Cut the shell and perform a few iteration to estimate the gain of placing the
+ * cut. If the energy decreases reasonably fast after cutting it is assumed that
+ * the cut is needed, otherwise the procedure backtracks by restoring the shell
+ * to its initial state. */
+void ProbeCut(Mesh& shell, Mesh& baseMesh, std::shared_ptr<Energy> energy, std::shared_ptr<DescentMethod> opt,
+              std::deque<double>& energyDiffHistory, int adaptiveCutMemory)
+{
+    Mesh backup;
+    CopyShell(shell, backup);
+
+    // Generate a cut
+
+    MarkInitialSeamsAsFaux(shell, baseMesh);
+    double maxDistance = ComputeDistanceFromBorderOnSeams(shell);
+    if (maxDistance == INFINITY) assert(0 && "TODO");
+    // Select candidate seam edge for cutting, the one with the highest distortion
+    double maxEnergy = 0;
+    Mesh::FacePointer startFace = nullptr;
+    int cutEdge = -1;
+    for (auto& sf : shell.face) {
+        for (int i = 0; i < 3; ++i) if (sf.IsF(i)) {
+            double w = std::max(sf.V0(i)->Q(), sf.V1(i)->Q()) / maxDistance;
+            double weightedEnergy = energy->E(sf, true) * w;
+            // w is INFINITY if the seam does not reach the mesh boundary
+            if (std::isfinite(weightedEnergy) && weightedEnergy > maxEnergy) {
+                maxEnergy = weightedEnergy;
+                startFace = &sf;
+                cutEdge = i;
+            }
+        }
+    }
+    assert(startFace != nullptr);
+    PosF p(startFace, cutEdge);
+    assert(!p.IsBorder());
+    SelectShortestSeamPathToBoundary(shell, p);
+    SelectShortestSeamPathToPeak(shell, p);
+    tri::CutMeshAlongSelectedFaceEdges(shell);
+    CleanupShell(shell);
+
+    // Iterate a few times to determine the improvement
+    constexpr int LOOKAHEAD_DEPTH = 5;
+    double gradientVal, energyDiff;
+    double avgDiff = 0.0;
+    for (int i = 0; i < LOOKAHEAD_DEPTH; ++i) {
+        opt->Iterate(gradientVal, energyDiff);
+        avgDiff += (energyDiff / LOOKAHEAD_DEPTH);
+    }
+
+}
+
 bool ParameterizeShell(Mesh& shell, ParameterizationStrategy strategy, Mesh& baseMesh)
 {
     if (strategy.warmStart) {
@@ -209,7 +259,7 @@ bool ParameterizeShell(Mesh& shell, ParameterizationStrategy strategy, Mesh& bas
 
     if (strategy.optimizerIterations > 0) {
         // create energy and optimizer
-        auto energy = std::make_shared<SymmetricDirichlet>(shell);
+        std::shared_ptr<Energy> energy = std::make_shared<SymmetricDirichlet>(shell);
         std::shared_ptr<DescentMethod> opt;
         switch(strategy.descent) {
         case DescentType::Gradient:
@@ -229,22 +279,22 @@ bool ParameterizeShell(Mesh& shell, ParameterizationStrategy strategy, Mesh& bas
         Timer t;
         int i;
         double energyVal;
-        double normalizedEnergyVal;
         double gradientNorm;
         double energyDiff;
         const int adaptiveCutMemory = 5;
         std::deque<double> energyDiffHistory;
 
-        normalizedEnergyVal = energy->E_IgnoreMarkedFaces(true);
+        energyVal = energy->E_IgnoreMarkedFaces(true);
+
+        const double surfaceArea = energy->SurfaceAreaNotHoleFilling();
 
         for (i = 0; i < strategy.optimizerIterations; ++i) {
             //tri::io::Exporter<Mesh>::Save(shell, "shell.obj", tri::io::Mask::IOM_FACECOLOR | tri::io::Mask::IOM_VERTTEXCOORD);
-            energyVal = opt->Iterate(gradientNorm, energyDiff);
+            double newEnergyVal = opt->Iterate(gradientNorm, energyDiff);
 
-            double newNormalizedEnergyVal = energy->E_IgnoreMarkedFaces(true);
-            assert(normalizedEnergyVal > newNormalizedEnergyVal);
-            energyDiffHistory.push_front(normalizedEnergyVal - newNormalizedEnergyVal);
-            normalizedEnergyVal = newNormalizedEnergyVal;
+            assert(newEnergyVal - energyVal == energyDiff);
+            energyDiffHistory.push_front(energyDiff);
+            energyVal = newEnergyVal;
 
             if (gradientNorm < 1e-3) {
                 std::cout << "Stopping because gradient magnitude is small enough (" << gradientNorm << ")" << std::endl;
@@ -258,74 +308,27 @@ bool ParameterizeShell(Mesh& shell, ParameterizationStrategy strategy, Mesh& bas
             tri::UpdateColor<Mesh>::PerFaceQualityRamp(shell);
             SyncShell(shell);
 
-            bool shellChanged = false;
-
-            if (needsRemeshing && (i > 0) && (i % 30) == 0) {
-                RemeshShellHoles(shell, strategy.geometry, baseMesh);
-                shellChanged = true;
-            }
-
-            energy->MapToFaceQuality(true);
-
             // Determine whether cutting must be attempted
             int memsz = std::min(int(energyDiffHistory.size()), adaptiveCutMemory);
-            double avgNormalizedEnergyDiff = 0.0;
+            double avgEnergyDiff = 0.0;
             for (int i = 0; i < memsz; ++i) {
-                avgNormalizedEnergyDiff += energyDiffHistory[i] / memsz;
+                avgEnergyDiff += (energyDiffHistory[i] / memsz);
             }
+            const double energyValThreshold = 6.0 * surfaceArea;
+            const double energyDiffThreshold = 0.5 * surfaceArea;
 
             // Attempt cut
-            if (normalizedEnergyVal > 6.0 && avgNormalizedEnergyDiff < 0.5) {
+            if (energyVal > energyValThreshold && avgEnergyDiff < energyDiffThreshold) {
                 std::cout << "Attempting cut at iteration " << i << std::endl;
-                energy->UpdateCache();
-                energy->MapToFaceQuality(true);
-
-                MarkInitialSeamsAsFaux(shell, baseMesh);
-
-                double maxDistance = ComputeDistanceFromBorderOnSeams(shell);
-                if (maxDistance == INFINITY) goto cut_end;
-
-                // Select candidate crease edge for cutting
-                double maxEnergy = 0;
-                Mesh::FacePointer startFace = nullptr;
-                int cutEdge = -1;
-                for (auto& sf : shell.face) {
-                    for (int i = 0; i < 3; ++i) if (sf.IsF(i)) {
-                        double w = std::max(sf.V0(i)->Q(), sf.V1(i)->Q()) / maxDistance;
-                        double weightedEnergy = energy->E(sf, true) * w;
-                        // w is INFINITY if the seam does not reach the mesh boundary
-                        if (std::isfinite(weightedEnergy) && weightedEnergy > maxEnergy) {
-                            maxEnergy = weightedEnergy;
-                            startFace = &sf;
-                            cutEdge = i;
-                        }
-                    }
-                }
-                assert(startFace != nullptr);
-
-                PosF p(startFace, cutEdge);
-                assert(!p.IsBorder());
-
-                SelectShortestSeamPathToBoundary(shell, p);
-                SelectShortestSeamPathToPeak(shell, p);
-
-                // Cache info on the cut before applying it, so the shell can be
-                // stitched back...
-
-                tri::CutMeshAlongSelectedFaceEdges(shell);
-                CleanupShell(shell);
-
-                tri::io::Exporter<Mesh>::Save(shell, "shell_cut.obj", tri::io::Mask::IOM_FACECOLOR);
-
-                shellChanged = true;
-            } // if cutting
-            cut_end:
-
-            if (shellChanged)
+                ProbeCut(shell, baseMesh, energy, opt, energyDiffHistory, adaptiveCutMemory);
+            } else if (needsRemeshing && (i > 0) && (i % 30) == 0) {
+                RemeshShellHoles(shell, strategy.geometry, baseMesh);
                 opt->UpdateCache();
+            }
+
         }
         std::cout << "Stopped after " << i << " iterations, gradient magnitude = " << gradientNorm
-                  << ", normalized energy value = " << normalizedEnergyVal << std::endl;
+                  << ", energy value = " << energyVal << std::endl;
 
         float minq, maxq;
         tri::Stat<Mesh>::ComputePerFaceQualityMinMax(shell, minq, maxq);

@@ -83,6 +83,11 @@ double Energy::SurfaceArea()
     return surfaceArea;
 }
 
+double Energy::SurfaceAreaNotHoleFilling()
+{
+    return surfaceArea - holeFillingArea;
+}
+
 double Energy::ParameterArea()
 {
     double parameterArea = 0.0;
@@ -104,13 +109,13 @@ void Energy::CorrectScale()
 /* Symmetric Dirichlet energy implementation
  * ========================================= */
 
-SymmetricDirichlet::SymmetricDirichlet(Mesh& mesh)
+SymmetricDirichletEnergy::SymmetricDirichletEnergy(Mesh& mesh)
     : Energy{mesh}, data{m.face}
 {
     UpdateCache();
 }
 
-double SymmetricDirichlet::E(const Mesh::FaceType& f, bool normalized)
+double SymmetricDirichletEnergy::E(const Mesh::FaceType& f, bool normalized)
 {
     double o[3] = { // (opposite edge)^2
         (   u1-u2).SquaredNorm(),
@@ -131,7 +136,7 @@ double SymmetricDirichlet::E(const Mesh::FaceType& f, bool normalized)
     return attenuation * energy;
 }
 
-MatrixXd SymmetricDirichlet::Grad()
+MatrixXd SymmetricDirichletEnergy::Grad()
 {
     MatrixXd g = MatrixXd::Zero(m.VN(), 2);
 
@@ -175,7 +180,7 @@ MatrixXd SymmetricDirichlet::Grad()
     return g;
 }
 
-void SymmetricDirichlet::UpdateCache()
+void SymmetricDirichletEnergy::UpdateCache()
 {
     data.UpdateSize();
     for (auto&f : m.face) {

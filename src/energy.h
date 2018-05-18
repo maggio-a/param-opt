@@ -7,6 +7,9 @@
 
 #include <Eigen/Core>
 
+enum EnergyType {
+    SymmetricDirichlet
+};
 
 class Energy {
 
@@ -39,6 +42,7 @@ public:
 
     double FaceArea(Mesh::ConstFacePointer fp);
     double SurfaceArea();
+    double SurfaceAreaNotHoleFilling();
     double ParameterArea();
 
     /* Hack to speed up the convergence of iterative methods.
@@ -64,14 +68,14 @@ inline Mesh::CoordType Energy::P0(Mesh::ConstFacePointer fp, int i) { return P(f
 inline Mesh::CoordType Energy::P1(Mesh::ConstFacePointer fp, int i) { return P(fp, (i+1)%3); }
 inline Mesh::CoordType Energy::P2(Mesh::ConstFacePointer fp, int i) { return P(fp, (i+2)%3); }
 
-class SymmetricDirichlet : public Energy {
+class SymmetricDirichletEnergy : public Energy {
 
     /* Precomputed cotangents and area of each target shape */
     SimpleTempData<Mesh::FaceContainer, Point4d> data;
 
 public:
 
-    SymmetricDirichlet(Mesh& mesh);
+    SymmetricDirichletEnergy(Mesh& mesh);
 
     double E(const Mesh::FaceType& f, bool normalized = false);
     Eigen::MatrixXd Grad();

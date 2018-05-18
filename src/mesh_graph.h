@@ -81,7 +81,7 @@ void ChartOutlinesUV(Mesh& m, ChartHandle chart, std::vector<std::vector<Point2<
  * Used to store a mesh chart as an array of Face pointers */
 struct FaceGroup {
     Mesh& mesh;
-    const RegionID id;
+    RegionID id;
     std::vector<Mesh::FacePointer> fpVec;
     std::unordered_set<std::shared_ptr<FaceGroup>> adj;
 
@@ -95,14 +95,13 @@ struct FaceGroup {
 
     FaceGroup(Mesh& m, const RegionID id_);
 
+    void Clear();
     void AddFace(const Mesh::FacePointer fptr);
     void ParameterizationChanged();
-
     Mesh::FacePointer Fp();
 
     std::size_t FN() const;
     std::size_t NumAdj() const;
-
     double AreaUV() const;
     double Area3D() const;
     double BorderUV() const;
@@ -366,7 +365,7 @@ struct W3D : EdgeWeightFunction {
                 auto ffpi = fptr->FFp(i);
                 auto adjId = CHIDh[ffpi];
                 if (adjId != CHIDh[fptr]) {
-                    double edgeLength = DistortionWedge::EdgeLenght3D(fptr, i);
+                    double edgeLength = EdgeLength(*fptr, i);
                     if (adjId == chart2->id)
                         sharedBorder += edgeLength;
                     totalBorder += edgeLength;
@@ -408,7 +407,7 @@ struct WFN : EdgeWeightFunction {
                 auto ffpi = fptr->FFp(i);
                 auto adjId = CHIDh[ffpi];
                 if (adjId != CHIDh[fptr]) {
-                    float edgeLength = DistortionWedge::EdgeLenght3D(fptr, i);
+                    float edgeLength = EdgeLength(*fptr, i);
                     if (adjId == chart2->id)
                         sharedBorder += edgeLength;
                     totalBorder += edgeLength;

@@ -36,7 +36,8 @@ SOURCES += viewer.cpp \
     ../src/mesh_graph.cpp \
     ../src/uv.cpp \
     ../src/gl_utils.cpp \
-    ../src/mesh_utils.cpp
+    ../src/mesh_utils.cpp \
+    ../src/parameterization.cpp
 
 SOURCES += \
     ../src/mesh_viewer.cpp \
@@ -74,7 +75,8 @@ HEADERS += \
     ../src/dcp_solver.h \
     ../src/mesh_utils.h \
     ../src/mesh_attribute.h \
-    ../src/polygon2_triangulator.h
+    ../src/polygon2_triangulator.h \
+    ../src/parameterization.h
 
 DISTFILES += \
     readme.txt

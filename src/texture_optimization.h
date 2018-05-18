@@ -2,6 +2,8 @@
 #define TEXTURE_OPTIMIZATION_H
 
 #include "mesh_graph.h"
+#include "iterative.h"
+#include "parameterization.h"
 
 #include <vcg/space/point2.h>
 
@@ -19,30 +21,8 @@ struct Point2iHasher {
     }
 };
 
-/// TODO REFACTOR (these enums should be each in their respective headers)
-enum DirectParameterizer {
-    DCP, FixedBorderBijective, None
-};
-
 enum TexCoordOptimizer {
     AreaPreserving, SymmetricDirichletOpt, MIPS
-};
-
-enum DescentType {
-    Gradient, LimitedMemoryBFGS, ScalableLocallyInjectiveMappings
-};
-
-struct ParameterizationStrategy {
-    DirectParameterizer directParameterizer = DCP;
-    TexCoordOptimizer optimizer = SymmetricDirichletOpt;
-    ParameterizationGeometry geometry = Model;
-    DescentType descent = Gradient;
-    int optimizerIterations = 0;
-    bool padBoundaries = false; // keep holes filled while optimizing from FixedBorderBijective
-    bool applyCut = false;
-    bool warmStart = false;
-
-    ParameterizationStrategy() = default;
 };
 
 void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph);

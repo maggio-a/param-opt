@@ -28,10 +28,11 @@ public:
 //class MeshEdge : public Edge<MeshUsedTypes, edge::VertexRef, edge::VEAdj, edge::EEAdj, edge::BitFlags> {};
 class Mesh : public tri::TriMesh<std::vector<MeshVertex>, std::vector<MeshFace>/*, std::vector<MeshEdge>*/> {};
 
-using DistortionWedge = tri::Distortion<Mesh,true>;
+//using DistortionWedge = tri::Distortion<Mesh,true>;
 using RegionID = std::size_t;
 
 constexpr int INVALID_ID = 0xffffffff;
+
 
 bool LoadMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject, int &loadMask, std::string &modelName);
 bool SaveMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject, bool color = false);

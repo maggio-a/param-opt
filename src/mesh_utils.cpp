@@ -13,7 +13,6 @@ using namespace vcg;
 void MarkInitialSeamsAsFaux(Mesh& shell, Mesh& baseMesh)
 {
     tri::UpdateTopology<Mesh>::FaceFace(shell);
-    tri::UpdateFlags<Mesh>::FaceBorderFromFF(shell);
     tri::UpdateFlags<Mesh>::FaceClearF(shell);
     assert(HasFaceIndexAttribute(shell));
     auto ia = GetFaceIndexAttribute(shell);
@@ -21,7 +20,7 @@ void MarkInitialSeamsAsFaux(Mesh& shell, Mesh& baseMesh)
         if (sf.holeFilling == false) {
             for (int i = 0; i < 3; ++i) {
                 auto& f = baseMesh.face[ia[sf]];
-                if (f.IsF(i))
+                if (f.IsF(i) && !face::IsBorder(sf, i))
                     sf.SetF(i);
             }
         }
@@ -117,79 +116,7 @@ double ComputeDistanceFromBorderOnSeams(Mesh& m)
 
     return maxDist;
 }
-/*
-void SelectShortestSeamPathToBoundary(Mesh& m, const PosF& pos)
-{
-    assert(pos.IsFaux());
 
-    tri::UpdateFlags<Mesh>::VertexClearV(m);
-
-    // each 'node' is a pair <Pos, d>
-    // the Pos references a vertex and edge on the path
-    std::unordered_map<Mesh::VertexPointer, PosNode> P; // predecessors
-
-    // the assumption is that the initial pos points to the source node and edge
-    // from where the edge starts
-
-    // the predecessor of the source is the source itself
-    P.insert(std::make_pair(pos.V(), PosNode(pos, 0)));
-
-    std::deque<PosNode> Q;
-    Q.push_back(PosNode{pos, 0});
-
-    tri::EuclideanDistance<Mesh> dist;
-
-    PosF cutter;
-    while (!Q.empty()) {
-        std::sort(Q.begin(), Q.end());
-        PosNode node = Q.front();
-        Q.pop_front();
-
-        PosF& p = node.pos;
-
-        assert(P.count(p.V()) != 0);
-        assert(p.F()->IsF(p.E()));
-
-        p.V()->SetV();
-        if (p.V()->IsB()) {
-            cutter = p;
-            break;
-        }
-
-        std::vector<PosF> fauxFan = GetFauxPosFan(p);
-        for (auto& pcf : fauxFan) {
-            double d = node.distance + dist(p.V(), pcf.V());
-            auto pred = P.find(pcf.V());
-            if (pred == P.end() || pred->second.distance > d) {
-                PosNode nn{pcf, d};
-                P[pcf.V()] = node; // node becomes the predecessor of the new node nn
-                if (pred != P.end()) { // before inserting the node in the queue, remove the old entry if it exists
-                    Q.erase(std::remove_if(Q.begin(), Q.end(), [&p](const PosNode& elem) { return elem.pos.V() == p.V(); }),
-                            Q.end());
-                }
-                Q.push_back(nn);
-            }
-        }
-    }
-
-    // walk back from the frontier to the source, marking the edges as non faux
-    // edges are marked on each face otherwise the cutting function does not work
-    tri::UpdateFlags<Mesh>::FaceClearFaceEdgeS(m);
-
-    while (cutter.V() != pos.V()) {
-        assert(P.count(cutter.V()) == 1);
-        Mesh::FacePointer fp = cutter.F();
-        cutter.F()->SetFaceEdgeS(cutter.E());
-        cutter.FlipF();
-        cutter.F()->SetFaceEdgeS(cutter.E());
-        cutter.FlipF();
-        assert(cutter.F() == fp && "Mesh is not edge manifold along path");
-        PosNode& pn = P[cutter.V()];
-        assert(!pn.pos.IsBorder());
-        cutter = pn.pos;
-    }
-}
-*/
 void SelectShortestSeamPathToBoundary(Mesh& m, const PosF& pos)
 {
     assert(pos.IsFaux());
@@ -301,3 +228,17 @@ void CleanupShell(Mesh& shell)
     tri::Allocator<Mesh>::CompactEveryVector(shell);
 }
 
+void CopyShell(Mesh& shell, Mesh& out)
+{
+    out.Clear();
+    out.ClearAttributes();
+
+    assert(HasBoundaryInfoAttribute(shell));
+    assert(HasTargetShapeAttribute(shell));
+    assert(HasFaceIndexAttribute(shell));
+    GetBoundaryInfoAttribute(out);
+    GetTargetShapeAttribute(out);
+    GetFaceIndexAttribute(out);
+
+    tri::Append<Mesh,Mesh>::MeshCopy(out, shell, false, true);
+}

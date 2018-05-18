@@ -144,6 +144,7 @@ void ClearHoleFillingFaces(Mesh& shell)
     for (auto& f : shell.face)
         if (f.holeFilling) tri::Allocator<Mesh>::DeleteFace(shell, f);
     tri::Allocator<Mesh>::CompactEveryVector(shell);
+    tri::UpdateTopology<Mesh>::FaceFace(shell);
 }
 
 #include <wrap/io_trimesh/export.h>
@@ -418,6 +419,7 @@ void BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
         }
         tsa[sf] = target;
     }
+    tri::UpdateTopology<Mesh>::FaceFace(shell);
 }
 
 // FaceGroup class implementation
@@ -434,6 +436,18 @@ FaceGroup::FaceGroup(Mesh& m, const RegionID id_)
       borderUV{0},
       borderChanged{false}
 {
+}
+
+void FaceGroup::Clear()
+{
+    id = INVALID_ID;
+    fpVec.clear();
+    adj.clear();
+    numMerges = 0;
+    minMappedFaceValue = -1;
+    maxMappedFaceValue = -1;
+    borderUV = 0.0;
+    borderChanged = false;
 }
 
 void FaceGroup::AddFace(const Mesh::FacePointer fptr)

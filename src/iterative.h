@@ -9,6 +9,10 @@
 
 #include <memory>
 
+enum DescentType {
+    Gradient, LimitedMemoryBFGS, ScalableLocallyInjectiveMappings
+};
+
 class DescentMethod {
 
 protected:
@@ -98,7 +102,7 @@ class SLIM : public DescentMethod {
 
 public:
 
-    SLIM(std::shared_ptr<SymmetricDirichlet> sd);
+    SLIM(std::shared_ptr<SymmetricDirichletEnergy> sd);
 
     virtual Eigen::MatrixXd ComputeDescentDirection();
     virtual void UpdateCache();
