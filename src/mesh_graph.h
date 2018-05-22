@@ -28,6 +28,7 @@ class MeshGraph;
 class FaceGroup;
 
 using ChartHandle = std::shared_ptr<FaceGroup>;
+using GraphHandle = std::shared_ptr<MeshGraph>;
 
 void PrintParameterizationInfo(std::shared_ptr<MeshGraph> pdata);
 
@@ -80,10 +81,18 @@ void ChartOutlinesUV(Mesh& m, ChartHandle chart, std::vector<std::vector<Point2<
 /* FaceGroup class
  * Used to store a mesh chart as an array of Face pointers */
 struct FaceGroup {
+
+    struct Hasher {
+        std::size_t operator()(const ChartHandle& ch) const
+        {
+            return std::hash<RegionID>()(ch->id);
+        }
+    };
+
     Mesh& mesh;
     RegionID id;
     std::vector<Mesh::FacePointer> fpVec;
-    std::unordered_set<std::shared_ptr<FaceGroup>> adj;
+    std::unordered_set<ChartHandle, Hasher> adj;
 
     int numMerges;
 

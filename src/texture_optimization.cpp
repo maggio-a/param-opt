@@ -437,7 +437,7 @@ bool ParameterizeChart(Mesh& m, ChartHandle ch, ParameterizationStrategy strateg
     if (solved) {
         for (std::size_t i = 0; i < ch->fpVec.size(); ++i) {
             for (int k = 0; k < 3; ++k) {
-                ch->fpVec[i]->WT(k).P() = shell.face[i].WT(k).P();
+                ch->fpVec[i]->WT(k).P() = shell.face[i].V(k)->T().P();
             }
         }
     }

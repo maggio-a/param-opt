@@ -189,7 +189,7 @@ void ParameterizerObject::Sync()
 {
     for (std::size_t i = 0; i < chart->fpVec.size(); ++i) {
         for (int k = 0; k < 3; ++k) {
-            chart->fpVec[i]->WT(k).P() = shell.face[i].WT(k).P();
+            chart->fpVec[i]->WT(k).P() = shell.face[i].V(k)->T().P();
         }
     }
 }
