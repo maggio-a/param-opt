@@ -12,7 +12,7 @@
 #include "mesh.h"
 #include "gl_utils.h"
 
-bool LoadMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject, int &loadMask, std::string &modelName)
+bool LoadMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject, int &loadMask)
 {
     m.Clear();
     textureObject = std::make_shared<TextureObject>();
@@ -25,7 +25,7 @@ bool LoadMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject,
         return false;
     }
 
-    modelName = fi.fileName().toStdString();
+    m.name = fi.fileName().toStdString();
 
     QString wd = QDir::currentPath();
     QDir::setCurrent(fi.absoluteDir().absolutePath());
@@ -58,7 +58,9 @@ bool SaveMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject,
     int mask = tri::io::Mask::IOM_WEDGTEXCOORD;
 
     // Quick and dirty, make sure the texture extension is consistent
-    for (std::string& textureName : m.textures) textureName.append(".png");
+    for (std::string& textureName : m.textures) {
+        textureName = textureName.substr(0, textureName.find_last_of('.')).append(".png");
+    }
 
     if (color) mask = mask | tri::io::Mask::IOM_FACEQUALITY | tri::io::Mask::IOM_FACECOLOR;
     if (tri::io::Exporter<Mesh>::Save(m, fileName, mask)) {

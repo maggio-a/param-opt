@@ -324,15 +324,26 @@ void MeshViewer::FramebufferSizeCallback(GLFWwindow *window, int width, int heig
 
 // Member functions
 
-MeshViewer::MeshViewer(std::shared_ptr<MeshGraph> meshParamData_, std::size_t minRegionSize_, const std::string& fileName_)
-    : meshParamData{meshParamData_}, _currentTexture{meshParamData_->textureObject},
-      //gm{std::make_shared<GraphManager>(meshParamData_, std::unique_ptr<EdgeWeightFunction>(new FaceSizeWeightedShared3DBorder(meshParamData->mesh)))},
-      gm{std::make_shared<GraphManager>(meshParamData_, std::unique_ptr<EdgeWeightFunction>(new W3D(meshParamData->mesh)))},
-      fileName{fileName_}, minRegionSize{minRegionSize_}, _textureCamera{}, _detailCamera{}
+MeshViewer::MeshViewer(GraphHandle gh, const std::string& fileName_)
+    : graph{gh},
+      _currentTexture{gh->textureObject},
+      gm{std::make_shared<GraphManager>(gh, std::unique_ptr<EdgeWeightFunction>(new W3D(gh->mesh)))},
+      fileName{fileName_},
+      minRegionSize{0},
+      _textureCamera{},
+      _detailCamera{}
 {
-    std::size_t numRegions = meshParamData->Count();
+    Mesh& m = graph->mesh;
+    if (m.FN() < 100000)
+        minRegionSize = 1000;
+    else if (m.FN() < 300000)
+        minRegionSize = 5000;
+    else
+        minRegionSize = 10000;
+
+    std::size_t numRegions = graph->Count();
     regionColors.reserve(numRegions);
-    for (const auto& c : meshParamData->charts) {
+    for (const auto& c : graph->charts) {
         auto color = vcg::Color4f::Scatter(20, c.first % 20, 0.75f);
         regionColors.insert(std::make_pair(c.first, color/255.0f));
     }
@@ -365,7 +376,7 @@ void MeshViewer::TexturePick()
 
     Point2d p{_textureCamera.x + dx, _textureCamera.y + dy};
 
-    const Mesh& m = meshParamData->mesh;
+    const Mesh& m = graph->mesh;
     const MeshFace *fp = nullptr;
     for (auto &f : m.face) {
         vcg::Triangle2<double> uvFace{f.cWT(0).P(), f.cWT(1).P(), f.cWT(2).P()};
@@ -376,7 +387,7 @@ void MeshViewer::TexturePick()
     }
 
     if (fp != nullptr) {
-        auto CCIDh = tri::Allocator<Mesh>::GetPerFaceAttribute<RegionID>(meshParamData->mesh, "ConnectedComponentID");
+        auto CCIDh = tri::Allocator<Mesh>::GetPerFaceAttribute<RegionID>(graph->mesh, "ConnectedComponentID");
         RegionID selectionID = CCIDh[fp];
         Select(selectionID);
     } else {
@@ -424,7 +435,7 @@ void MeshViewer::ClearSelection()
 
 void MeshViewer::Select(const RegionID id)
 {
-    assert(meshParamData->GetChart(id) != nullptr);
+    assert(graph->GetChart(id) != nullptr);
     UpdateSelection(id);
 }
 
@@ -433,7 +444,7 @@ void MeshViewer::UpdateDetailBuffers()
     glUseProgram(_detailView.program);
 
     Mesh& shell = parameterizer->Shell();
-    Mesh& m = meshParamData->mesh;
+    Mesh& m = graph->mesh;
     auto ia = GetFaceIndexAttribute(shell);
     auto wtcs = GetWedgeTexCoordStorageAttribute(m);
 
@@ -468,7 +479,7 @@ void MeshViewer::UpdateDetailBuffers()
             }
             *buffptr++ = sf.P(i).X();
             *buffptr++ = sf.P(i).Y();
-            vcg::Color4b faceColor;
+            vcg::Color4b color;
             if (sf.holeFilling == false) {
                 if (ia[sf] == -1) {
                     std::cout << tri::Index<Mesh>(shell, sf) << std::endl;
@@ -477,17 +488,23 @@ void MeshViewer::UpdateDetailBuffers()
                 auto& f = m.face[ia[sf]];
                 *buffptr++ = wtcs[f].tc[i].U();
                 *buffptr++ = wtcs[f].tc[i].V();
-                faceColor = sf.cC();
+                if (shellColorMode == NONE)
+                    color = vcg::Color4b::White;
+                else if (shellColorMode == FACE)
+                    color = sf.cC();
+                else if (shellColorMode == VERTEX) {
+                    color = sf.V(i)->C();
+                }
             } else {
                 *buffptr++ = 0.0;
                 *buffptr++ = 0.0;
-                faceColor = vcg::Color4b::White;
+                color = vcg::Color4b::White;
             }
             unsigned char *colorptr = (unsigned char *) buffptr;
-            *colorptr++ = faceColor[0];
-            *colorptr++ = faceColor[1];
-            *colorptr++ = faceColor[2];
-            *colorptr++ = faceColor[3];
+            *colorptr++ = color[0];
+            *colorptr++ = color[1];
+            *colorptr++ = color[2];
+            *colorptr++ = color[3];
             buffptr++;
         }
     }
@@ -552,7 +569,7 @@ void MeshViewer::UpdateSelection(const RegionID id)
         // de-select
         primaryCharts.erase(id);
         selectedRegions[id].referenceCount--;
-        for (auto& chart : meshParamData->GetChart(id)->adj) {
+        for (auto& chart : graph->GetChart(id)->adj) {
             selectedRegions[chart->id].referenceCount--;
         }
         if (primaryCharts.size() == 0) {
@@ -566,13 +583,13 @@ void MeshViewer::UpdateSelection(const RegionID id)
 
         if (selectedRegions.count(id) == 0) {
             // new buffers will be allocated later
-            newCharts.insert(meshParamData->GetChart(id));
-            newElements += meshParamData->GetChart(id)->FN();
+            newCharts.insert(graph->GetChart(id));
+            newElements += graph->GetChart(id)->FN();
         }
         else {
             selectedRegions[id].referenceCount++;
         }
-        for (auto chart : meshParamData->GetChart(id)->adj) {
+        for (auto chart : graph->GetChart(id)->adj) {
             if (selectedRegions.count(chart->id) == 0) {
                 newCharts.insert(chart);
                 newElements += chart->FN();
@@ -755,11 +772,11 @@ void MeshViewer::UpdateSelection(const RegionID id)
     */
 
     std::vector<ChartHandle> charts;
-    for (auto& entry : primaryCharts) charts.push_back(meshParamData->GetChart(entry.first));
+    for (auto& entry : primaryCharts) charts.push_back(graph->GetChart(entry.first));
     auto status = gm->CollapseAllowed(charts.begin(), charts.end());
     if (status.first == gm->Collapse_OK) { // the regions can be parameterized together
         // Build the face group that needs to be parameterized
-        shellGroup = std::make_shared<FaceGroup>(meshParamData->mesh, INVALID_ID);
+        shellGroup = std::make_shared<FaceGroup>(graph->mesh, INVALID_ID);
         for (auto& c : charts)
             for (auto fptr : c->fpVec)
                 shellGroup->AddFace(fptr);
@@ -826,7 +843,7 @@ bool MeshViewer::IntersectionMouseRayModel(Mesh::ConstFacePointer *fp, float &u,
     };
 
     // Perform intersection tests
-    const Mesh& m = meshParamData->mesh;
+    const Mesh& m = graph->mesh;
     *fp = nullptr;
     double tMin = std::numeric_limits<double>::max();
     for (auto &f : m.face) {
@@ -848,7 +865,7 @@ void MeshViewer::PerspectivePick()
 
     //if (fp != nullptr) {
     if (IntersectionMouseRayModel(&fp, u, v)) {
-        auto CCIDh = tri::Allocator<Mesh>::GetPerFaceAttribute<RegionID>(meshParamData->mesh, "ConnectedComponentID");
+        auto CCIDh = tri::Allocator<Mesh>::GetPerFaceAttribute<RegionID>(graph->mesh, "ConnectedComponentID");
         RegionID selectionID = CCIDh[fp];
         Select(selectionID);
     } else {
@@ -878,7 +895,7 @@ void MeshViewer::CenterPerspectiveViewFromMouse()
 
 void MeshViewer::InitBuffers()
 {
-    const Mesh& m = meshParamData->mesh;
+    const Mesh& m = graph->mesh;
 
     // Load data, for each vertex position and texture coords
     glGenBuffers(1, &_vertexBuffers.mesh);
@@ -955,7 +972,7 @@ void MeshViewer::InitBuffers()
 
 void MeshViewer::SetupViews()
 {
-    Mesh& m = meshParamData->mesh;
+    Mesh& m = graph->mesh;
 
     // Setup perspective view
 
@@ -1139,7 +1156,7 @@ void MeshViewer::Draw3DView()
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-        glDrawArrays(GL_TRIANGLES, 0, meshParamData->mesh.FN() * 3);
+        glDrawArrays(GL_TRIANGLES, 0, graph->mesh.FN() * 3);
         glBindVertexArray(0);
 
         glDisable(GL_BLEND);
@@ -1156,7 +1173,7 @@ void MeshViewer::Draw3DView()
         glUniform1i(_perspectiveView.uniforms.loc_colorMask, _perspectiveView.colorMask);
         glUniform4f(_perspectiveView.uniforms.loc_weight, 1.0f, 1.0f, 1.0f, 1.0f);
 
-        glDrawArrays(GL_TRIANGLES, 0, meshParamData->mesh.FN() * 3);
+        glDrawArrays(GL_TRIANGLES, 0, graph->mesh.FN() * 3);
         glBindVertexArray(0);
     }
 
@@ -1191,7 +1208,7 @@ void MeshViewer::DrawTextureView()
     glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
-    glDrawArrays(GL_TRIANGLES, 0, meshParamData->mesh.FN() * 3);
+    glDrawArrays(GL_TRIANGLES, 0, graph->mesh.FN() * 3);
 
     if (selectedRegions.size() > 0) {
         glUseProgram(_textureView.highlight.program);
@@ -1466,7 +1483,7 @@ void MeshViewer::ManageImGuiState()
             std::cout << "Merging selected charts" << std::endl;
             std::vector<ChartHandle> cm;
             for (auto& entry : primaryCharts) {
-                cm.push_back(meshParamData->GetChart(entry.first));
+                cm.push_back(graph->GetChart(entry.first));
             }
             std::pair<int,ChartHandle> result = gmCollapse(cm.begin(), cm.end());
             if (result.first == gm->Collapse_OK) {
@@ -1510,18 +1527,18 @@ void MeshViewer::ManageImGuiState()
         if (tau > 1) tau = 1;
         if (clickPack) {
             ClearSelection();
-            if (meshParamData->MergeCount() > 0) {
+            if (graph->MergeCount() > 0) {
                 int c = ParameterizeGraph(*gm, 1.0, strategy, failsafe, tau, retry);
                 if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
                 updateTexcoord = true;
                 if (activeDistIndex != -1) {
                     ParameterizationGeometry distGeom = distortionFromTexture ? Texture : Model;
-                    meshParamData->MapDistortion(distortion[activeDistIndex], distGeom);
+                    graph->MapDistortion(distortion[activeDistIndex], distGeom);
                     updateColor = true;
                 }
                 _currentTexture->Release();
-                _currentTexture = RenderTexture(meshParamData->mesh, meshParamData->textureObject, true, _window);
-                //_currentTexture = RenderTexture(meshParamData->mesh, meshParamData->textureObject, false, _window);
+                _currentTexture = RenderTexture(graph->mesh, graph->textureObject, true, _window);
+                //_currentTexture = RenderTexture(graph->mesh, graph->textureObject, false, _window);
            } else {
                std::cout << "No merges, nothing to do" << std::endl;
            }
@@ -1530,7 +1547,7 @@ void MeshViewer::ManageImGuiState()
         if (primaryCharts.size() == 1) {
             if (ImGui::Button("Save current chart")) {
                 Mesh pm;
-                auto chart = meshParamData->GetChart(primaryCharts.begin()->first);
+                auto chart = graph->GetChart(primaryCharts.begin()->first);
                 Box2d b = chart->UVBox();
 
                 auto f = [&pm, &b](typename Mesh::FacePointer fptr) {
@@ -1555,7 +1572,7 @@ void MeshViewer::ManageImGuiState()
         static int selId = 0;
         ImGui::InputInt("##SelectId", &selId, 1, 1);
         ImGui::SameLine();
-        if (ImGui::Button("S") && meshParamData->GetChart(selId) != nullptr) {
+        if (ImGui::Button("S") && graph->GetChart(selId) != nullptr) {
             Select(selId);
         }
 
@@ -1569,7 +1586,7 @@ void MeshViewer::ManageImGuiState()
         if (ImGui::BeginPopupModal("Export mesh...", NULL, ImGuiWindowFlags_AlwaysAutoResize)) {
             ImGui::InputText("file name", exportFileName, 256);
             if (ImGui::Button("Export", ImVec2(120,0))) {
-                Mesh& m = meshParamData->mesh;
+                Mesh& m = graph->mesh;
                 if (SaveMesh(m, exportFileName, _currentTexture, true) == false) {
                     std::cout << "Model not saved correctly" << std::endl;
                 }
@@ -1638,7 +1655,7 @@ void MeshViewer::ManageImGuiState()
         ImGui::RadioButton("Angle Distortion", &distortionIndex, 1);
         if (distortionIndex != activeDistIndex || clicked) {
             ParameterizationGeometry distGeom = distortionFromTexture ? Texture : Model;
-            meshParamData->MapDistortion(distortion[distortionIndex], distGeom);
+            graph->MapDistortion(distortion[distortionIndex], distGeom);
             activeDistIndex = distortionIndex;
             updateColor = true;
         }
@@ -1667,7 +1684,7 @@ void MeshViewer::ManageImGuiState()
             ImGui::Begin("Info area", &showInfoArea);
             if (primaryCharts.size() == 1) {
                 // display info about the chart
-                auto chart = meshParamData->GetChart(primaryCharts.begin()->first);
+                auto chart = graph->GetChart(primaryCharts.begin()->first);
                 ImGui::Text("Chart %lu (%lu faces, %lu adjacencies)", chart->id, chart->FN(), chart->NumAdj());
                 ImGui::Text("Aggregate count: %d", chart->numMerges + 1);
                 ImGui::Text("Area 3D: %.4f", chart->Area3D());
@@ -1676,10 +1693,10 @@ void MeshViewer::ManageImGuiState()
             } else {
                 // display info about the whole graph
                 ImGui::Text("Filename: %s", fileName.c_str());
-                ImGui::Text("Parameterization charts: %lu", meshParamData->Count());
-                ImGui::Text("Area 3D: %.4f", meshParamData->Area3D());
-                ImGui::Text("Area UV: %.4f | Border UV: %.6f", meshParamData->AreaUV(), meshParamData->BorderUV());
-                auto range = meshParamData->DistortionRange();
+                ImGui::Text("Parameterization charts: %lu", graph->Count());
+                ImGui::Text("Area 3D: %.4f", graph->Area3D());
+                ImGui::Text("Area UV: %.4f | Border UV: %.6f", graph->AreaUV(), graph->BorderUV());
+                auto range = graph->DistortionRange();
                 ImGui::Text("Distortion range: %.4f , %.4f", range.first, range.second);
             }
             ImGui::End();
@@ -1713,20 +1730,19 @@ void MeshViewer::ManageImGuiState()
     // shell parameterization controls
     static bool colorize = false;
     bool shellChanged = false;
+    static int shellColor = 0;
     if (selectedRegions.size() > 0) {
         ImGui::Begin("Shell parameterization", nullptr, 0);
-        if (ImGui::Checkbox("Colorize", &colorize)) {
-            if (colorize) parameterizer->MapEnergyToShellFaceColor();
-            else parameterizer->ClearShellFaceColor();
+        if (ImGui::Combo("Shell color", &shellColor, "None\0Energy value\0Gradient\0Descent direction\0\0")) {
             shellChanged = true;
         }
-
         if (ImGui::Button("Reset")) {
             parameterizer->Reset();
             shellChanged = true;
         }
         if (ImGui::Button("Iterate")) {
-            IterationInfo info = parameterizer->Iterate();
+            IterationInfo info;
+            info = parameterizer->Iterate();
             std::cout << "Energy = " << info.energyVal << ", DeltaE = " << info.energyDiff << ", Gradient norm = " << info.gradientNorm << std::endl;
             if (colorize) parameterizer->MapEnergyToShellFaceColor();
             else parameterizer->ClearShellFaceColor();
@@ -1742,6 +1758,28 @@ void MeshViewer::ManageImGuiState()
     }
 
     if (shellChanged) {
+        switch (shellColor) {
+        case 0:
+            if (shellColorMode != NONE) {
+                parameterizer->ClearShellFaceColor();
+                shellColorMode = NONE;
+            }
+            break;
+        case 1:
+            parameterizer->MapEnergyToShellFaceColor();
+            shellColorMode = FACE;
+            break;
+        case 2:
+            parameterizer->MapEnergyGradientToShellVertexColor();
+            shellColorMode = VERTEX;
+            break;
+        case 3:
+            parameterizer->MapDescentDirectionToShellVertexColor();
+            shellColorMode = VERTEX;
+            break;
+        default: break;
+        }
+
         UpdateDetailBuffers();
     }
 
@@ -1749,7 +1787,7 @@ void MeshViewer::ManageImGuiState()
     if (updateTexcoord || updateColor) {
         glBindBuffer(GL_ARRAY_BUFFER, _vertexBuffers.mesh);
         float *buffptr = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
-        for (const auto &f : meshParamData->mesh.face) {
+        for (const auto &f : graph->mesh.face) {
             for (int i = 0; i < 3; ++i) {
                 buffptr += 3;
                 if (updateTexcoord) {

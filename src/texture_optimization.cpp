@@ -266,7 +266,7 @@ bool ParameterizeShell(Mesh& shell, ParameterizationStrategy strategy, Mesh& bas
                 shellChanged = true;
             }
 
-            energy->MapToFaceQuality(true);
+            //energy->MapToFaceQuality(true);
 
             // Determine whether cutting must be attempted
             int memsz = std::min(int(energyDiffHistory.size()), adaptiveCutMemory);
@@ -274,6 +274,8 @@ bool ParameterizeShell(Mesh& shell, ParameterizationStrategy strategy, Mesh& bas
             for (int i = 0; i < memsz; ++i) {
                 avgNormalizedEnergyDiff += energyDiffHistory[i] / memsz;
             }
+
+            /*
 
             // Attempt cut
             if (normalizedEnergyVal > 6.0 && avgNormalizedEnergyDiff < 0.5) {
@@ -329,7 +331,7 @@ bool ParameterizeShell(Mesh& shell, ParameterizationStrategy strategy, Mesh& bas
                 assert(!p.IsBorder());
 
                 SelectShortestSeamPathToBoundary(shell, p);
-                //SelectShortestSeamPathToPeak(shell, p);
+                SelectShortestSeamPathToPeak(shell, p);
 
                 tri::CutMeshAlongSelectedFaceEdges(shell);
                 CleanupShell(shell);
@@ -339,6 +341,8 @@ bool ParameterizeShell(Mesh& shell, ParameterizationStrategy strategy, Mesh& bas
                 appliedCut = true;
                 shellChanged = true;
             } // if cutting
+
+            */
 
             if (shellChanged)
                 opt->UpdateCache();
@@ -372,7 +376,7 @@ static void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, 
     ChartHandle c1 = split[0];
     ChartHandle c2 = split[1];
 
-    std::unordered_set<ChartHandle> charts;
+    std::unordered_set<ChartHandle, FaceGroup::Hasher> charts;
     for (std::size_t i = 2; i < split.size(); ++i) {
         charts.insert(split[i]);
     }

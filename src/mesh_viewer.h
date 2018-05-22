@@ -67,6 +67,8 @@ public:
 
     enum DragMode { DISABLED, PERSPECTIVE, TEXTURE, DETAIL };
 
+    enum ColorMode { VERTEX, FACE, NONE };
+
     static void MouseButtonCallback(GLFWwindow *, int, int, int);
     static void CursorPositionCallback(GLFWwindow *, double, double);
     static void ScrollCallback(GLFWwindow *, double, double);
@@ -81,9 +83,7 @@ public:
 
 private:
 
-    // TODO the mesh graph (meshParamData) should be encapsulated by the GraphManager object
-    // and queried through it
-    std::shared_ptr<MeshGraph> meshParamData;
+    GraphHandle graph;
     TextureObjectHandle _currentTexture;
     std::shared_ptr<GraphManager> gm;
 
@@ -108,6 +108,7 @@ private:
     // Selection related information
     std::shared_ptr<FaceGroup> shellGroup;
     std::shared_ptr<ParameterizerObject> parameterizer;
+    ColorMode shellColorMode = FACE;
 
     struct SelectionBufferInfo {
         ChartHandle chart;
@@ -270,7 +271,7 @@ private:
     */
 
 public:
-    MeshViewer(std::shared_ptr<MeshGraph> meshParamData_, std::size_t minRegionSize_, const std::string &fileName_);
+    MeshViewer(GraphHandle gh, const std::string &fileName_);
     void Run();
     void InitBuffers();
     void UpdateDetailBuffers();

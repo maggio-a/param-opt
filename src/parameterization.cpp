@@ -10,6 +10,8 @@
 
 #include <vcg/complex/algorithms/crease_cut.h>
 
+#include <Eigen/Core>
+
 ParameterizerObject::ParameterizerObject(ChartHandle c, ParameterizationStrategy strat)
     : shell{},
       baseMesh{c->mesh},
@@ -144,6 +146,38 @@ void ParameterizerObject::MapEnergyToShellFaceColor()
     tri::UpdateColor<Mesh>::PerFaceQualityRamp(shell, 0, 10.0);
 }
 
+void ParameterizerObject::MapEnergyGradientToShellVertexColor()
+{
+    Eigen::MatrixXd G = energy->Grad();
+    double maxn = 0;
+    for (int i = 0; i < G.rows(); ++i) {
+        maxn = std::max(maxn, G.row(i).norm());
+    }
+    for (int i = 0; i < G.rows(); ++i) {
+        vcg::Point2d vec{G.row(i)[0], G.row(i)[1]};
+        vec /= maxn;
+        double angle = VecAngle(vcg::Point2d{0, 1}, vec);
+        double norm = vec.Norm();
+        shell.vert[i].C().SetHSVColor(angle / (2.0 * M_PI), std::pow(norm, 0.1), 1.0);
+    }
+}
+
+void ParameterizerObject::MapDescentDirectionToShellVertexColor()
+{
+    Eigen::MatrixXd D = opt->ComputeDescentDirection();
+    double maxn = 0;
+    for (int i = 0; i < D.rows(); ++i) {
+        maxn = std::max(maxn, D.row(i).norm());
+    }
+    for (int i = 0; i < D.rows(); ++i) {
+        vcg::Point2d vec{D.row(i)[0], D.row(i)[1]};
+        vec /= maxn;
+        double angle = VecAngle(vcg::Point2d{0, 1}, vec);
+        double norm = vec.Norm();
+        shell.vert[i].C().SetHSVColor(angle / (2.0 * M_PI), std::pow(norm, 0.25), 1.0);
+    }
+}
+
 void ParameterizerObject::ClearShellFaceColor()
 {
     for (auto& sf : shell.face) {
@@ -171,7 +205,7 @@ void ParameterizerObject::Reset()
      * In case of warm start, we should build the shell according to the existing
      * parameterization (after having checked that is valid wrt the given strategy
      * */
-    std::cout << "TODO FIXME WARM CODE START MISSING HERE" << std::endl;
+    std::cout << "TODO FIXME WARM START CODE" << std::endl;
     BuildShell(shell, *chart, strategy.geometry);
     std::cout << "WARNING forcing warm start to true" << std::endl;
     strategy.warmStart = true;

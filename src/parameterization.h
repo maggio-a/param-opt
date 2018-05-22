@@ -92,6 +92,8 @@ public:
     int IterationCount();
 
     void MapEnergyToShellFaceColor();
+    void MapEnergyGradientToShellVertexColor();
+    void MapDescentDirectionToShellVertexColor();
     void ClearShellFaceColor();
 
 private:
