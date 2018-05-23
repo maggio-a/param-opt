@@ -187,7 +187,7 @@ int main_cmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
     strategy.geometry = Texture;
     //strategy.geometry = Model;
     strategy.descent = ScalableLocallyInjectiveMappings;
-    strategy.optimizerIterations = 500;
+    strategy.optimizerIterations = 0;
     strategy.padBoundaries = true;
     strategy.applyCut = true;
     strategy.warmStart = false;
@@ -228,7 +228,7 @@ int main_cmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
     LogParameterizationStats(graph, after, std::string("[LOG] Raster stats after parameterizing"));
 
     std::cout << "Rendering texture..." << std::endl;
-    TextureObjectHandle newTexture = RenderTexture(m, textureObject, args.filter, nullptr);
+    TextureObjectHandle newTexture = RenderTexture(m, textureObject, true, args.filter, nullptr);
 
     std::cout << "Processing took " << t.TimeElapsed() << " seconds" << std::endl;
 

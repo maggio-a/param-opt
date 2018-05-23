@@ -7,6 +7,7 @@
 #include "uv.h"
 #include "mesh_attribute.h"
 #include "uniform_solver.h"
+#include "mean_value_param.h"
 
 #include <vcg/complex/complex.h>
 #include <vcg/complex/algorithms/parametrization/distortion.h>
@@ -343,7 +344,6 @@ void BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
     Mesh& m = fg.mesh;
     std::cout << "Building shell for a chart of size " << fg.FN() << std::endl;
     CopyToMesh(fg, shell);
-    vcg::tri::io::ExporterPLY<Mesh>::Save(shell, "fg_to_shell.ply");
 
     tri::UpdateTopology<Mesh>::FaceFace(shell);
 
@@ -360,8 +360,15 @@ void BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
     double avgUV = psi().parameterArea / psi().numNonZero;
 
     // Compute the initial configuration (Tutte's parameterization)
-    UniformSolver<Mesh> solver(shell);
-    solver.Solve();
+    //UniformSolver<Mesh> solver(shell);
+    //bool solved = solver.Solve();
+    MeanValueSolver<Mesh> solver(shell);
+    bool solved = solver.Solve(DefaultVertexPosition<Mesh>{});
+    if (!solved) {
+        ColorFace(shell);
+        vcg::tri::io::Exporter<Mesh>::Save(shell, "injective_failed.obj", vcg::tri::io::Mask::IOM_VERTTEXCOORD);
+        assert(0 && "Failed to initialize shell with injective parameterization");
+    }
 
     // Map the 3D position of the mesh to the parameterization
     SyncShell(shell);

@@ -33,29 +33,62 @@ static const char *vs_text[] = {
 };
 
 static const char *fs_text[] = {
-    "#version 410 core                                           \n"
-    "                                                            \n"
-    "uniform sampler2D img0;                                     \n"
-    "in vec2 uv;                                                 \n"
-    "                                                            \n"
-    "out vec4 color;                                             \n"
-    "                                                            \n"
-    "void main(void)                                             \n"
-    "{                                                           \n"
-    "    color = texture(img0, uv);                              \n"
-    "}                                                           \n"
+    "#version 410 core                                                     \n"
+    "                                                                      \n"
+    "uniform sampler2D img0;                                               \n"
+    "                                                                      \n"
+    "uniform vec2 texture_size;                                            \n"
+    "uniform int use_cubic_interpolation;                                  \n"
+    "                                                                      \n"
+    "in vec2 uv;                                                           \n"
+    "                                                                      \n"
+    "out vec4 color;                                                       \n"
+    "                                                                      \n"
+    "void main(void)                                                       \n"
+    "{                                                                     \n"
+    "    if (use_cubic_interpolation == 0)                                 \n"
+    "        color = texture2D(img0, uv);                                  \n"
+    "    else {                                                            \n"
+    "        vec2 coord = uv * texture_size - vec2(0.5, 0.5);              \n"
+    "        vec2 idx = floor(coord);                                      \n"
+    "        vec2 fraction = coord - idx;                                  \n"
+    "        vec2 one_frac = vec2(1.0, 1.0) - fraction;                    \n"
+    "        vec2 one_frac2 = one_frac * one_frac;                         \n"
+    "        vec2 fraction2 = fraction * fraction;                         \n"
+    "        vec2 w0 = (1.0/6.0) * one_frac2 * one_frac;                   \n"
+    "        vec2 w1 = (2.0/3.0) - 0.5 * fraction2 * (2.0 - fraction);     \n"
+    "        vec2 w2 = (2.0/3.0) - 0.5 * one_frac2 * (2.0 - one_frac);     \n"
+    "        vec2 w3 = (1.0/6.0) * fraction2 * fraction;                   \n"
+    "        vec2 g0 = w0 + w1;                                            \n"
+    "        vec2 g1 = w2 + w3;                                            \n"
+    "        vec2 h0 = (w1 / g0) - 0.5 + idx;                              \n"
+    "        vec2 h1 = (w3 / g1) + 1.5 + idx;                              \n"
+    "        vec4 tex00 = texture2D(img0, vec2(h0.x, h0.y) / texture_size);\n"
+    "        vec4 tex10 = texture2D(img0, vec2(h1.x, h0.y) / texture_size);\n"
+    "        vec4 tex01 = texture2D(img0, vec2(h0.x, h1.y) / texture_size);\n"
+    "        vec4 tex11 = texture2D(img0, vec2(h1.x, h1.y) / texture_size);\n"
+    "        tex00 = mix(tex00, tex01, g1.y);                              \n"
+    "        tex10 = mix(tex10, tex11, g1.y);                              \n"
+    "        color = mix(tex00, tex10, g1.x);                              \n"
+    "    }                                                                 \n"
+    "}                                                                     \n"
 };
+
 
 // if parent == nullptr this function creates an exclusive context, otherwise set
 // up a shared context so textures arent duplicated
-static TextureObjectHandle RenderTexture(Mesh::FaceIterator fbegin, Mesh::FaceIterator fend, Mesh &m, TextureObjectHandle textureObject, bool filter, GLFWwindow *parentWindow);
+static TextureObjectHandle RenderTexture(Mesh::FaceIterator fbegin, Mesh::FaceIterator fend,
+                                         Mesh &m, TextureObjectHandle textureObject,
+                                         bool filter, bool useCubicInterpolation, GLFWwindow *parentWindow);
 
-static TextureObjectHandle RenderTexture(Mesh &m, TextureObjectHandle textureObject, bool filter, GLFWwindow *parentWindow)
+static TextureObjectHandle RenderTexture(Mesh &m, TextureObjectHandle textureObject, bool filter, bool useCubicInterpolation, GLFWwindow *parentWindow)
 {
-    return RenderTexture(m.face.begin(), m.face.end(), m, textureObject, filter, parentWindow);
+    return RenderTexture(m.face.begin(), m.face.end(), m, textureObject, filter, useCubicInterpolation, parentWindow);
 }
 
-static TextureObjectHandle RenderTexture(Mesh::FaceIterator fbegin, Mesh::FaceIterator fend, Mesh &m, TextureObjectHandle textureObject, bool filter, GLFWwindow *parentWindow)
+static TextureObjectHandle RenderTexture(Mesh::FaceIterator fbegin, Mesh::FaceIterator fend,
+                                         Mesh &m, TextureObjectHandle textureObject,
+                                         bool filter, bool useCubicInterpolation, GLFWwindow *parentWindow)
 {
     assert(textureObject->ArraySize() == 1); // TODO multiple texture images support
 
@@ -210,6 +243,18 @@ static TextureObjectHandle RenderTexture(Mesh::FaceIterator fbegin, Mesh::FaceIt
 
     GLint loc_img0 = glGetUniformLocation(program, "img0");
     glUniform1i(loc_img0, 0);
+
+    CheckGLError();
+
+    GLint loc_texture_size = glGetUniformLocation(program, "texture_size");
+    glUniform2f(loc_texture_size, float(img.width()), float(img.height()));
+
+    GLint loc_cubic_flag = glGetUniformLocation(program, "use_cubic_interpolation");
+    if (useCubicInterpolation) {
+        std::cout << "[LOG] Using cubic interpolation to generate the new texture" << std::endl;
+        glUniform1i(loc_cubic_flag, 1);
+    } else
+        glUniform1i(loc_cubic_flag, 0);
 
     QImage textureImage(img.width(), img.height(), QImage::Format_ARGB32);
 

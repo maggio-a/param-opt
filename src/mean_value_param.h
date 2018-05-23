@@ -1,9 +1,8 @@
-#ifndef UNIFORM_SOLVER_H
-#define UNIFORM_SOLVER_H
+#ifndef MEAN_VALUE_PARAM_H
+#define MEAN_VALUE_PARAM_H
 
 #include <vector>
 #include <unordered_map>
-#include <unordered_set>
 #include <iostream>
 #include <type_traits>
 
@@ -11,14 +10,17 @@
 #include <Eigen/OrderingMethods>
 
 #include "mesh.h"
-#include "metric.h"
 #include "math_utils.h"
+#include "vertex_position.h"
 
 #include <vcg/complex/complex.h>
-#include <vcg/complex/algorithms/clean.h>
+
+/*
+ * Mean value coordinates (Floater 2003)
+ * */
 
 template <typename MeshType>
-class UniformSolver
+class MeanValueSolver
 {
 public:
 
@@ -37,29 +39,38 @@ private:
 
     MeshType &mesh;
 
-    std::unordered_map<IndexType,CoordUV> constraints;
+    std::unordered_map<VertexPointer,CoordUV> constraints;
     std::vector<Td> coeffList;
 
-public:
+    std::unordered_map<VertexPointer,int> vmap;
 
-    UniformSolver(MeshType &m) : mesh{m}
-    {
-        tri::UpdateTopology<MeshType>::FaceFace(m);
-        assert(tri::Clean<MeshType>::MeshGenus(m) == 0);
-    }
-
-private:
-
-    int Idx(VertexPointer v) { vcg::tri::Index(mesh, v); }
-
-    bool AddConstraint(IndexType vi, CoordUV uv)
-    {
-        return constraints.insert(std::make_pair(vi, uv)).second;
-    }
+    int vn;
 
 public:
 
-    bool Solve()
+    MeanValueSolver(MeshType &m) : mesh{m}, vn{0} {}
+
+    int Idx(VertexPointer v) { return vcg::tri::Index(mesh, v); }
+
+    bool AddConstraint(VertexPointer vp, CoordUV uv)
+    {
+        return constraints.insert(std::make_pair(vp, uv)).second;
+    }
+
+    void BuildIndex()
+    {
+        for (auto& v : mesh.vert) {
+            vmap[&v] = vn++;
+        }
+    }
+
+    bool Solve(float lambda = 1.0f, float mi = 0.0f)
+    {
+        return Solve(DefaultVertexPosition<MeshType>{}, lambda, mi);
+    }
+
+    template <typename VertexPosFct>
+    bool Solve(VertexPosFct VertPos)
     {
         // Mark border vertices
         tri::UpdateTopology<MeshType>::FaceFace(mesh);
@@ -100,10 +111,11 @@ public:
         // map border to the unit circle (store coord in vertex texcoord)
         constexpr float twoPi = 2 * M_PI;
         for (std::size_t i = 0; i < vBorderVertices[0].size(); ++i) {
-            float angle = (vCumulativeBorder[0][i] / vTotalBorderLength[0]) * twoPi;
+            //float angle = (vCumulativeBorder[0][i] / vTotalBorderLength[0]) * twoPi;
+            float angle = (i / double(vBorderVertices[0].size())) * twoPi;
             Point2d uvCoord = Point2d{std::sin(angle), std::cos(angle)};
             mesh.vert[vBorderVertices[0][i]].T().P() = uvCoord;
-            AddConstraint(vBorderVertices[0][i], uvCoord);
+            AddConstraint(&(mesh.vert[vBorderVertices[0][i]]), uvCoord);
         }
 
         const int n = mesh.VN();
@@ -111,57 +123,62 @@ public:
         Eigen::VectorXd b_u(Eigen::VectorXd::Zero(n));
         Eigen::VectorXd b_v(Eigen::VectorXd::Zero(n));
 
-        std::unordered_map<VertexPointer, std::unordered_set<VertexPointer>> vadj;
+        // Workaround to avoid inifinities if an angle is too small
+        assert(std::is_floating_point<ScalarType>::value);
+        ScalarType eps = std::numeric_limits<ScalarType>::epsilon();
+
         for (auto& f : mesh.face) {
-            for (int i = 0; i < 3; ++i) {
-                vadj[f.V0(i)].insert(f.V1(i));
-                vadj[f.V0(i)].insert(f.V2(i));
-            }
-        }
+            for (int i = 0; i < 3; ++i) if (constraints.find(f.V(i)) == constraints.end()) {
+                VertexPointer vi = f.V(i);
+                Coord3D pi = VertPos(&f, i);
 
-        // Compute matrix coefficients
-        coeffList.reserve(mesh.VN() * 32);
-        for (auto& entry : vadj) {
-            IndexType vi = tri::Index(mesh, entry.first);
-            if (constraints.find(vi) == constraints.end()) {
-                double c = entry.second.size();
-                for (auto & vp : entry.second) {
-                    coeffList.push_back(Td(Idx(entry.first), Idx(vp), - (1.0 / c)));
-                    //coeffList.push_back(Td(V(entry.first), V(vp), coeff));
+                VertexPointer vj = f.V((i+2)%3);
+                Coord3D pj = VertPos(&f, (i+2)%3);
+
+                VertexPointer vk = f.V((i+1)%3);
+                Coord3D pk = VertPos(&f, (i+1)%3);
+
+                double angle_i = VecAngle(pi - pj, pi - pk);
+                if (!std::isfinite(angle_i)) {
+                    angle_i = M_PI / 3.0;
                 }
-            } else {
-                b_u[vi] = constraints[vi][0];
-                b_v[vi] = constraints[vi][1];
+                double pij2 = (pi - pj).SquaredNorm();
+                double pik2 = (pi - pk).SquaredNorm();
+                double weight_ij = std::tan(angle_i / 2.0) / (std::isfinite(pij2) ? pij2 : 1e-6);
+                double weight_ik = std::tan(angle_i / 2.0) / (std::isfinite(pik2) ? pik2 : 1e-6);
+
+                if (!(std::isfinite(weight_ij) && std::isfinite(weight_ik))) {
+                    std::cout << "Failed to compute matrix coefficients for face " << tri::Index(mesh, f) << std::endl;
+                    return false;
+                }
+
+                coeffList.push_back(Td(Idx(vi), Idx(vj), weight_ij));
+                coeffList.push_back(Td(Idx(vi), Idx(vk), weight_ik));
+                coeffList.push_back(Td(Idx(vi), Idx(vi), -(weight_ij + weight_ik)));
             }
-            coeffList.push_back(Td(Idx(entry.first), Idx(entry.first), 1));
         }
 
+        // setup constraints coefficients
+        for (auto& c : constraints) {
+            VertexPointer vp = c.first;
+            int vi = Idx(vp);
+            coeffList.push_back(Td(vi, vi, 1));
+            b_u[vi] = constraints[vp][0];
+            b_v[vi] = constraints[vp][1];
+        }
 
-        // Prepare to solve
-
-        // Initialize matrix
         A.setFromTriplets(coeffList.begin(), coeffList.end());
-
-        //std::cout << Eigen::MatrixXd(A) << std::endl;
-        //std::cout << b << std::endl;
-
-        //Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> solver;
         Eigen::SparseLU<Eigen::SparseMatrix<double,Eigen::ColMajor>, Eigen::COLAMDOrdering<Eigen::SparseMatrix<double>::StorageIndex>> solver;
 
         A.makeCompressed();
         solver.compute(A);
         if (solver.info() != Eigen::Success) {
-            std::cout << "Factorization failed" << std::endl;
+            std::cout << "Matrix factorization failed" << std::endl;
             return false;
         }
 
         Eigen::VectorXd x_u = solver.solve(b_u);
         Eigen::VectorXd x_v = solver.solve(b_v);
-
-        if (solver.info() != Eigen::Success) {
-            std::cout << "Solving failed" << std::endl;
-            return false;
-        }
 
         // Copy back the texture coordinates
         vcg::Box2<typename CoordUV::ScalarType> uvBox;
@@ -169,7 +186,7 @@ public:
             uvBox.Add(CoordUV(x_u[i], x_v[i]));
         }
 
-        double scale = 1.0f / std::max(uvBox.Dim().X(), uvBox.Dim().Y());
+        double scale = 1.0 / std::max(uvBox.Dim().X(), uvBox.Dim().Y());
 
         for (auto &f : mesh.face) {
             for (int i = 0; i < 3; ++i) {
@@ -185,14 +202,12 @@ public:
             if (DistortionMetric::AreaUV(f) <= 0) {
                 std::cout << "Failed to compute injective parameterization" << std::endl;
                 return false;
-                //assert(DistortionMetric::AreaUV(f) > 0);
             }
         }
 
         return true;
     }
-
 };
 
-#endif // UNIFORM_SOLVER_H
+#endif // MEAN_VALUE_PARAM_H
 

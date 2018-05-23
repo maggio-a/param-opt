@@ -76,7 +76,8 @@ HEADERS += \
     ../src/mesh_utils.h \
     ../src/mesh_attribute.h \
     ../src/polygon2_triangulator.h \
-    ../src/parameterization.h
+    ../src/parameterization.h \
+    ../src/mean_value_param.h
 
 DISTFILES += \
     readme.txt
