@@ -15,10 +15,6 @@
 
 #include <vcg/complex/complex.h>
 
-/*
- * Mean value coordinates (Floater 2003)
- * */
-
 template <typename MeshType>
 class MeanValueSolver
 {
@@ -144,8 +140,8 @@ public:
                 }
                 double pij2 = (pi - pj).SquaredNorm();
                 double pik2 = (pi - pk).SquaredNorm();
-                double weight_ij = std::tan(angle_i / 2.0) / (std::isfinite(pij2) ? pij2 : 1e-6);
-                double weight_ik = std::tan(angle_i / 2.0) / (std::isfinite(pik2) ? pik2 : 1e-6);
+                double weight_ij = std::tan(angle_i / 2.0) / (pij2 > 0 ? pij2 : 1e-6)  ;
+                double weight_ik = std::tan(angle_i / 2.0) / (pik2 > 0 ? pik2 : 1e-6)  ;
 
                 if (!(std::isfinite(weight_ij) && std::isfinite(weight_ik))) {
                     std::cout << "Failed to compute matrix coefficients for face " << tri::Index(mesh, f) << std::endl;
