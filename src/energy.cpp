@@ -55,6 +55,19 @@ double Energy::E_IgnoreMarkedFaces(bool normalized)
     return e / ((normalized) ? (surfaceArea - holeFillingArea) : 1.0);
 }
 
+MatrixXd Energy::Grad()
+{
+    MatrixXd g = MatrixXd::Zero(m.VN(), 2);
+    for (auto& f : m.face) {
+        Eigen::Vector2d gf[3];
+        Grad(tri::Index(m, f), gf[0], gf[1], gf[2]);
+        g.row(Index(m, f.V(0))) += gf[0];
+        g.row(Index(m, f.V(1))) += gf[1];
+        g.row(Index(m, f.V(2))) += gf[2];
+    }
+    return g;
+}
+
 void Energy::UpdateCache()
 {
     // empty
@@ -136,11 +149,10 @@ double SymmetricDirichletEnergy::E(const Mesh::FaceType& f, bool normalized)
     return attenuation * energy;
 }
 
-MatrixXd SymmetricDirichletEnergy::Grad()
+void SymmetricDirichletEnergy::Grad(int faceIndex, Eigen::Vector2d& g0, Eigen::Vector2d& g1, Eigen::Vector2d& g2)
 {
-    MatrixXd g = MatrixXd::Zero(m.VN(), 2);
+        const MeshFace& f = m.face[faceIndex];
 
-    for(auto& f : m.face) {
         double area3D = data[f][3];
         double areaUV = 0.5 * ((u1 - u0) ^ (u2 - u0));
 
@@ -158,6 +170,8 @@ MatrixXd SymmetricDirichletEnergy::Grad()
         double attenuation = 1.0;
         //if (f.holeFilling) attenuation = 0.0001;
 
+        Eigen::Vector2d g[3];
+
         for (int i = 0; i < 3; ++i) {
             int j = (i+1)%3;
             int k = (i+2)%3;
@@ -173,11 +187,10 @@ MatrixXd SymmetricDirichletEnergy::Grad()
 
             assert(std::isnan(gu) == false && std::isnan(gv) == false);
 
-            g.row(Index(m, f.V(i))) += attenuation * Eigen::Vector2d{gu, gv};
+            g[i] = attenuation * Eigen::Vector2d{gu, gv};
         }
-    }
 
-    return g;
+        g0 = g[0]; g1 = g[1]; g2 = g[2];
 }
 
 void SymmetricDirichletEnergy::UpdateCache()

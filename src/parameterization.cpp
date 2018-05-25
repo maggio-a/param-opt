@@ -178,6 +178,34 @@ void ParameterizerObject::MapDescentDirectionToShellVertexColor()
     }
 }
 
+void ParameterizerObject::MapLocalGradientVarianceToShellVertexColor()
+{
+    Eigen::MatrixXd G = energy->Grad();
+    std::vector<double> gvar(shell.VN(), 0.0);
+    std::vector<double> deg(shell.VN(), 0.0);
+    Eigen::Vector2d gf[3];
+    for (auto& f : shell.face) {
+        energy->Grad(tri::Index(shell, f), gf[0], gf[1], gf[2]);
+        for (int i = 0; i < 3; ++i) {
+            int vi = tri::Index(shell, f.V(i));
+            Eigen::Vector2d diff = Eigen::Vector2d(G.row(vi)) - gf[i];
+            gvar[vi] += diff.norm();
+            deg[vi] += 1.0;
+        }
+    }
+
+    double maxVar = 0.0;
+    for (int i = 0; i < shell.VN(); ++i) {
+        gvar[i] = gvar[i] / deg[i];
+        if (gvar[i] > maxVar) maxVar = gvar[i];
+    }
+
+    for (int i = 0; i < shell.VN(); ++i) {
+        double v = gvar[i] / deg[i];
+        shell.vert[i].C() = vcg::Color4b(255.0, (1.0-v)*255.0, (1.0-v)*255.0, 255.0);
+    }
+}
+
 void ParameterizerObject::ClearShellFaceColor()
 {
     for (auto& sf : shell.face) {

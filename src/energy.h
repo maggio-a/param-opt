@@ -31,7 +31,9 @@ public:
     double E();
     double E_IgnoreMarkedFaces(bool normalized = false);
     virtual double E(const Mesh::FaceType& f, bool normalized = false) = 0;
-    virtual Eigen::MatrixXd Grad() = 0;
+
+    Eigen::MatrixXd Grad();
+    virtual void Grad(int faceIndex, Eigen::Vector2d& g0, Eigen::Vector2d& g1, Eigen::Vector2d& g2) = 0;
 
     /* Utility function to update cached data. This must be called whenever the
      * underlying mesh changes. We need it to update the cached data of the
@@ -78,7 +80,7 @@ public:
     SymmetricDirichletEnergy(Mesh& mesh);
 
     double E(const Mesh::FaceType& f, bool normalized = false);
-    Eigen::MatrixXd Grad();
+    void Grad(int faceIndex, Eigen::Vector2d& g0, Eigen::Vector2d& g1, Eigen::Vector2d& g2);
     void UpdateCache();
 };
 

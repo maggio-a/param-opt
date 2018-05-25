@@ -360,10 +360,10 @@ void BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
     double avgUV = psi().parameterArea / psi().numNonZero;
 
     // Compute the initial configuration (Tutte's parameterization)
-    //UniformSolver<Mesh> solver(shell);
-    //bool solved = solver.Solve();
-    MeanValueSolver<Mesh> solver(shell);
-    bool solved = solver.Solve(DefaultVertexPosition<Mesh>{});
+    UniformSolver<Mesh> solver(shell);
+    bool solved = solver.Solve();
+    //MeanValueSolver<Mesh> solver(shell);
+    //bool solved = solver.Solve(DefaultVertexPosition<Mesh>{});
     if (!solved) {
         ColorFace(shell);
         vcg::tri::io::Exporter<Mesh>::Save(shell, "injective_failed.obj", vcg::tri::io::Mask::IOM_VERTTEXCOORD);

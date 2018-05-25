@@ -94,6 +94,7 @@ public:
     void MapEnergyToShellFaceColor();
     void MapEnergyGradientToShellVertexColor();
     void MapDescentDirectionToShellVertexColor();
+    void MapLocalGradientVarianceToShellVertexColor();
     void ClearShellFaceColor();
 
 private:

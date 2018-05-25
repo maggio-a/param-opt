@@ -1692,7 +1692,7 @@ void MeshViewer::ManageImGuiState()
                 ImGui::Text("Distortion range: %.4f , %.4f", chart->minMappedFaceValue, chart->maxMappedFaceValue);
             } else {
                 // display info about the whole graph
-                ImGui::Text("Filename: %s", fileName.c_str());
+                ImGui::Text("Filename: %s", graph->mesh.name.c_str());
                 ImGui::Text("Parameterization charts: %lu", graph->Count());
                 ImGui::Text("Area 3D: %.4f", graph->Area3D());
                 ImGui::Text("Area UV: %.4f | Border UV: %.6f", graph->AreaUV(), graph->BorderUV());
@@ -1733,16 +1733,22 @@ void MeshViewer::ManageImGuiState()
     static int shellColor = 0;
     if (selectedRegions.size() > 0) {
         ImGui::Begin("Shell parameterization", nullptr, 0);
-        if (ImGui::Combo("Shell color", &shellColor, "None\0Energy value\0Gradient\0Descent direction\0\0")) {
+        if (ImGui::Combo("Shell color", &shellColor, "None\0Energy value\0Gradient\0Descent direction\0Var(LocalGrad)\0\0")) {
             shellChanged = true;
         }
         if (ImGui::Button("Reset")) {
             parameterizer->Reset();
             shellChanged = true;
         }
+        static int iternum = 0;
+        ImGui::InputInt("##SelectId", &iternum, 1, 1);
+        if (iternum < 1) iternum = 1;
+        ImGui::SameLine();
+        ImGui::Text("Iteration count");
         if (ImGui::Button("Iterate")) {
             IterationInfo info;
-            info = parameterizer->Iterate();
+            for (int i = 0; i < iternum; ++i)
+                info = parameterizer->Iterate();
             std::cout << "Energy = " << info.energyVal << ", DeltaE = " << info.energyDiff << ", Gradient norm = " << info.gradientNorm << std::endl;
             if (colorize) parameterizer->MapEnergyToShellFaceColor();
             else parameterizer->ClearShellFaceColor();
@@ -1750,6 +1756,7 @@ void MeshViewer::ManageImGuiState()
         }
         ImGui::SameLine();
         ImGui::Text("Iterations: %d", parameterizer->IterationCount());
+
         if (ImGui::Button("Place cut")) {
             parameterizer->PlaceCut();
             shellChanged = true;
@@ -1775,6 +1782,10 @@ void MeshViewer::ManageImGuiState()
             break;
         case 3:
             parameterizer->MapDescentDirectionToShellVertexColor();
+            shellColorMode = VERTEX;
+            break;
+        case 4:
+            parameterizer->MapLocalGradientVarianceToShellVertexColor();
             shellColorMode = VERTEX;
             break;
         default: break;
