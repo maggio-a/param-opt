@@ -50,7 +50,7 @@ public:
 
 private:
 
-    int Idx(VertexPointer v) { vcg::tri::Index(mesh, v); }
+    int Idx(VertexPointer v) { return vcg::tri::Index(mesh, v); }
 
     bool AddConstraint(IndexType vi, CoordUV uv)
     {
@@ -100,7 +100,8 @@ public:
         // map border to the unit circle (store coord in vertex texcoord)
         constexpr float twoPi = 2 * M_PI;
         for (std::size_t i = 0; i < vBorderVertices[0].size(); ++i) {
-            float angle = (vCumulativeBorder[0][i] / vTotalBorderLength[0]) * twoPi;
+            //float angle = (vCumulativeBorder[0][i] / vTotalBorderLength[0]) * twoPi;
+            float angle = (i / double(vBorderVertices[0].size())) * twoPi;
             Point2d uvCoord = Point2d{std::sin(angle), std::cos(angle)};
             mesh.vert[vBorderVertices[0][i]].T().P() = uvCoord;
             AddConstraint(vBorderVertices[0][i], uvCoord);
