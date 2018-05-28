@@ -63,8 +63,10 @@ bool SaveMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject,
     }
 
     if (color) mask = mask | tri::io::Mask::IOM_FACEQUALITY | tri::io::Mask::IOM_FACECOLOR;
-    if (tri::io::Exporter<Mesh>::Save(m, fileName, mask)) {
+    int err;
+    if ((err = tri::io::Exporter<Mesh>::Save(m, fileName, mask))) {
         std::cout << "Error saving mesh file " << fileName << std::endl;
+        std::cout << tri::io::Exporter<Mesh>::ErrorMsg(err) << std::endl;
         return false;
     }
 
@@ -75,7 +77,7 @@ bool SaveMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject,
     QDir::setCurrent(fi.absoluteDir().absolutePath());
 
     for (std::size_t i = 0; i < textureObject->imgVec.size(); ++i) {
-        if(textureObject->imgVec[i]->save(m.textures[i].c_str(), "png", 100) == false) {
+        if(textureObject->imgVec[i]->save(m.textures[i].c_str(), "png", 10) == false) {
             std::cout << "Error saving texture file " << m.textures[0] << std::endl;
             return false;
         }

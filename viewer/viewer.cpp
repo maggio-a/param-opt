@@ -228,7 +228,7 @@ int main_cmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
     LogParameterizationStats(graph, after, std::string("[LOG] Raster stats after parameterizing"));
 
     std::cout << "Rendering texture..." << std::endl;
-    TextureObjectHandle newTexture = RenderTexture(m, textureObject, args.filter, true, nullptr);
+    TextureObjectHandle newTexture = RenderTexture(m, textureObject, args.filter, InterpolationMode::Linear, nullptr);
 
     std::cout << "Processing took " << t.TimeElapsed() << " seconds" << std::endl;
 

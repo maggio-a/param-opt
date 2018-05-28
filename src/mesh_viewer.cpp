@@ -1537,8 +1537,7 @@ void MeshViewer::ManageImGuiState()
                     updateColor = true;
                 }
                 _currentTexture->Release();
-                _currentTexture = RenderTexture(graph->mesh, graph->textureObject, true, true, _window);
-                //_currentTexture = RenderTexture(graph->mesh, graph->textureObject, false, _window);
+                _currentTexture = RenderTexture(graph->mesh, graph->textureObject, true, InterpolationMode::Linear, _window);
            } else {
                std::cout << "No merges, nothing to do" << std::endl;
            }

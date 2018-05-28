@@ -114,6 +114,19 @@ void TextureObject::AddImage(std::shared_ptr<QImage> img)
     imgVec.push_back(img);
 }
 
+static void Mirror(QImage& img) {
+    int i = 0;
+    while (true) {
+        QRgb *line0 = (QRgb *) img.scanLine(i);
+        QRgb *line1 = (QRgb *) img.scanLine(img.height() - 1 - i);
+        i++;
+        for (int j = 0; j < img.width(); ++j) {
+            std::swap(line0[j], line1[j]);
+        }
+        if (i > img.height() / 2) break;
+    }
+}
+
 /// !!! NOTE !!!
 /// using GL_BGRA when reading from-to QImages as the QImage format is AA RR GG BB
 /// and on little endian machines this is stored as [BB] [GG] [RR] [AA] when reinterpreted
@@ -135,11 +148,13 @@ void TextureObject::Bind()
         default:
             std::cout << "Unsupported texture format" << std::endl; std::exit(-1);
         }
-        QImage mirrored = img.mirrored(); // mirror to match opengl convention
+        Mirror(img);
+        //QImage mirrored = img.mirrored(); // mirror to match opengl convention
         glBindTexture(GL_TEXTURE_2D, _texture);
         glTexStorage2D(GL_TEXTURE_2D, 1, format, img.width(), img.height());
-        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, img.width(), img.height(), channels, type, mirrored.constBits());
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, img.width(), img.height(), channels, type, img.constBits());
         CheckGLError();
+        Mirror(img);
     }
     else {
         glBindTexture(GL_TEXTURE_2D, _texture);

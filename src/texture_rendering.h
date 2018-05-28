@@ -20,6 +20,10 @@
 
 #include "gl_utils.h"
 
+enum InterpolationMode {
+    Nearest, Linear, Cubic
+};
+
 using namespace std;
 
 static const char *vs_text[] = {
@@ -85,16 +89,16 @@ static const char *fs_text[] = {
 // up a shared context so textures arent duplicated
 static TextureObjectHandle RenderTexture(Mesh::FaceIterator fbegin, Mesh::FaceIterator fend,
                                          Mesh &m, TextureObjectHandle textureObject,
-                                         bool filter, bool useCubicInterpolation, GLFWwindow *parentWindow);
+                                         bool filter, InterpolationMode imode, GLFWwindow *parentWindow);
 
-static TextureObjectHandle RenderTexture(Mesh &m, TextureObjectHandle textureObject, bool filter, bool useCubicInterpolation, GLFWwindow *parentWindow)
+static TextureObjectHandle RenderTexture(Mesh &m, TextureObjectHandle textureObject, bool filter, InterpolationMode imode, GLFWwindow *parentWindow)
 {
-    return RenderTexture(m.face.begin(), m.face.end(), m, textureObject, filter, useCubicInterpolation, parentWindow);
+    return RenderTexture(m.face.begin(), m.face.end(), m, textureObject, filter, imode, parentWindow);
 }
 
 static TextureObjectHandle RenderTexture(Mesh::FaceIterator fbegin, Mesh::FaceIterator fend,
                                          Mesh &m, TextureObjectHandle textureObject,
-                                         bool filter, bool useCubicInterpolation, GLFWwindow *parentWindow)
+                                         bool filter, InterpolationMode imode, GLFWwindow *parentWindow)
 {
     assert(textureObject->ArraySize() == 1); // TODO multiple texture images support
 
@@ -224,17 +228,19 @@ static TextureObjectHandle RenderTexture(Mesh::FaceIterator fbegin, Mesh::FaceIt
     glBindBuffer(GL_ARRAY_BUFFER, 0); // done, unbind
 
     // Setup FBO
+    int renderedTexWidth = img.width() / 2;
+    int renderedTexHeight = img.height() / 2;
 
     GLuint fbo;
     glGenFramebuffers(1, &fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 
-    glViewport(0, 0, img.width(), img.height());
+    glViewport(0, 0, renderedTexWidth, renderedTexHeight);
 
     GLuint renderTarget;
     glGenTextures(1, &renderTarget);
     glBindTexture(GL_TEXTURE_2D, renderTarget);
-    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, img.width(), img.height());
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, renderedTexWidth, renderedTexHeight);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, renderTarget, 0);
@@ -244,25 +250,31 @@ static TextureObjectHandle RenderTexture(Mesh::FaceIterator fbegin, Mesh::FaceIt
     glActiveTexture(GL_TEXTURE0);
     textureObject->Bind();
 
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
     GLint loc_img0 = glGetUniformLocation(program, "img0");
     glUniform1i(loc_img0, 0);
-
-    CheckGLError();
-
     GLint loc_texture_size = glGetUniformLocation(program, "texture_size");
     glUniform2f(loc_texture_size, float(img.width()), float(img.height()));
 
-    GLint loc_cubic_flag = glGetUniformLocation(program, "use_cubic_interpolation");
-    if (useCubicInterpolation) {
-        std::cout << "[LOG] Using cubic interpolation to generate the new texture" << std::endl;
-        glUniform1i(loc_cubic_flag, 1);
-    } else
-        glUniform1i(loc_cubic_flag, 0);
+    std::cout << "[LOG] Using interpolation mode " << imode << std::endl;
 
-    QImage textureImage(img.width(), img.height(), QImage::Format_ARGB32);
+    GLint loc_cubic_flag = glGetUniformLocation(program, "use_cubic_interpolation");
+    glUniform1i(loc_cubic_flag, 0);
+    switch (imode) {
+    case Cubic:
+        glUniform1i(loc_cubic_flag, 1);
+        // fall through
+    case Linear:
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        break;
+    case Nearest:
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    }
+    CheckGLError();
+
+    QImage textureImage(renderedTexWidth, renderedTexHeight, QImage::Format_ARGB32);
 
     // disable depth and stencil test (if they were enabled) as the render target does not have the buffers attached
     glDisable(GL_DEPTH_TEST);
@@ -276,7 +288,7 @@ static TextureObjectHandle RenderTexture(Mesh::FaceIterator fbegin, Mesh::FaceIt
     CheckGLError();
 
     glReadBuffer(GL_COLOR_ATTACHMENT0);
-    glReadPixels(0, 0, textureImage.width(), textureImage.height(), GL_BGRA, GL_UNSIGNED_BYTE, textureImage.bits());
+    glReadPixels(0, 0, renderedTexWidth, renderedTexHeight, GL_BGRA, GL_UNSIGNED_BYTE, textureImage.bits());
 
     glfwPollEvents();
 
