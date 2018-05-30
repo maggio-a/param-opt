@@ -479,7 +479,7 @@ void MeshViewer::UpdateDetailBuffers()
             }
             *buffptr++ = sf.P(i).X();
             *buffptr++ = sf.P(i).Y();
-            vcg::Color4b color;
+            vcg::Color4b color = vcg::Color4b::Black;
             if (sf.holeFilling == false) {
                 if (ia[sf] == -1) {
                     std::cout << tri::Index<Mesh>(shell, sf) << std::endl;

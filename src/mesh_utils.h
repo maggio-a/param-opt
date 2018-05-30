@@ -21,10 +21,10 @@ struct PosNode {
     bool operator<(const PosNode& other) const { return distance < other.distance; }
 };
 
-/* Mark initial texture seam edges as faux */
+/* Marks initial texture seam edges as faux */
 void MarkInitialSeamsAsFaux(Mesh& shell, Mesh& baseMesh);
 
-/* Compute a fan of faux pos objects. This function is used when walking along
+/* Computes a fan of faux pos objects. This function is used when walking along
  * a faux edge path to retrieve the allowed next steps. */
 std::vector<PosF> GetFauxPosFan(PosF& startPos);
 
@@ -35,17 +35,25 @@ double ComputeDistanceFromBorderOnSeams(Mesh& m);
 
 /* Selects the shortest path from a starting (seam) pos to the boundary, along
  * faux edges. This function allows to select the path for the subsequent cut.
- * Assumes the seams are marked as faux */
-void SelectShortestSeamPathToBoundary(Mesh& m, const PosF& pos);
+ * Assumes the seams are marked as faux
+ * Returns a Pos pointing to the reached boundary vertex */
+PosF SelectShortestSeamPathToBoundary(Mesh& m, const PosF& pos);
 
 /* Selects the shortest path from a starting (seam) pos to a peak, along faux
  * (seam) edges. A peak vertex is a vertex that with maximal finite distance
  * from the boundary */
 void SelectShortestSeamPathToPeak(Mesh &m, const PosF& pos);
 
+/* If the path touches any hole-filling area, it leaves selected only the path
+ * that joins the boundary with the nearest such area.
+ * Returns whether or not the path reached a fill area */
+bool RectifyCut(Mesh& shell, PosF boundaryPos);
+
 /* To be called after a shell has been cut, removes any obsolete faux flag and
  * deletes any hole-filling region that is adjacent to the boundary after a cut
- * has been applied */
+ * has been applied
+ * NOTE WARNING FIXME it relies on the edge selection flags, so they must NOT be
+ * cleared before invoking this function */
 void CleanupShell(Mesh& shell);
 
 /* Copies a shell object with all its attributes */

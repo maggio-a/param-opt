@@ -76,6 +76,15 @@ class ParameterizerObject {
     bool needsRemeshing;
     int iterationCount;
 
+    double gradientNormTolerance;
+    double energyDiffTolerance;
+
+    struct paramstats {
+        int a;
+    };
+
+    paramstats stats;
+
 public:
 
     ParameterizerObject(ChartHandle c, ParameterizationStrategy strat);
@@ -96,6 +105,12 @@ public:
     void MapDescentDirectionToShellVertexColor();
     void MapLocalGradientVarianceToShellVertexColor();
     void ClearShellFaceColor();
+
+    void SetGradientNormTolerance(double tol);
+    void SetEnergyDiffTolerance(double tol);
+
+    double GetGradientNormTolerance();
+    double GetEnergyDiffTolerance();
 
 private:
 

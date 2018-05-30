@@ -117,7 +117,7 @@ double ComputeDistanceFromBorderOnSeams(Mesh& m)
     return maxDist;
 }
 
-void SelectShortestSeamPathToBoundary(Mesh& m, const PosF& pos)
+PosF SelectShortestSeamPathToBoundary(Mesh& m, const PosF& pos)
 {
     assert(pos.IsFaux());
     tri::UpdateFlags<Mesh>::VertexBorderFromFaceAdj(m);
@@ -145,10 +145,11 @@ void SelectShortestSeamPathToBoundary(Mesh& m, const PosF& pos)
             std::vector<PosF> fan = GetFauxPosFan(curPos);
             curPos = *(std::min_element(fan.begin(), fan.end(), posQualityComparator));
             assert(curDistance >= curPos.V()->Q());
-            assert(!curPos.V()->IsS());
+            assert(!curPos.V()->IsV());
             curDistance = curPos.V()->Q();
         }
     }
+    return curPos;
 }
 
 void SelectShortestSeamPathToPeak(Mesh& m, const PosF& pos)
@@ -188,23 +189,68 @@ void SelectShortestSeamPathToPeak(Mesh& m, const PosF& pos)
     }
 }
 
+/* Start from a boundary pos and walk on the selected path. If at any point, a
+ * vertex path adjacent to a hole-filling face is found, from that vertex onward
+ * clear the path. This allows to compute paths that join chart boundaries
+ * without accidentally cutting away small shell faces that then remain isolated
+ * in the parameterization */
+bool RectifyCut(Mesh& shell, PosF boundaryPos)
+{
+    assert(boundaryPos.V()->IsB());
+    tri::UpdateFlags<Mesh>::VertexClearV(shell);
+    PosF p = boundaryPos;
+    bool reachedFillArea = false;
+    while (true) {
+        if (reachedFillArea) {
+            p.F()->ClearFaceEdgeS(p.E());
+            p.FlipF();
+            p.F()->ClearFaceEdgeS(p.E());
+            p.FlipF();
+        }
+        p.V()->SetV();
+        p.FlipV();
+        PosF pp = p;
+        do {
+            pp.FlipF();
+            if (pp.F()->holeFilling) {
+                reachedFillArea = true;
+            }
+        } while (p != pp);
+        std::vector<PosF> fan = GetFauxPosFan(p);
+        bool moved = false;
+        for (auto& fanPos : fan) if (fanPos.V()->IsV() == false) {
+            if (fanPos.F()->IsFaceEdgeS(fanPos.E())) {
+                assert(!moved && "Cut path has branches");
+                moved = true;
+                p = fanPos;
+            }
+        }
+        if (!moved) break;
+    }
+    return reachedFillArea;
+}
+
 void CleanupShell(Mesh& shell)
 {
-    tri::UpdateTopology<Mesh>::FaceFace(shell);
-    tri::UpdateFlags<Mesh>::VertexBorderFromFaceAdj(shell);
+    // Select vertices that were incident on the cut path
+    tri::UpdateFlags<Mesh>::VertexClearS(shell);
     for (auto& sf : shell.face) {
-        for (int i = 0; i < 3; i++) {
-            if (face::IsBorder(sf, i)) sf.ClearF(i);
+        for (int i = 0; i < 3; ++i) {
+            if (sf.IsFaceEdgeS(i)) {
+                sf.V0(i)->SetS();
+                sf.V1(i)->SetS();
+            }
         }
     }
+    // If a fill area touches the cut even with one single vertex, it must be removed
     tri::UpdateFlags<Mesh>::FaceClearV(shell);
     for (auto& sf : shell.face) {
         if (sf.holeFilling && !sf.IsV()) {
-            bool boundary = false;
+            bool fillAreaReached = false;
             for (int i = 0; i < 3; ++i) {
-                if (face::IsBorder(sf, i)) boundary = true;
+                if (sf.V(i)->IsS()) fillAreaReached = true;
             }
-            if (boundary) {
+            if (fillAreaReached) {
                 // vist the holeFilling region
                 std::stack<Mesh::FacePointer> s;
                 s.push(&sf);
@@ -221,11 +267,30 @@ void CleanupShell(Mesh& shell)
             }
         }
     }
+
+    bool deleted = false;
     for (auto& sf : shell.face) {
-        if (sf.IsV()) tri::Allocator<Mesh>::DeleteFace(shell, sf);
+        if (sf.IsV()) {
+            tri::Allocator<Mesh>::DeleteFace(shell, sf);
+            deleted = true;
+        }
     }
     tri::Clean<Mesh>::RemoveUnreferencedVertex(shell);
     tri::Allocator<Mesh>::CompactEveryVector(shell);
+
+    tri::UpdateTopology<Mesh>::FaceFace(shell);
+    for (auto& sf : shell.face) {
+        for (int i = 0; i < 3; i++) {
+            if (face::IsBorder(sf, i)) sf.ClearF(i);
+        }
+    }
+
+    // It can happen that after deleting the hole-filling faces the mesh is
+    // no longer vertex manifold because the new boundary touched only a
+    // vertex of a hole-filling face
+    if (deleted) {
+        tri::Clean<Mesh>::SplitNonManifoldVertex(shell, 0);
+    }
 }
 
 void CopyShell(Mesh& shell, Mesh& out)

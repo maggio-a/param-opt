@@ -12,6 +12,12 @@
 
 #include <Eigen/Core>
 
+
+
+/* Constructor, destructor and utility methods
+ * =========================================== */
+
+
 ParameterizerObject::ParameterizerObject(ChartHandle c, ParameterizationStrategy strat)
     : shell{},
       baseMesh{c->mesh},
@@ -20,7 +26,10 @@ ParameterizerObject::ParameterizerObject(ChartHandle c, ParameterizationStrategy
       energy{},
       opt{},
       needsRemeshing{false},
-      iterationCount{0}
+      iterationCount{0},
+      gradientNormTolerance{1e-3},
+      energyDiffTolerance{1e-9},
+      stats{0}
 {
     Reset();
 }
@@ -30,120 +39,64 @@ ParameterizerObject::~ParameterizerObject()
     // empty
 }
 
-bool ParameterizerObject::Parameterize()
+void ParameterizerObject::Reset()
 {
-    if (!OptimizerIsInitialized())
-        InitializeOptimizer();
+    energy = nullptr;
+    opt = nullptr;
+    iterationCount = 0;
+    shell.Clear();
 
-    if (strategy.warmStart) {
-        assert(CheckLocalInjectivity(shell));
-        assert(CheckUVConnectivity(shell));
-    }
+    /*
+     * In case of warm start, we should build the shell according to the existing
+     * parameterization (after having checked that is valid wrt the given strategy
+     * */
+    std::cout << "TODO FIXME WARM START CODE" << std::endl;
+    BuildShell(shell, *chart, strategy.geometry);
+    std::cout << "WARNING forcing warm start to true" << std::endl;
+    strategy.warmStart = true;
+    if (strategy.padBoundaries == false)
+        ClearHoleFillingFaces(shell);
 
-    // check if remeshing is required during iterations
-    needsRemeshing = false;
-    for (auto& sf : shell.face) {
-        if (sf.holeFilling) needsRemeshing = true;
-        double areaUV = (sf.V(1)->T().P() - sf.V(0)->T().P()) ^ (sf.V(2)->T().P() - sf.V(0)->T().P());
-        assert(areaUV > 0 && "Parameterization is not bijective");
-    }
-
-    // parameterizer state
-    Timer t;
-    int i;
-
-    IterationInfo info;
-    for (i = 0; i < strategy.optimizerIterations; ++i) {
-        info = Iterate();
-        if (info.gradientNorm < 1e-3) {
-            std::cout << "Stopping because gradient magnitude is small enough (" << info.gradientNorm << ")" << std::endl;
-            break;
-        }
-        if (info.energyDiff < 1e-9) {
-            std::cout << "Stopping because energy improvement is too small (" << info.energyDiff << ")" << std::endl;
-            break;
-        }
-        if (needsRemeshing && (i > 0) && (i % 30) == 0)
-            RemeshHolefillingAreas();
-    }
-    std::cout << "Stopped after " << i << " iterations, gradient magnitude = " << info.gradientNorm
-              << ", energy value = " << energy->E_IgnoreMarkedFaces() << std::endl;
-
-    float minq, maxq;
-    tri::Stat<Mesh>::ComputePerFaceQualityMinMax(shell, minq, maxq);
-    std::cout << "Min distortion value = " << minq << std::endl;
-    std::cout << "Max distortion value = " << maxq << std::endl;
-
-    std::cout << "Optimization took " << t.TimeSinceLastCheck() << " seconds" << std::endl;
-
-    return true;
-}
-
-IterationInfo ParameterizerObject::Iterate()
-{
-    if (!OptimizerIsInitialized())
-        InitializeOptimizer();
-    IterationInfo info;
-    info.energyVal = opt->Iterate(info.gradientNorm, info.energyDiff);
+    InitializeOptimizer();
     SyncShell(shell);
-    iterationCount++;
-    return info;
-}
 
-void ParameterizerObject::RemeshHolefillingAreas()
-{
-    RemeshShellHoles(shell, strategy.geometry, baseMesh);
     MarkInitialSeamsAsFaux(shell, baseMesh);
-    opt->UpdateCache();
 }
 
-void ParameterizerObject::PlaceCut()
+void ParameterizerObject::Sync()
 {
-    double maxDistance = ComputeDistanceFromBorderOnSeams(shell);
-
-    float minq, maxq;
-    tri::Stat<Mesh>::ComputePerFaceQualityMinMax(shell, minq, maxq);
-    std::cout << "Min distortion value = " << minq << std::endl;
-    std::cout << "Max distortion value = " << maxq << std::endl;
-
-    // Select candidate crease edge for cutting
-
-    double maxEnergy = 0;
-    Mesh::FacePointer startFace = nullptr;
-    int cutEdge = -1;
-    for (auto& sf : shell.face) {
-        for (int i = 0; i < 3; ++i) if (sf.IsF(i)) {
-            double w = std::max(sf.V0(i)->Q(), sf.V1(i)->Q()) / maxDistance;
-
-            if (w < INFINITY) w = 1.0;
-
-            double weightedEnergy = energy->E(sf, true) * w;
-            // w is INFINITY if the seam does not reach the mesh boundary
-            if (std::isfinite(weightedEnergy) && weightedEnergy > maxEnergy) {
-                maxEnergy = weightedEnergy;
-                startFace = &sf;
-                cutEdge = i;
-            }
+    for (std::size_t i = 0; i < chart->fpVec.size(); ++i) {
+        for (int k = 0; k < 3; ++k) {
+            chart->fpVec[i]->WT(k).P() = shell.face[i].V(k)->T().P();
         }
     }
-    assert(startFace != nullptr);
+}
 
-    PosF p(startFace, cutEdge);
-    assert(!p.IsBorder());
+void ParameterizerObject::SetGradientNormTolerance(double tol)
+{
+    gradientNormTolerance = tol;
+}
 
-    SelectShortestSeamPathToBoundary(shell, p);
-    //SelectShortestSeamPathToPeak(shell, p);
+void ParameterizerObject::SetEnergyDiffTolerance(double tol)
+{
+    energyDiffTolerance = tol;
+}
 
-    tri::CutMeshAlongSelectedFaceEdges(shell);
-    CleanupShell(shell);
+double ParameterizerObject::GetGradientNormTolerance()
+{
+    return gradientNormTolerance;
+}
 
-    opt->UpdateCache();
+double ParameterizerObject::GetEnergyDiffTolerance()
+{
+    return energyDiffTolerance;
 }
 
 void ParameterizerObject::MapEnergyToShellFaceColor()
 {
     energy->MapToFaceQuality(false);
-    tri::UpdateColor<Mesh>::PerFaceQualityRamp(shell, 0, 10.0);
+    //tri::UpdateColor<Mesh>::PerFaceQualityRamp(shell, 0, 10.0 * energy->SurfaceArea());
+    tri::UpdateColor<Mesh>::PerFaceQualityRamp(shell);
 }
 
 void ParameterizerObject::MapEnergyGradientToShellVertexColor()
@@ -201,7 +154,7 @@ void ParameterizerObject::MapLocalGradientVarianceToShellVertexColor()
     }
 
     for (int i = 0; i < shell.VN(); ++i) {
-        double v = gvar[i] / deg[i];
+        double v = gvar[i] / maxVar;
         shell.vert[i].C() = vcg::Color4b(255.0, (1.0-v)*255.0, (1.0-v)*255.0, 255.0);
     }
 }
@@ -211,39 +164,6 @@ void ParameterizerObject::ClearShellFaceColor()
     for (auto& sf : shell.face) {
         sf.C() = vcg::Color4b::White;
     }
-}
-
-void ParameterizerObject::Sync()
-{
-    for (std::size_t i = 0; i < chart->fpVec.size(); ++i) {
-        for (int k = 0; k < 3; ++k) {
-            chart->fpVec[i]->WT(k).P() = shell.face[i].V(k)->T().P();
-        }
-    }
-}
-
-void ParameterizerObject::Reset()
-{
-    energy = nullptr;
-    opt = nullptr;
-    iterationCount = 0;
-    shell.Clear();
-
-    /*
-     * In case of warm start, we should build the shell according to the existing
-     * parameterization (after having checked that is valid wrt the given strategy
-     * */
-    std::cout << "TODO FIXME WARM START CODE" << std::endl;
-    BuildShell(shell, *chart, strategy.geometry);
-    std::cout << "WARNING forcing warm start to true" << std::endl;
-    strategy.warmStart = true;
-    if (strategy.padBoundaries == false)
-        ClearHoleFillingFaces(shell);
-
-    InitializeOptimizer();
-    SyncShell(shell);
-
-    MarkInitialSeamsAsFaux(shell, baseMesh);
 }
 
 Mesh& ParameterizerObject::Shell()
@@ -278,6 +198,127 @@ void ParameterizerObject::InitializeOptimizer()
 bool ParameterizerObject::OptimizerIsInitialized()
 {
     return energy && opt;
+}
+
+
+/* Parameterization-related methods
+ * ================================ */
+
+
+bool ParameterizerObject::Parameterize()
+{
+    if (!OptimizerIsInitialized())
+        InitializeOptimizer();
+
+    if (strategy.warmStart) {
+        assert(CheckLocalInjectivity(shell));
+        assert(CheckUVConnectivity(shell));
+    }
+
+    // check if remeshing is required during iterations
+    needsRemeshing = false;
+    for (auto& sf : shell.face) {
+        if (sf.holeFilling) needsRemeshing = true;
+        double areaUV = (sf.V(1)->T().P() - sf.V(0)->T().P()) ^ (sf.V(2)->T().P() - sf.V(0)->T().P());
+        assert(areaUV > 0 && "Parameterization is not bijective");
+    }
+
+    // parameterizer state
+    Timer t;
+    int i;
+
+    IterationInfo info;
+    for (i = 0; i < strategy.optimizerIterations; ++i) {
+        info = Iterate();
+        if (info.gradientNorm < gradientNormTolerance) {
+            std::cout << "Stopping because gradient magnitude is small enough (" << info.gradientNorm << ")" << std::endl;
+            break;
+        }
+        if (info.energyDiff < energyDiffTolerance) {
+            std::cout << "Stopping because energy improvement is too small (" << info.energyDiff << ")" << std::endl;
+            break;
+        }
+        if (needsRemeshing && (i > 0) && (i % 30) == 0)
+            RemeshHolefillingAreas();
+    }
+    std::cout << "Stopped after " << i << " iterations, gradient magnitude = " << info.gradientNorm
+              << ", energy value = " << energy->E_IgnoreMarkedFaces() << std::endl;
+
+    float minq, maxq;
+    tri::Stat<Mesh>::ComputePerFaceQualityMinMax(shell, minq, maxq);
+    std::cout << "Min distortion value = " << minq << std::endl;
+    std::cout << "Max distortion value = " << maxq << std::endl;
+
+    std::cout << "Optimization took " << t.TimeSinceLastCheck() << " seconds" << std::endl;
+
+    return true;
+}
+
+IterationInfo ParameterizerObject::Iterate()
+{
+    if (!OptimizerIsInitialized())
+        InitializeOptimizer();
+    IterationInfo info;
+    info.energyVal = opt->Iterate(info.gradientNorm, info.energyDiff);
+    SyncShell(shell);
+    iterationCount++;
+    return info;
+}
+
+void ParameterizerObject::RemeshHolefillingAreas()
+{
+    RemeshShellHoles(shell, strategy.geometry, baseMesh);
+    MarkInitialSeamsAsFaux(shell, baseMesh);
+    opt->UpdateCache();
+}
+
+//#include <wrap/io_trimesh/export.h>
+void ParameterizerObject::PlaceCut()
+{
+    double maxDistance = ComputeDistanceFromBorderOnSeams(shell);
+
+    MapEnergyToShellFaceColor();
+
+    // Select candidate crease edge for cutting
+    double maxEnergy = 0;
+    Mesh::FacePointer startFace = nullptr;
+    int cutEdge = -1;
+    for (auto& sf : shell.face) {
+        for (int i = 0; i < 3; ++i) if (sf.IsF(i)) {
+            double w = std::max(sf.V0(i)->Q(), sf.V1(i)->Q()) / maxDistance;
+
+            if (w < INFINITY) w = 1.0;
+
+            double weightedEnergy = energy->E(sf, false) * w;
+            // w is INFINITY if the seam does not reach the mesh boundary
+            if (std::isfinite(weightedEnergy) && weightedEnergy > maxEnergy) {
+                maxEnergy = weightedEnergy;
+                startFace = &sf;
+                cutEdge = i;
+            }
+        }
+    }
+    assert(startFace != nullptr);
+
+    //tri::io::Exporter<Mesh>::Save(shell, "shell_before_cut.obj", tri::io::Mask::IOM_ALL);
+
+    std::cout << "Selected face " << tri::Index(shell, startFace) << " edge " << cutEdge << std::endl;
+
+    PosF p(startFace, cutEdge);
+    assert(!p.IsBorder());
+
+    tri::UpdateFlags<Mesh>::FaceClearFaceEdgeS(shell);
+    PosF boundaryPos = SelectShortestSeamPathToBoundary(shell, p);
+    //SelectShortestSeamPathToPeak(shell, p);
+    bool corrected = RectifyCut(shell, boundaryPos);
+
+    tri::CutMeshAlongSelectedFaceEdges(shell);
+    CleanupShell(shell);
+
+    tri::UpdateTopology<Mesh>::FaceFace(shell);
+
+    opt->UpdateCache();
+    //tri::io::Exporter<Mesh>::Save(shell, "shell_after_cut.obj", tri::io::Mask::IOM_ALL);
 }
 
 void ParameterizerObject::ProbeCut()

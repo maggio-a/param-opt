@@ -9,6 +9,8 @@
 #include "uniform_solver.h"
 #include "mean_value_param.h"
 
+#include "polygon2_triangulator.h"
+
 #include <vcg/complex/complex.h>
 #include <vcg/complex/algorithms/parametrization/distortion.h>
 #include <vcg/math/histogram.h>
@@ -25,6 +27,85 @@
 int GraphManager::Collapse_OK = 0;
 int GraphManager::Collapse_ERR_DISCONNECTED = 1;
 int GraphManager::Collapse_ERR_UNFEASIBLE = 2;
+
+// assumes topology is correct
+static void ComputeBoundaryInfo(Mesh& m)
+{
+    BoundaryInfo& info = GetBoundaryInfoAttribute(m)();
+    info.Clear();
+    tri::UpdateFlags<Mesh>::FaceClearV(m);
+    for (auto& f : m.face) {
+        for (int i = 0; i < 3; ++i) {
+            if (!f.IsV() && face::IsBorder(f, i)) {
+                double totalBorderLength = 0;
+                std::vector<std::size_t> borderFaces;
+                std::vector<int> vi;
+
+                face::Pos<Mesh::FaceType> p(&f, i);
+                face::Pos<Mesh::FaceType> startPos = p;
+                assert(p.IsBorder());
+                do {
+                    assert(p.IsManifold());
+                    p.F()->SetV();
+                    borderFaces.push_back(tri::Index(m, p.F()));
+                    vi.push_back(p.VInd());
+                    totalBorderLength += EdgeLength(*p.F(), p.VInd());
+                    p.NextB();
+                } while (p != startPos);
+                info.vBoundaryLength.push_back(totalBorderLength);
+                info.vBoundarySize.push_back(borderFaces.size());
+                info.vBoundaryFaces.push_back(borderFaces);
+                info.vVi.push_back(vi);
+            }
+        }
+    }
+}
+
+static void CloseMeshHoles(Mesh& shell)
+{
+    int startFN = shell.FN();
+
+    // Get border info
+    assert(HasBoundaryInfoAttribute(shell));
+    BoundaryInfo& info = GetBoundaryInfoAttribute(shell)();
+
+    // Leave only the longest boundary
+    tri::UpdateFlags<Mesh>::FaceClearS(shell);
+    assert(info.vBoundaryFaces.size() > 0 && "Mesh has no boundaries");
+    if (info.vBoundaryFaces.size() > 1) {
+        std::size_t k = info.LongestBoundary();
+        // select all the boundary faces
+        for (std::size_t i = 0; i < info.vBoundaryFaces.size(); ++i) {
+            if (i == k) continue;
+            for (auto j : info.vBoundaryFaces[i]) {
+                assert(face::IsBorder(shell.face[j], 0) || face::IsBorder(shell.face[j], 1) || face::IsBorder(shell.face[j], 2));
+                shell.face[j].SetS();
+            }
+        }
+        tri::Hole<Mesh>::EarCuttingFill<tri::MinimumWeightEar<Mesh>>(shell, shell.FN(), true);
+    }
+    tri::UpdateTopology<Mesh>::FaceFace(shell);
+
+    auto ia = GetFaceIndexAttribute(shell);
+    tri::UpdateFlags<Mesh>::FaceClearS(shell);
+    for (auto& f: shell.face) {
+        if (int(tri::Index(shell, f)) >= startFN) {
+            f.holeFilling = true;
+            ia[f] = -1;
+        }
+    }
+}
+
+static void ColorFace(Mesh& shell)
+{
+    for (auto& sf : shell.face) {
+        if (sf.holeFilling) {
+            sf.C() = vcg::Color4b::Cyan;
+        } else {
+            sf.C() = vcg::Color4b::LightGreen;
+        }
+    }
+}
 
 void PrintParameterizationInfo(std::shared_ptr<MeshGraph> pdata)
 {
@@ -98,39 +179,6 @@ void CopyToMesh(FaceGroup& fg, Mesh& m)
     std::cout << "Built mesh has " << m.FN() << " faces" << std::endl;
 }
 
-// assumes topology is correct
-void ComputeBoundaryInfo(Mesh& m)
-{
-    BoundaryInfo& info = GetBoundaryInfoAttribute(m)();
-    info.Clear();
-    tri::UpdateFlags<Mesh>::FaceClearV(m);
-    for (auto& f : m.face) {
-        for (int i = 0; i < 3; ++i) {
-            if (!f.IsV() && face::IsBorder(f, i)) {
-                double totalBorderLength = 0;
-                std::vector<std::size_t> borderFaces;
-                std::vector<int> vi;
-
-                face::Pos<Mesh::FaceType> p(&f, i);
-                face::Pos<Mesh::FaceType> startPos = p;
-                assert(p.IsBorder());
-                do {
-                    assert(p.IsManifold());
-                    p.F()->SetV();
-                    borderFaces.push_back(tri::Index(m, p.F()));
-                    vi.push_back(p.VInd());
-                    totalBorderLength += EdgeLength(*p.F(), p.VInd());
-                    p.NextB();
-                } while (p != startPos);
-                info.vBoundaryLength.push_back(totalBorderLength);
-                info.vBoundarySize.push_back(borderFaces.size());
-                info.vBoundaryFaces.push_back(borderFaces);
-                info.vVi.push_back(vi);
-            }
-        }
-    }
-}
-
 void SyncShell(Mesh& shell)
 {
     for (auto& v : shell.vert) {
@@ -146,89 +194,6 @@ void ClearHoleFillingFaces(Mesh& shell)
         if (f.holeFilling) tri::Allocator<Mesh>::DeleteFace(shell, f);
     tri::Allocator<Mesh>::CompactEveryVector(shell);
     tri::UpdateTopology<Mesh>::FaceFace(shell);
-}
-
-#include <wrap/io_trimesh/export.h>
-
-static void CloseMeshHoles(Mesh& shell)
-{
-    int startFN = shell.FN();
-
-    // Compute border info
-    ComputeBoundaryInfo(shell);
-    BoundaryInfo& info = GetBoundaryInfoAttribute(shell)();
-
-    // Close (and remesh ?) holes
-    tri::UpdateFlags<Mesh>::FaceClearS(shell);
-    // TODO in case multiple borders have the same size, the boundary could be chosen randomly
-    assert(info.vBoundaryFaces.size() > 0 && "Mesh has no boundaries");
-    // select longest border (this is the only one that remains), while the others are closed
-    if (info.vBoundaryFaces.size() > 1) {
-        std::size_t k = info.LongestBoundary();
-        // select all the boundary faces
-        for (std::size_t i = 0; i < info.vBoundaryFaces.size(); ++i) {
-            if (i == k) continue;
-            for (auto j : info.vBoundaryFaces[i]) {
-                assert(face::IsBorder(shell.face[j], 0) || face::IsBorder(shell.face[j], 1) || face::IsBorder(shell.face[j], 2));
-                shell.face[j].SetS();
-            }
-        }
-        // close everything that is selected
-        tri::Hole<Mesh>::EarCuttingFill<tri::MinimumWeightEar<Mesh>>(shell, shell.FN(), true);
-        //tri::Hole<Mesh>::EarCuttingIntersectionFill<tri::SelfIntersectionEar<Mesh>>(shell, shell.FN(), true);
-        tri::io::Exporter<Mesh>::Save(shell, "close_hole.obj", tri::io::Mask::IOM_FACECOLOR | tri::io::Mask::IOM_VERTTEXCOORD);
-    }
-
-    tri::UpdateTopology<Mesh>::FaceFace(shell);
-
-    auto ia = GetFaceIndexAttribute(shell);
-
-    tri::UpdateFlags<Mesh>::FaceClearS(shell);
-    for (auto& f: shell.face) {
-        if (int(tri::Index(shell, f)) >= startFN) {
-            f.holeFilling = true;
-            ia[f] = -1;
-        }
-    }
-}
-
-#include "polygon2_triangulator.h"
-
-Poly2 BuildPolyline2(const std::vector<std::size_t> &vfi, const std::vector<int> &vvi, const Mesh& shell2D)
-{
-    std::vector<Poly2Point> polyline;
-    polyline.reserve(vfi.size());
-    for (std::size_t i = 0; i < vfi.size(); ++i) {
-        const vcg::Point3d& p = shell2D.face[vfi[i]].cP(vvi[i]);
-        assert(p.Z() == 0.0);
-        polyline.push_back({p.X(), p.Y()});
-    }
-    return {polyline};
-}
-
-double LenPolyline2(const std::vector<std::size_t> &vfi, const std::vector<int> &vvi, const Mesh& shell2D)
-{
-    std::vector<vcg::Point3d> polyline;
-    double len = 0;
-    for (std::size_t i = 0; i < vfi.size(); ++i) {
-        polyline.push_back(shell2D.face[vfi[i]].cP(vvi[i]));
-    }
-    for (std::size_t i = 1; i < polyline.size(); ++i) {
-        len += (polyline[i] - polyline[i-1]).Norm();
-    }
-    len += (polyline.front() - polyline.back()).Norm();
-    return len;
-}
-
-static void ColorFace(Mesh& shell)
-{
-    for (auto& sf : shell.face) {
-        if (sf.holeFilling) {
-            sf.C() = vcg::Color4b::Cyan;
-        } else {
-            sf.C() = vcg::Color4b::LightGreen;
-        }
-    }
 }
 
 void DoRemesh(Mesh& shell)
@@ -263,7 +228,7 @@ void DoRemesh(Mesh& shell)
 
     // Remesh filled hole
     ColorFace(shell);
-    vcg::tri::io::ExporterPLY<Mesh>::Save(shell, "original.ply", tri::io::Mask::IOM_FACECOLOR);
+    //vcg::tri::io::ExporterPLY<Mesh>::Save(shell, "original.ply", tri::io::Mask::IOM_FACECOLOR);
     IsotropicRemeshing<Mesh>::Params params;
     //params.SetTargetLen(2.0*(totalBorderLen / totalBorderFaces));
     //params.SetTargetLen(length / count);
@@ -279,7 +244,7 @@ void DoRemesh(Mesh& shell)
     IsotropicRemeshing<Mesh>::Do(shell, params);
     tri::Allocator<Mesh>::CompactEveryVector(shell);
     ColorFace(shell);
-    vcg::tri::io::ExporterPLY<Mesh>::Save(shell, "remesh.ply", tri::io::Mask::IOM_FACECOLOR);
+    //vcg::tri::io::ExporterPLY<Mesh>::Save(shell, "remesh.ply", tri::io::Mask::IOM_FACECOLOR);
 
     for (auto& sf : shell.face) {
         if (int(tri::Index(shell, sf)) >= startFN) {
@@ -332,13 +297,6 @@ void RemeshShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh
     }
 }
 
-/*
- * A shell is a mesh object specifically constructed to compute the parameterization
- * of a chart. In order to support the various operations that we need to perform on it, it is
- * more convenient to keep its shape as the (possibliy not updated) flattened version. The shell
- * has suitable attributes to retrieve the coordinates of the input mesh (either the 3D position,
- * or the original wedge textures).
- * */
 void BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeometry)
 {
     Mesh& m = fg.mesh;
@@ -351,6 +309,8 @@ void BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
     if (splitCount > 0) {
         std::cout << "Mesh was not vertex-manifold, " << splitCount << " vertices split" << std::endl;
     }
+
+    ComputeBoundaryInfo(shell);
 
     CloseMeshHoles(shell);
 
@@ -366,7 +326,7 @@ void BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
     //bool solved = solver.Solve(DefaultVertexPosition<Mesh>{});
     if (!solved) {
         ColorFace(shell);
-        vcg::tri::io::Exporter<Mesh>::Save(shell, "injective_failed.obj", vcg::tri::io::Mask::IOM_VERTTEXCOORD);
+        //vcg::tri::io::Exporter<Mesh>::Save(shell, "injective_failed.obj", vcg::tri::io::Mask::IOM_VERTTEXCOORD);
         assert(0 && "Failed to initialize shell with injective parameterization");
     }
 
