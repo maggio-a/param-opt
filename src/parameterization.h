@@ -6,6 +6,7 @@
 #include "energy.h"
 #include "iterative.h"
 
+#include <Eigen/Core>
 #include <memory>
 
 // TODO move to iterative.h
@@ -104,6 +105,7 @@ public:
     void MapEnergyGradientToShellVertexColor();
     void MapDescentDirectionToShellVertexColor();
     void MapLocalGradientVarianceToShellVertexColor();
+    void MapConformalScalingFactorsToShellVertexColor();
     void ClearShellFaceColor();
 
     void SetGradientNormTolerance(double tol);
@@ -117,6 +119,8 @@ private:
     void InitializeOptimizer();
     bool OptimizerIsInitialized();
     void ProbeCut();
+
+    bool ComputeConformalScalingFactors(Eigen::VectorXd& csf);
 };
 
 #endif // PARAMETERIZATION_H

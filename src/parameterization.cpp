@@ -159,6 +159,17 @@ void ParameterizerObject::MapLocalGradientVarianceToShellVertexColor()
     }
 }
 
+void ParameterizerObject::MapConformalScalingFactorsToShellVertexColor()
+{
+    Eigen::VectorXd csf;
+    assert(ComputeConformalScalingFactors(csf));
+    assert(csf.size() == shell.VN());
+    for (int i = 0; i < shell.VN(); ++i) {
+        shell.vert[i].Q() = csf[i];
+    }
+    tri::UpdateColor<Mesh>::PerFaceQualityRamp(shell);
+}
+
 void ParameterizerObject::ClearShellFaceColor()
 {
     for (auto& sf : shell.face) {
@@ -325,3 +336,167 @@ void ParameterizerObject::ProbeCut()
 {
 
 }
+
+using Td = Eigen::Triplet<double>;
+
+/* assumes that cone singularity vertices have the selected flag set */
+void ComputeMarkovMatrix(Mesh& m, Eigen::SparseMatrix<double>& L, SimpleTempData<Mesh::VertContainer, int>& Idx)
+{
+    L.resize(m.VN(), m.VN());
+    std::unordered_map<Mesh::VertexPointer, std::unordered_set<Mesh::VertexPointer>> vadj;
+    for (auto& f : m.face) {
+        for (int i = 0; i < 3; ++i) {
+            vadj[f.V0(i)].insert(f.V1(i));
+            vadj[f.V0(i)].insert(f.V2(i));
+        }
+    }
+    std::vector<Td> tri;
+    for (auto& entry: vadj) {
+        if (!entry.first->IsS()) {
+            for (int i = 0; i < 3; ++i) {
+                double c = entry.second.size();
+                for (auto & vp : entry.second) {
+                    tri.push_back(Td(Idx[entry.first], Idx[vp], (1.0 / c)));
+                }
+            }
+        } else {
+            tri.push_back(Td(Idx[entry.first], Idx[entry.first], 1.0));
+        }
+    }
+    L.setFromTriplets(tri.begin(), tri.end());
+    L.makeCompressed();
+}
+
+void ComputeCotangentWeightedLaplacian(Mesh& shell, Mesh& baseMesh, Eigen::SparseMatrix<double>& L,
+                                       SimpleTempData<Mesh::VertContainer, int>& Idx,
+                                       Mesh::PerFaceAttributeHandle<int>& ia)
+{
+    L.resize(shell.VN(), shell.VN());
+    std::vector<Td> tri;
+    double eps = std::numeric_limits<double>::epsilon();
+    for (auto &sf : shell.face) {
+        auto& f = baseMesh.face[ia[sf]];
+        for (int i = 0; i < 3; ++i) {
+            Mesh::VertexPointer vi = f.V0(i);
+            Mesh::VertexPointer vj = f.V1(i);
+            Mesh::VertexPointer vk = f.V2(i);
+            double alpha_ij = std::max(VecAngle(vi->P() - vk->P(), vj->P() - vk->P()), eps); // angle at k
+            double alpha_ik = std::max(VecAngle(vi->P() - vj->P(), vk->P() - vj->P()), eps); // angle at j
+            double weight_ij = std::tan(M_PI_2 - alpha_ij);
+            double weight_ik = std::tan(M_PI_2 - alpha_ik);
+            tri.push_back(Td(Idx[vi], Idx[vj], weight_ij));
+            tri.push_back(Td(Idx[vi], Idx[vk], weight_ik));
+            tri.push_back(Td(Idx[vi], Idx[vi], -(weight_ij + weight_ik)));
+        }
+    }
+    L.setFromTriplets(tri.begin(), tri.end());
+    L.makeCompressed();
+}
+
+/* Reference: BenChen 2009 curvature prescription metric scaling */
+bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf)
+{
+    ClearHoleFillingFaces(shell);
+
+    Timer timer;
+
+    std::cout << "Computing conformal scaling factors..." << std::endl;
+
+    // Permutate indices so that singular vertices are the last ones
+    SimpleTempData<Mesh::VertContainer, int> index{shell.vert};
+    tri::UpdateFlags<Mesh>::VertexBorderFromFaceAdj(shell);
+    tri::UpdateFlags<Mesh>::VertexClearS(shell);
+    int n_internal = 0;
+    int j = shell.VN() - 1;
+    for (auto& v : shell.vert) {
+        if (v.IsB()) {
+            index[v] = j--;
+            v.SetS();
+        } else
+            index[v] = n_internal++;
+    }
+    int n_boundary = shell.VN() - n_internal;
+
+    // Compute Laplacian and Markov system
+    Eigen::SparseMatrix<double> M;
+    ComputeMarkovMatrix(shell, M, index);
+
+    Eigen::SparseMatrix<double> Q{n_internal, n_internal};
+    Q.setIdentity();
+    Q -= M.block(0, 0, n_internal, n_internal);
+
+    Eigen::SparseMatrix<double> T = M.block(0, n_internal, n_internal, n_boundary);
+
+    Eigen::SparseLU<Eigen::SparseMatrix<double,Eigen::ColMajor>, Eigen::COLAMDOrdering<Eigen::SparseMatrix<double>::StorageIndex>> solver;
+    solver.compute(T);
+    if (solver.info() != Eigen::Success) {
+        std::cout << "Factorization of the Markov sub-matrix failed" << std::endl;
+        return false;
+    }
+
+    std::cout << "Factorization of the Markov matrix took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
+
+    Eigen::SparseMatrix<double> G{n_internal, n_internal};
+    Eigen::VectorXd t{n_internal};
+    t.setZero();
+    for (int i = 0; i < n_boundary; ++i) {
+        t[i] = 1.0;
+        G.col(i) = solver.solve(t);
+        if (solver.info() != Eigen::Success) {
+            std::cout << "Backward substitution to compute G(" << i << ") failed" << std::endl;
+            return false;
+        }
+        t[i] = 0.0;
+    }
+
+    std::cout << "Computation of G took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
+
+    // Compute the new curvature vector Knew
+    // Note that this is computed in the original model space
+    auto ia = GetFaceIndexAttribute(shell);
+
+    Eigen::VectorXd Korig{shell.VN()};
+    Eigen::VectorXd Knew{shell.VN()};
+    Korig.setZero();
+    Knew.setZero();
+
+    for (auto& sf : shell.face) {
+        auto& f = baseMesh.face[ia[sf]];
+        for (int i = 0; i < 3; ++i) {
+            Korig[index[sf.V(i)]] += VecAngle(f.P1(i) - f.P0(i), f.P2(i) - f.P0(i));
+        }
+    }
+    Knew.tail(n_boundary) = Korig.tail(n_boundary) + G.transpose() * Korig.head(n_internal);
+
+    std::cout << "Computation of the target curvatures took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
+
+    // Compute the metric scaling of the new target curvature
+    ComputeCotangentWeightedLaplacian(shell, baseMesh, M, index, ia);
+
+    Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> cholesky;
+    cholesky.compute(M);
+    if (cholesky.info() != Eigen::Success) {
+        std::cout << "Factorization of the cotangent-weighted Laplacian failed" << std::endl;
+        return false;
+    }
+
+    std::cout << "Factorization of the cotangent-weighted Laplacian took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
+
+    Eigen::VectorXd scalingFactors = cholesky.solve(Korig - Knew);
+    csf.resize(scalingFactors.size());
+    for (int i = 0; i < shell.VN(); ++i) {
+        csf[i] = scalingFactors[index[shell.vert[i]]];
+    }
+
+    std::cout << "Solution of the scaling factors system took" << timer.TimeSinceLastCheck() << " seconds" << std::endl;
+    std::cout << "Overall time: " << timer.TimeElapsed() << " seconds" << std::endl;
+
+    return true;
+}
+
+
+
+
+
+
+
