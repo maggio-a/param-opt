@@ -40,6 +40,14 @@ std::shared_ptr<MeshGraph> ComputeParameterizationGraph(Mesh &m, TextureObjectHa
  * attribute defined (see mesh_attribute.h) */
 void CopyToMesh(FaceGroup& fg, Mesh& m);
 
+/* Computes the boundary info attribute for the mesh m, assumes FaceFace
+ * topology is computed on the mesh */
+void ComputeBoundaryInfo(Mesh& m);
+
+/* Closes the holes of a mesh using the vcg MinimumWeightEar strategy.
+ * Hole-filling faces are marked by setting the holeFilling field to true */
+void CloseMeshHoles(Mesh& shell);
+
 /* This function 'synchronizes' a shell, that is it updates its spatial
  * coordinates as its current texture coordinates. The operation is performed
  * per-vertex, without any kind of safety check. The assumption is that the

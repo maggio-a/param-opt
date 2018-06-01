@@ -341,6 +341,9 @@ MeshViewer::MeshViewer(GraphHandle gh, const std::string& fileName_)
     else
         minRegionSize = 10000;
 
+    std::cout << "fixme" << std::endl;
+    minRegionSize = 100000;
+
     std::size_t numRegions = graph->Count();
     regionColors.reserve(numRegions);
     for (const auto& c : graph->charts) {
@@ -1732,7 +1735,15 @@ void MeshViewer::ManageImGuiState()
     static int shellColor = 0;
     if (selectedRegions.size() > 0) {
         ImGui::Begin("Shell parameterization", nullptr, 0);
-        if (ImGui::Combo("Shell color", &shellColor, "None\0Energy value\0Gradient\0Descent direction\0Var(LocalGrad)\0\0")) {
+        static const char *colorOptions[] = {
+            "None",
+            "Energy value",
+            "Gradient",
+            "Descent direction",
+            "Var(Local Grad)",
+            "Conformal scaling"
+        };
+        if (ImGui::Combo("Shell color", &shellColor, colorOptions, IM_ARRAYSIZE(colorOptions))) {
             shellChanged = true;
         }
         if (ImGui::Button("Reset")) {
@@ -1785,6 +1796,10 @@ void MeshViewer::ManageImGuiState()
             break;
         case 4:
             parameterizer->MapLocalGradientVarianceToShellVertexColor();
+            shellColorMode = VERTEX;
+            break;
+        case 5:
+            parameterizer->MapConformalScalingFactorsToShellVertexColor();
             shellColorMode = VERTEX;
             break;
         default: break;

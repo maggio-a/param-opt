@@ -29,7 +29,7 @@ int GraphManager::Collapse_ERR_DISCONNECTED = 1;
 int GraphManager::Collapse_ERR_UNFEASIBLE = 2;
 
 // assumes topology is correct
-static void ComputeBoundaryInfo(Mesh& m)
+void ComputeBoundaryInfo(Mesh& m)
 {
     BoundaryInfo& info = GetBoundaryInfoAttribute(m)();
     info.Clear();
@@ -61,7 +61,7 @@ static void ComputeBoundaryInfo(Mesh& m)
     }
 }
 
-static void CloseMeshHoles(Mesh& shell)
+void CloseMeshHoles(Mesh& shell)
 {
     int startFN = shell.FN();
 
@@ -309,6 +309,7 @@ void BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
     if (splitCount > 0) {
         std::cout << "Mesh was not vertex-manifold, " << splitCount << " vertices split" << std::endl;
     }
+
 
     ComputeBoundaryInfo(shell);
 
