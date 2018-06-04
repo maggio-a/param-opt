@@ -379,6 +379,11 @@ void ComputeCotangentWeightedLaplacian(Mesh& shell, Mesh& baseMesh, Eigen::Spars
             Mesh::VertexPointer vi = sf.V0(i);
             Mesh::VertexPointer vj = sf.V1(i);
             Mesh::VertexPointer vk = sf.V2(i);
+
+            assert(Idx[vi] >= 0 && Idx[vi] < shell.VN());
+            assert(Idx[vj] >= 0 && Idx[vj] < shell.VN());
+            assert(Idx[vk] >= 0 && Idx[vk] < shell.VN());
+
             double alpha_ij = std::max(VecAngle(vi->P() - vk->P(), vj->P() - vk->P()), eps); // angle at k
             double alpha_ik = std::max(VecAngle(vi->P() - vj->P(), vk->P() - vj->P()), eps); // angle at j
             double weight_ij = 0.5 * std::tan(M_PI_2 - alpha_ij);
@@ -393,11 +398,24 @@ void ComputeCotangentWeightedLaplacian(Mesh& shell, Mesh& baseMesh, Eigen::Spars
 }
 
 #include <wrap/io_trimesh/export.h>
-
-/* Reference: BenChen 2009 curvature prescription metric scaling */
 bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf)
 {
+    Mesh pointMesh;
+    for (int i = 0; i < 8; ++i) {
+        Point3d p;
+        if (!ComputeConformalScalingFactors_impl(csf, p))
+            return false;
+        tri::Allocator<Mesh>::AddVertex(pointMesh, p);
+    }
+    tri::io::Exporter<Mesh>::Save(pointMesh, "points.ply");
+    return true;
+}
+
+/* Reference: BenChen 2009 curvature prescription metric scaling */
+bool ParameterizerObject::ComputeConformalScalingFactors_impl(Eigen::VectorXd& csf, vcg::Point3d& p)
+{
     //ClearHoleFillingFaces(shell);
+    static std::vector<int> coneIdx;
 
     Mesh m;
     CopyToMesh(*chart, m);
@@ -419,17 +437,29 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf)
     tri::UpdateFlags<Mesh>::VertexClearS(m);
     int n_internal = 0;
     int j = m.VN() - 1;
+
+    // handle prescribed cones
+    for (auto& i : coneIdx) {
+        index[m.vert[i]] = j--;
+        m.vert[i].SetS();
+    }
+
     for (auto& v : m.vert) {
-        if (v.IsB()) {
-            index[v] = j--;
-            v.SetS();
-        } else
-            index[v] = n_internal++;
+        if (!v.IsS()) {
+            if (v.IsB()) {
+                index[v] = j--;
+                v.SetS();
+            } else
+                index[v] = n_internal++;
+        }
     }
     int n_boundary = m.VN() - n_internal;
 
     // Compute Laplacian and Markov system
     Eigen::SparseMatrix<double> M;
+
+
+    /*
     ComputeMarkovMatrix(m, M, index);
 
     Eigen::SparseMatrix<double> Q{n_internal, n_internal};
@@ -446,6 +476,7 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf)
     }
 
     std::cout << "Factorization of the Markov matrix took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
+    */
 
     // Compute the new curvature vector Knew
     // Note that this is computed in the original model space
@@ -469,6 +500,10 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf)
     Eigen::VectorXd G{n_internal};
 
 
+
+
+
+    /*
     for (int i = 0; i < n_boundary; ++i) {
         G = solver.solve(T.col(i));
         if (solver.info() != Eigen::Success) {
@@ -479,6 +514,10 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf)
     }
     std::cout << "Sum Knew = " << Knew.sum() << std::endl;
     std::cout << "Computation of the target curvatures took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
+    */
+
+
+
 
 
 
@@ -487,7 +526,8 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf)
     //M += Eigen::VectorXd::Constant(M.rows(), 1e-8).asDiagonal();
 
 
-/*
+
+
     Eigen::SparseMatrix<double> L = M.block(0, 0, n_internal, n_internal);
     Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> CHOL;
     CHOL.compute(L);
@@ -501,7 +541,7 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf)
         //G = CHOL.solve(T.col(i));
         G = CHOL.solve(-M.block(0, n_internal+i, n_internal, 1));
         //G = CHOL.solve(delta);
-        if (solver.info() != Eigen::Success) {
+        if (CHOL.info() != Eigen::Success) {
             std::cout << "Backward substitution to compute G(" << i << ") failed" << std::endl;
             return false;
         }
@@ -510,7 +550,6 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf)
     }
     std::cout << "Sum Knew = " << Knew.sum() << std::endl;
     std::cout << "Computation of the target curvatures took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
-*/
 
 
 
@@ -549,6 +588,9 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf)
 
     std::cout << " max scale at vertex " << max_i << std::endl;
     std::cout << " min scale at vertex " << min_i << std::endl;
+
+    coneIdx.push_back(max_i);
+    p = m.vert[max_i].P();
 
     std::cout << "Solution of the scaling factors system took" << timer.TimeSinceLastCheck() << " seconds" << std::endl;
     std::cout << "Overall time: " << timer.TimeElapsed() << " seconds" << std::endl;

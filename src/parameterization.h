@@ -121,6 +121,7 @@ private:
     void ProbeCut();
 
     bool ComputeConformalScalingFactors(Eigen::VectorXd& csf);
+    bool ComputeConformalScalingFactors_impl(Eigen::VectorXd& csf, vcg::Point3d& p);
 };
 
 #endif // PARAMETERIZATION_H
