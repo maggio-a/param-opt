@@ -48,11 +48,14 @@ void ComputeBoundaryInfo(Mesh& m);
  * Hole-filling faces are marked by setting the holeFilling field to true */
 void CloseMeshHoles(Mesh& shell);
 
-/* This function 'synchronizes' a shell, that is it updates its spatial
- * coordinates as its current texture coordinates. The operation is performed
- * per-vertex, without any kind of safety check. The assumption is that the
- * shell remains connected during the optimization process */
-void SyncShell(Mesh& shell);
+/* This function synchronizes a shell with its UV coordinates, that is it
+ * updates its vertex coordinates to match the parameter space configurations
+ * (with z = 0). The operation is performed per-vertex. */
+void SyncShellWithUV(Mesh& shell);
+
+/* This function synchronizes a shell with the model space coordinates of its
+ * chart. */
+void SyncShellWithModel(Mesh& shell, Mesh& baseMesh);
 
 /* Removes any hole-filling face from the shell and compacts its containers */
 void ClearHoleFillingFaces(Mesh& shell);
@@ -67,9 +70,7 @@ void ClearHoleFillingFaces(Mesh& shell);
 void CloseShellHoles(Mesh& shell);
 
 /* Remeshes the hole filling faces of the shell, which can get heavily distorted
- * during the optimization and lock the descent step-size. What this function
- * does is remove any hole-filling face, close the holes again, and compute
- * the target shape of the newly added faces */
+ * during the optimization and lock the descent step-size. */
 void RemeshShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& inputMesh);
 
 /* Builds a shell for the given chart. A shell is a mesh object specifically

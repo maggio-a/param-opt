@@ -256,6 +256,10 @@ int main_gui(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
 
 int main(int argc, char *argv[])
 {
+    std::cout << "sizeof Mesh = " << sizeof(Mesh) << std::endl;
+    std::cout << "sizeof MeshFace = " << sizeof(MeshFace) << std::endl;
+    std::cout << "sizeof MeshVertex = " << sizeof(MeshVertex) << std::endl;
+
     Args args = parse_args(argc, argv);
 
     Mesh m;

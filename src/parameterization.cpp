@@ -28,8 +28,7 @@ ParameterizerObject::ParameterizerObject(ChartHandle c, ParameterizationStrategy
       needsRemeshing{false},
       iterationCount{0},
       gradientNormTolerance{1e-3},
-      energyDiffTolerance{1e-9},
-      stats{0}
+      energyDiffTolerance{1e-9}
 {
     Reset();
 }
@@ -46,19 +45,18 @@ void ParameterizerObject::Reset()
     iterationCount = 0;
     shell.Clear();
 
-    /*
-     * In case of warm start, we should build the shell according to the existing
-     * parameterization (after having checked that is valid wrt the given strategy
-     * */
+    // In case of warm start, we should build the shell according to the existing
+    // parameterization (after having checked that is valid wrt the given strategy
     std::cout << "TODO FIXME WARM START CODE" << std::endl;
     BuildShell(shell, *chart, strategy.geometry);
+
     std::cout << "WARNING forcing warm start to true" << std::endl;
     strategy.warmStart = true;
     if (strategy.padBoundaries == false)
         ClearHoleFillingFaces(shell);
 
     InitializeOptimizer();
-    SyncShell(shell);
+    SyncShellWithUV(shell);
 
     MarkInitialSeamsAsFaux(shell, baseMesh);
 }
@@ -162,12 +160,12 @@ void ParameterizerObject::MapLocalGradientVarianceToShellVertexColor()
 void ParameterizerObject::MapConformalScalingFactorsToShellVertexColor()
 {
     Eigen::VectorXd csf;
-    assert(ComputeConformalScalingFactors(csf));
-    std::cout << "fixme" << std::endl; //assert(csf.size() == shell.VN());
+    std::vector<int> coneIndices = {};
+    assert(ComputeConformalScalingFactors(csf, coneIndices));
     for (int i = 0; i < shell.VN(); ++i) {
-        //shell.vert[i].Q() = csf[i];
+        shell.vert[i].Q() = csf[i];
     }
-    tri::UpdateColor<Mesh>::PerFaceQualityRamp(shell);
+    tri::UpdateColor<Mesh>::PerVertexQualityRamp(shell);
 }
 
 void ParameterizerObject::ClearShellFaceColor()
@@ -271,7 +269,7 @@ IterationInfo ParameterizerObject::Iterate()
         InitializeOptimizer();
     IterationInfo info;
     info.energyVal = opt->Iterate(info.gradientNorm, info.energyDiff);
-    SyncShell(shell);
+    SyncShellWithUV(shell);
     iterationCount++;
     return info;
 }
@@ -283,10 +281,16 @@ void ParameterizerObject::RemeshHolefillingAreas()
     opt->UpdateCache();
 }
 
-//#include <wrap/io_trimesh/export.h>
+#include <wrap/io_trimesh/export.h>
 void ParameterizerObject::PlaceCut()
 {
-    double maxDistance = ComputeDistanceFromBorderOnSeams(shell);
+    ComputeDistanceFromBorderOnSeams(shell);
+
+    double maxDistance = 0;
+    for (auto& sv : shell.vert) {
+        if (sv.Q() < 0) assert(0);
+        if (sv.Q() < INFINITY && sv.Q() > maxDistance) maxDistance = sv.Q();
+    }
 
     MapEnergyToShellFaceColor();
 
@@ -295,17 +299,19 @@ void ParameterizerObject::PlaceCut()
     Mesh::FacePointer startFace = nullptr;
     int cutEdge = -1;
     for (auto& sf : shell.face) {
-        for (int i = 0; i < 3; ++i) if (sf.IsF(i)) {
-            double w = std::max(sf.V0(i)->Q(), sf.V1(i)->Q()) / maxDistance;
+        for (int i = 0; i < 3; ++i) {
+            if (sf.IsF(i)) {
+                double w = std::max(sf.V0(i)->Q(), sf.V1(i)->Q()) / maxDistance;
 
-            if (w < INFINITY) w = 1.0;
+                if (w < INFINITY) w = 1.0;
 
-            double weightedEnergy = energy->E(sf, false) * w;
-            // w is INFINITY if the seam does not reach the mesh boundary
-            if (std::isfinite(weightedEnergy) && weightedEnergy > maxEnergy) {
-                maxEnergy = weightedEnergy;
-                startFace = &sf;
-                cutEdge = i;
+                double weightedEnergy = energy->E(sf, false) * w;
+                // w is INFINITY if the seam does not reach the mesh boundary
+                if (std::isfinite(weightedEnergy) && weightedEnergy > maxEnergy) {
+                    maxEnergy = weightedEnergy;
+                    startFace = &sf;
+                    cutEdge = i;
+                }
             }
         }
     }
@@ -330,6 +336,127 @@ void ParameterizerObject::PlaceCut()
 
     opt->UpdateCache();
     //tri::io::Exporter<Mesh>::Save(shell, "shell_after_cut.obj", tri::io::Mask::IOM_ALL);
+}
+
+/* What this method does:
+ *  1. Remove any hole filling faces from the shell
+ *  2. Sync the shell with the model
+ *  3. Close the holes
+ *  4. Compute 'ncones' cone singularities using the method described in
+ *     Ben-Chen et al. 'Conformal flattening by curvature prescription and
+ *     metric scaling' (2008), restricted to the vertices that lie on uv seams
+ *  5. Iteratively cut the shell, connecting each cone with the boundary
+ *  6. Remove the hole filling faces, sync the shell with its UV configuration
+ *     and close the holes in UV space (this is necessary to avoid potential
+ *     flips) */
+void ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
+{
+    assert(ncones > 0);
+    // Put the shell in a configuration suitable to compute the conformal scaling factors
+    ClearHoleFillingFaces(shell);
+    SyncShellWithModel(shell, baseMesh);
+    for (auto& sf : shell.face) {
+        for (int i = 0; i < 3; ++i) {
+            if (sf.IsF(i)) {
+                sf.C() = vcg::Color4b::Blue;
+                sf.FFp(i)->C() = vcg::Color4b::Blue;
+            }
+        }
+    }
+    tri::io::Exporter<Mesh>::Save(shell, "shell_clear.obj", tri::io::Mask::IOM_ALL);
+    ComputeBoundaryInfo(shell);
+    CloseMeshHoles(shell);
+    MarkInitialSeamsAsFaux(shell, baseMesh);
+
+    std::vector<int> coneIndices;
+    FindCones(ncones, coneIndices, true);
+
+    ComputeDistanceFromBorderOnSeams(shell);
+
+    // At this point the cones are guaranteed to be placed on a mesh vertex
+    tri::UpdateFlags<Mesh>::VertexClearS(shell);
+    for (int i : coneIndices)
+        shell.vert[i].SetS();
+
+    std::vector<PosF> pv;
+    for (auto& sf : shell.face) {
+        if (!sf.holeFilling) {
+            for (int i = 0; i < 3; ++i) {
+                if (sf.IsF(i) && (sf.V0(i)->IsS() || sf.V1(i)->IsS())) {
+                    PosF p(&sf, i);
+                    p.V()->ClearS();
+                    p.VFlip()->ClearS();
+                    pv.push_back(p);
+                }
+            }
+        }
+    }
+
+    for (auto p : pv) {
+        std::cout << "Selected face " << tri::Index(shell, p.F()) << " edge " << p.E() << std::endl;
+        tri::UpdateFlags<Mesh>::FaceClearFaceEdgeS(shell);
+        PosF boundaryPos = SelectShortestSeamPathToBoundary(shell, p);
+        //SelectShortestSeamPathToPeak(shell, p);
+        bool corrected = RectifyCut(shell, boundaryPos);
+        tri::CutMeshAlongSelectedFaceEdges(shell);
+        CleanupShell(shell);
+        tri::UpdateTopology<Mesh>::FaceFace(shell);
+    }
+
+    ClearHoleFillingFaces(shell);
+    ComputeBoundaryInfo(shell); // boundary changed after the cut
+    SyncShellWithUV(shell);
+    CloseShellHoles(shell);
+    RemeshShellHoles(shell, strategy.geometry, baseMesh);
+
+    if (OptimizerIsInitialized())
+        opt->UpdateCache();
+
+    tri::io::Exporter<Mesh>::Save(shell, "shell_after_cut.obj", tri::io::Mask::IOM_ALL);
+}
+
+void ParameterizerObject::FindCones(int ncones, std::vector<int>& coneIndices, bool onSeams)
+{
+    coneIndices.clear();
+
+    if (onSeams)
+        ComputeDistanceFromBorderOnSeams(shell);
+
+    for (int i = 0; i < ncones; ++i) {
+        Eigen::VectorXd csf;
+        ComputeConformalScalingFactors(csf, coneIndices);
+
+        // Select seam vertices
+        if (onSeams) {
+            tri::UpdateFlags<Mesh>::VertexClearS(shell);
+            for (auto& sv : shell.vert)
+                if (sv.Q() < INFINITY)
+                    sv.SetS();
+        } else {
+            tri::UpdateFlags<Mesh>::VertexSetS(shell);
+        }
+
+        // Find the max scale factor as seam vertices
+        double maxscale = 0.0;
+        double minscale = std::numeric_limits<double>::infinity();
+        int max_k = -1;
+        int min_k = -1;
+        for (int k = 0; k < shell.VN(); ++k) {
+            if (shell.vert[k].IsS()) {
+                double s = std::abs(csf[k]);
+                if (s > maxscale) {
+                    maxscale = s;
+                    max_k = k;
+                }
+                if (s < minscale) {
+                    minscale = s;
+                    min_k = k;
+                }
+            }
+        }
+
+        coneIndices.push_back(max_k);
+    }
 }
 
 void ParameterizerObject::ProbeCut()
@@ -398,25 +525,13 @@ void ComputeCotangentWeightedLaplacian(Mesh& shell, Mesh& baseMesh, Eigen::Spars
 }
 
 #include <wrap/io_trimesh/export.h>
-bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf)
-{
-    Mesh pointMesh;
-    for (int i = 0; i < 8; ++i) {
-        Point3d p;
-        if (!ComputeConformalScalingFactors_impl(csf, p))
-            return false;
-        tri::Allocator<Mesh>::AddVertex(pointMesh, p);
-    }
-    tri::io::Exporter<Mesh>::Save(pointMesh, "points.ply");
-    return true;
-}
 
 /* Reference: BenChen 2009 curvature prescription metric scaling */
-bool ParameterizerObject::ComputeConformalScalingFactors_impl(Eigen::VectorXd& csf, vcg::Point3d& p)
+bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf, const std::vector<int>& coneIndices)
 {
     //ClearHoleFillingFaces(shell);
-    static std::vector<int> coneIdx;
 
+    /*
     Mesh m;
     CopyToMesh(*chart, m);
     tri::UpdateTopology<Mesh>::FaceFace(m);
@@ -424,6 +539,8 @@ bool ParameterizerObject::ComputeConformalScalingFactors_impl(Eigen::VectorXd& c
     CloseMeshHoles(m);
 
     tri::Clean<Mesh>::SplitNonManifoldVertex(m, 0.0);
+    */
+    Mesh& m = shell;
 
     vcg::tri::io::Exporter<Mesh>::Save(m, "shell_model.ply");
 
@@ -438,10 +555,10 @@ bool ParameterizerObject::ComputeConformalScalingFactors_impl(Eigen::VectorXd& c
     int n_internal = 0;
     int j = m.VN() - 1;
 
-    // handle prescribed cones
-    for (auto& i : coneIdx) {
-        index[m.vert[i]] = j--;
-        m.vert[i].SetS();
+    for (auto i : coneIndices) {
+        auto& v = m.vert[i];
+        v.SetS();
+        index[v] = j--;
     }
 
     for (auto& v : m.vert) {
@@ -523,7 +640,7 @@ bool ParameterizerObject::ComputeConformalScalingFactors_impl(Eigen::VectorXd& c
 
     // Compute the metric scaling of the new target curvature
     ComputeCotangentWeightedLaplacian(m, baseMesh, M, index, ia);
-    //M += Eigen::VectorXd::Constant(M.rows(), 1e-8).asDiagonal();
+    //M += Eigen::VectorXd::Constant(M.rows(), 1e-12).asDiagonal();
 
 
 
@@ -565,7 +682,7 @@ bool ParameterizerObject::ComputeConformalScalingFactors_impl(Eigen::VectorXd& c
     Eigen::VectorXd scalingFactors = cholesky.solve(Knew - Korig);
     csf.resize(scalingFactors.size());
     for (int i = 0; i < m.VN(); ++i) {
-        //csf[i] = scalingFactors[index[m.vert[i]]];
+        csf[i] = scalingFactors[index[m.vert[i]]];
     }
 
     double maxscale = 0.0;
@@ -573,8 +690,7 @@ bool ParameterizerObject::ComputeConformalScalingFactors_impl(Eigen::VectorXd& c
     int max_i = -1;
     int min_i = -1;
     for (int i = 0; i < m.VN(); ++i) {
-        int k = index[m.vert[i]];
-        double s = std::abs(scalingFactors[k]);
+        double s = std::abs(csf[i]);
         //assert(scalingFactors[i] > 0.0);
         if (s > maxscale) {
             maxscale = s;
@@ -589,10 +705,9 @@ bool ParameterizerObject::ComputeConformalScalingFactors_impl(Eigen::VectorXd& c
     std::cout << " max scale at vertex " << max_i << std::endl;
     std::cout << " min scale at vertex " << min_i << std::endl;
 
-    coneIdx.push_back(max_i);
-    p = m.vert[max_i].P();
+    //coneIdx.push_back(max_i);
 
-    std::cout << "Solution of the scaling factors system took" << timer.TimeSinceLastCheck() << " seconds" << std::endl;
+    std::cout << "Solution of the scaling factors system took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
     std::cout << "Overall time: " << timer.TimeElapsed() << " seconds" << std::endl;
 
     return true;

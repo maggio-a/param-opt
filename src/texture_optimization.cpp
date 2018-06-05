@@ -257,7 +257,7 @@ bool ParameterizeShell(Mesh& shell, ParameterizationStrategy strategy, Mesh& bas
             }
 
             tri::UpdateColor<Mesh>::PerFaceQualityRamp(shell);
-            SyncShell(shell);
+            SyncShellWithUV(shell);
 
             bool shellChanged = false;
 

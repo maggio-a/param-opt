@@ -30,8 +30,10 @@ std::vector<PosF> GetFauxPosFan(PosF& startPos);
 
 /* Computes vertices distances to the boundary (restricted only to vertices that
  * lie on a seam) as vertex quality. The distance of vertices that are not
- * incident to seam edges is INFINITY. Assumes the seams are marked as faux. */
-double ComputeDistanceFromBorderOnSeams(Mesh& m);
+ * incident to seam edges is INFINITY. Assumes the seams are marked as faux.
+ * NOTE (FIXME?) as of now distances are computed according to the target shape
+ * attribute (does it make sense?) */
+void ComputeDistanceFromBorderOnSeams(Mesh& m);
 
 /* Selects the shortest path from a starting (seam) pos to the boundary, along
  * faux edges. This function allows to select the path for the subsequent cut.

@@ -20,8 +20,10 @@ void MarkInitialSeamsAsFaux(Mesh& shell, Mesh& baseMesh)
         if (sf.holeFilling == false) {
             for (int i = 0; i < 3; ++i) {
                 auto& f = baseMesh.face[ia[sf]];
-                if (f.IsF(i) && !face::IsBorder(sf, i))
+                if (f.IsF(i) && !face::IsBorder(sf, i)) {
                     sf.SetF(i);
+                    sf.FFp(i)->SetF(sf.FFi(i));
+                }
             }
         }
     }
@@ -59,7 +61,13 @@ struct FeatureBasedEdgeLength {
 
 };
 
-double ComputeDistanceFromBorderOnSeams(Mesh& m)
+struct VertexPosEdgeLength {
+    double operator()(PosF p) {
+        return (p.V()->P() - p.VFlip()->P()).Norm();
+    }
+};
+
+void ComputeDistanceFromBorderOnSeams(Mesh& m)
 {
     tri::UpdateTopology<Mesh>::FaceFace(m);
     tri::UpdateFlags<Mesh>::VertexBorderFromFaceAdj(m);
@@ -86,7 +94,11 @@ double ComputeDistanceFromBorderOnSeams(Mesh& m)
 
     assert(HasTargetShapeAttribute(m));
     auto targetShape = GetTargetShapeAttribute(m);
-    FeatureBasedEdgeLength dist{targetShape};
+    //FeatureBasedEdgeLength dist{targetShape};
+
+    VertexPosEdgeLength dist;
+
+
     auto posNodeComp = [] (const PosNode& a, const PosNode& b) { return a.distance > b.distance; };
     //std::make_heap(probes.begin(), probes.end(), posNodeComp);
     while (!probes.empty()) {
@@ -107,14 +119,6 @@ double ComputeDistanceFromBorderOnSeams(Mesh& m)
             }
         } // otherwise the entry is obsolete
     }
-
-    double maxDist = 0;
-    for (auto& v : m.vert) {
-        if (v.Q() < 0) assert(0);
-        if (v.Q() < INFINITY && v.Q() > maxDist) maxDist = v.Q();
-    }
-
-    return maxDist;
 }
 
 PosF SelectShortestSeamPathToBoundary(Mesh& m, const PosF& pos)

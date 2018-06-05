@@ -179,12 +179,23 @@ void CopyToMesh(FaceGroup& fg, Mesh& m)
     std::cout << "Built mesh has " << m.FN() << " faces" << std::endl;
 }
 
-void SyncShell(Mesh& shell)
+void SyncShellWithUV(Mesh& shell)
 {
     for (auto& v : shell.vert) {
         v.P().X() = v.T().U();
         v.P().Y() = v.T().V();
         v.P().Z() = 0.0;
+    }
+}
+
+void SyncShellWithModel(Mesh& shell, Mesh& baseMesh)
+{
+    auto ia = GetFaceIndexAttribute(shell);
+    for (auto& sf : shell.face) {
+        assert(!sf.holeFilling);
+        auto& f = baseMesh.face[ia[sf]];
+        for (int i = 0; i < 3; ++i)
+            sf.P(i) = f.P(i);
     }
 }
 
@@ -196,7 +207,37 @@ void ClearHoleFillingFaces(Mesh& shell)
     tri::UpdateTopology<Mesh>::FaceFace(shell);
 }
 
-void DoRemesh(Mesh& shell)
+void CloseShellHoles(Mesh& shell)
+{
+    auto ia = GetFaceIndexAttribute(shell);
+
+    BoundaryInfo& info = GetBoundaryInfoAttribute(shell)();
+    for (std::size_t i = 0; i < info.vBoundaryFaces.size(); ++i) {
+        if (i == info.LongestBoundary())
+            continue;
+        std::vector<std::vector<std::array<double,2>>> polyline2 = BuildPolyline2(info.vBoundaryFaces[i], info.vVi[i], shell);
+        std::vector<uint32_t> indices = mapbox::earcut<uint32_t>(polyline2);
+        assert(indices.size()%3 == 0);
+        int nf = indices.size() / 3;
+        auto fi = tri::Allocator<Mesh>::AddFaces(shell, nf);
+        int k = 0;
+        while (fi != shell.face.end()) {
+            fi->V(0) = shell.face[info.vBoundaryFaces[i][indices[k]]].V(info.vVi[i][indices[k]]);
+            k++;
+            fi->V(1) = shell.face[info.vBoundaryFaces[i][indices[k]]].V(info.vVi[i][indices[k]]);
+            k++;
+            fi->V(2) = shell.face[info.vBoundaryFaces[i][indices[k]]].V(info.vVi[i][indices[k]]);
+            k++;
+            fi->holeFilling = true;
+            ia[fi] = -1;
+            fi++;
+        }
+    }
+
+    tri::UpdateTopology<Mesh>::FaceFace(shell);
+}
+
+static void DoRemesh(Mesh& shell)
 {
     auto ia = GetFaceIndexAttribute(shell);
 
@@ -240,7 +281,7 @@ void DoRemesh(Mesh& shell)
     //params.collapseFlag = false;
     params.smoothFlag = false;
     params.projectFlag = false;
-    params.iter = 2;
+    params.iter = 3;
     IsotropicRemeshing<Mesh>::Do(shell, params);
     tri::Allocator<Mesh>::CompactEveryVector(shell);
     ColorFace(shell);
@@ -332,7 +373,7 @@ void BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
     }
 
     // Map the 3D position of the mesh to the parameterization
-    SyncShell(shell);
+    SyncShellWithUV(shell);
 
     auto ia = GetFaceIndexAttribute(shell);
 

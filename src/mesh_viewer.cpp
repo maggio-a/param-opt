@@ -341,8 +341,8 @@ MeshViewer::MeshViewer(GraphHandle gh, const std::string& fileName_)
     else
         minRegionSize = 10000;
 
-    std::cout << "fixme" << std::endl;
-    minRegionSize = 100000;
+    //std::cout << "fixme" << std::endl;
+    //minRegionSize = 100000;
 
     std::size_t numRegions = graph->Count();
     regionColors.reserve(numRegions);
@@ -1771,6 +1771,19 @@ void MeshViewer::ManageImGuiState()
             parameterizer->PlaceCut();
             shellChanged = true;
         }
+
+
+        ImGui::Separator();
+        static int ncones = 0;
+        ImGui::InputInt("##ncones", &ncones, 1, 1);
+        if (ncones < 1) ncones = 1;
+
+
+        if (ImGui::Button("Place cut with cone singularities")) {
+            parameterizer->PlaceCutWithConeSingularities(ncones);
+            shellChanged = true;
+        }
+
         ImGui::End();
     }
 

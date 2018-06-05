@@ -80,12 +80,6 @@ class ParameterizerObject {
     double gradientNormTolerance;
     double energyDiffTolerance;
 
-    struct paramstats {
-        int a;
-    };
-
-    paramstats stats;
-
 public:
 
     ParameterizerObject(ChartHandle c, ParameterizationStrategy strat);
@@ -94,6 +88,7 @@ public:
     bool Parameterize();
     IterationInfo Iterate();
     void PlaceCut();
+    void PlaceCutWithConeSingularities(int ncones);
     void RemeshHolefillingAreas();
     void Sync();
     void Reset();
@@ -120,8 +115,8 @@ private:
     bool OptimizerIsInitialized();
     void ProbeCut();
 
-    bool ComputeConformalScalingFactors(Eigen::VectorXd& csf);
-    bool ComputeConformalScalingFactors_impl(Eigen::VectorXd& csf, vcg::Point3d& p);
+    bool ComputeConformalScalingFactors(Eigen::VectorXd& csf, const std::vector<int>& coneIndices);
+    void FindCones(int ncones, std::vector<int>& coneIndices, bool onSeams);
 };
 
 #endif // PARAMETERIZATION_H
