@@ -1328,7 +1328,6 @@ void MeshViewer::Run()
     int width, height;
     glfwGetFramebufferSize(_window, &width, &height);
 
-
     // Set callbacks
     glfwSetMouseButtonCallback(_window, MeshViewer::MouseButtonCallback);
     glfwSetCursorPosCallback(_window, MeshViewer::CursorPositionCallback);
@@ -1515,14 +1514,12 @@ void MeshViewer::ManageImGuiState()
 
         if (ImGui::Button("Invoke greedy algorithm")) {
             ClearSelection();
-            ReduceTextureFragmentation_NoPacking(*gm, minRegionSize);
+            RecomputeSegmentation(*gm, -1, minRegionSize);
         }
 
-        static bool failsafe = true;
         static bool retry = true;
         static float tau = 0.0f;
         bool clickPack = ImGui::Button("Parameterize graph");
-        ImGui::Checkbox("Safe", &failsafe);
         ImGui::SameLine();
         ImGui::Checkbox("Retry", &retry);
         ImGui::InputFloat("tau", &tau, 0.002f, 1.0f);
@@ -1531,7 +1528,7 @@ void MeshViewer::ManageImGuiState()
         if (clickPack) {
             ClearSelection();
             if (graph->MergeCount() > 0) {
-                int c = ParameterizeGraph(*gm, 1.0, strategy, failsafe, tau, retry);
+                int c = ParameterizeGraph(*gm, strategy, tau, retry);
                 if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
                 updateTexcoord = true;
                 if (activeDistIndex != -1) {
@@ -1746,6 +1743,10 @@ void MeshViewer::ManageImGuiState()
         if (ImGui::Combo("Shell color", &shellColor, colorOptions, IM_ARRAYSIZE(colorOptions))) {
             shellChanged = true;
         }
+        if (ImGui::Button("Parameterize##ParamObject")) {
+            parameterizer->Parameterize();
+            shellChanged = true;
+        }
         if (ImGui::Button("Reset")) {
             parameterizer->Reset();
             shellChanged = true;
@@ -1780,8 +1781,12 @@ void MeshViewer::ManageImGuiState()
 
 
         if (ImGui::Button("Place cut with cone singularities")) {
-            parameterizer->PlaceCutWithConeSingularities(ncones);
-            shellChanged = true;
+            if (parameterizer->PlaceCutWithConeSingularities(ncones)) {
+                parameterizer->InitializeSolution();
+                shellChanged = true;
+            } else {
+                std::cout << "Unable to place cut" << std::endl;
+            }
         }
 
         ImGui::End();

@@ -114,6 +114,12 @@ inline Mesh::PerFaceAttributeHandle<TexCoordStorage> GetWedgeTexCoordStorageAttr
     return tri::Allocator<Mesh>::GetPerFaceAttribute<TexCoordStorage>(m, "WedgeTexCoordStorage");
 }
 
+inline bool HasWedgeTexCoordStorageAttribute(Mesh& m)
+{
+    return tri::Allocator<Mesh>::IsValidHandle<TexCoordStorage>(
+                m, tri::Allocator<Mesh>::FindPerFaceAttribute<TexCoordStorage>(m, "WedgeTexCoordStorage"));
+}
+
 inline Mesh::PerFaceAttributeHandle<RegionID> GetConnectedComponentIDAttribute(Mesh& m)
 {
     return tri::Allocator<Mesh>::GetPerFaceAttribute<RegionID>(m, "ConnectedComponentID");

@@ -120,6 +120,7 @@ struct FaceGroup {
 
     std::size_t FN() const;
     std::size_t NumAdj() const;
+    double OriginalAreaUV() const;
     double AreaUV() const;
     double Area3D() const;
     double BorderUV() const;
@@ -488,6 +489,10 @@ struct WUV : EdgeWeightFunction {
 // =================================
 
 /// FIXME if the chart is an aggregate that has not been reparameterized this breaks...
+/* Computes the UV outline(s) of the given chart. If the chart has no outlines,
+ * which can happen for some inputs on small closed components that are ignored
+ * by the reparameterization procedure, it returns as outline the uv bounding
+ * box of the chart */
 template <typename ScalarType>
 void ChartOutlinesUV(Mesh& m, ChartHandle chart, std::vector<std::vector<Point2<ScalarType>>> &outline2Vec)
 {

@@ -163,7 +163,7 @@ void LogParameterizationStats(std::shared_ptr<MeshGraph> graph, RasterizedParame
 
 }
 
-int main_cmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
+int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
              Args args)
 {
     int minRegionSize;
@@ -216,10 +216,11 @@ int main_cmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
     GraphManager gm{graph, std::move(wfct)};
 
     int regionCount = 20;
-    ReduceTextureFragmentation_NoPacking_TargetRegionCount(gm, regionCount + smallcomponents, minRegionSize);
+    RecomputeSegmentation(gm, regionCount + smallcomponents, minRegionSize);
     //ReduceTextureFragmentation_NoPacking(gm, minRegionSize);
 
-    int c = ParameterizeGraph(gm, 1.0, strategy, true, tolerance, true);
+    //int c = ParameterizeGraph(gm, strategy, tolerance, true);
+    int c = ParameterizeGraph(gm, strategy, tolerance, false);
     if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
 
     LogDistortionStats(graph);
@@ -244,7 +245,7 @@ int main_cmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
     return 0;
 }
 
-int main_gui(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
+int MainGui(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
              Args args)
 {
     GLInit();
@@ -278,10 +279,9 @@ int main(int argc, char *argv[])
     //CompactTextureData(m, textureObject, &packingCoverage);
 
     tri::UpdateTopology<Mesh>::FaceFace(m);
-    if (tri::Clean<Mesh>::CountNonManifoldEdgeFF(m, false)) {
-        std::cout << "Mesh is not edge manifold" << std::endl;
-        std::exit(-1);
-    }
+    int numRemovedFaces = tri::Clean<Mesh>::RemoveNonManifoldFace(m);
+    if (numRemovedFaces > 0)
+        std::cout << "[LOG] Mesh was not edge manifold, removed " << numRemovedFaces << " faces" << std::endl;
 
     ComputeParameterizationScaleInfo(m);
     MarkSeamsAsFaux(m);
@@ -294,7 +294,7 @@ int main(int argc, char *argv[])
     PrintParameterizationInfo(graph);
 
     if (args.gui)
-        return main_gui(m, graph, textureObject, args);
+        return MainGui(m, graph, textureObject, args);
     else
-        return main_cmd(m, graph, textureObject, args);
+        return MainCmd(m, graph, textureObject, args);
 }

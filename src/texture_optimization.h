@@ -42,30 +42,21 @@ bool ParameterizeChart(Mesh& m, ChartHandle ch, ParameterizationStrategy strateg
 bool ParameterizeChart(Mesh &m, ChartHandle ch, ParameterizationStrategy strategy);
 
 /*
- * Parameterize the mesh graph. Each region is a group of connected mesh faces, and it is assumed to be homeomorphic to a disk.
- * The parameterization of each region is performed according to the parameterization strategy passed as parameter.
- * If failsafe is true, then each region is tested for overlaps in the parameterization: in case the parameterization contains
- * overlaps, the region is split in its original components and each face is assigned its original texture coordinates. This
- * ensures that no overlaps are introduced by this procedure, potentially reducing the whole procedure to a no-op if necessary
- * (that is, if every region parameterization contains overlaps).
- * The threshold parameter is the fraction of overlapping fragments - in the rasterized parameterization - above which the chart
- * is split.
- *
+ * Parameterize the mesh graph. The parameterization of each region is performed
+ * according to the ParameterizationStrategy passed.
+ * The injectivityTolerance parameter is the fraction of overlapping fragments
+ * in the rasterized parameterization above which the chart is split into its
+ * original components.
+ * If retry is true, the original components are merged into two sub-charts and
+ * parameterized again, until valid parameterizations are produced or the split
+ * can no longer be performed, in which case the original texture coordinates
+ * are restored.
  * After each region is parameterized the procedure packs the texture atlas.
- *
- * Returns the number of charts that could not be parameterized.
- */
+ * Returns the number of charts that could not be parameterized. */
 /// TODO update distortion info if needed (this should also be done through the graph manager)
-int ParameterizeGraph(GraphManager& gm,
-                      double packingCoverage,
-                      ParameterizationStrategy strategy,
-                      bool failsafe,
-                      double threshold = 0,
-                      bool retry = true);
+int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, double injectivityTolerance, bool retry);
 
 
-void ReduceTextureFragmentation_NoPacking(GraphManager &gm, std::size_t minRegionSize);
-void ReduceTextureFragmentation_NoPacking_TargetRegionCount(GraphManager &gm, std::size_t regionCount, std::size_t minRegionSize);
-//void ReduceTextureFragmentation(Mesh &m, std::shared_ptr<MeshGraph> graph, std::size_t minRegionSize);
+void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, std::size_t minRegionSize);
 
 #endif // TEXTURE_OPTIMIZATION_H

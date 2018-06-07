@@ -32,6 +32,8 @@ public:
     double E_IgnoreMarkedFaces(bool normalized = false);
     virtual double E(const Mesh::FaceType& f, bool normalized = false) = 0;
 
+    virtual double NormalizedMinValue() = 0;
+
     Eigen::MatrixXd Grad();
     virtual void Grad(int faceIndex, Eigen::Vector2d& g0, Eigen::Vector2d& g1, Eigen::Vector2d& g2) = 0;
 
@@ -80,6 +82,7 @@ public:
     SymmetricDirichletEnergy(Mesh& mesh);
 
     double E(const Mesh::FaceType& f, bool normalized = false);
+    double NormalizedMinValue();
     void Grad(int faceIndex, Eigen::Vector2d& g0, Eigen::Vector2d& g1, Eigen::Vector2d& g2);
     void UpdateCache();
 };

@@ -5,6 +5,7 @@
 #include "parameterization_checker.h"
 #include "mesh_utils.h"
 #include "timer.h"
+#include "uniform_solver.h"
 
 #include <memory>
 
@@ -51,7 +52,7 @@ void ParameterizerObject::Reset()
     BuildShell(shell, *chart, strategy.geometry);
 
     std::cout << "WARNING forcing warm start to true" << std::endl;
-    strategy.warmStart = true;
+    //strategy.warmStart = true;
     if (strategy.padBoundaries == false)
         ClearHoleFillingFaces(shell);
 
@@ -61,7 +62,7 @@ void ParameterizerObject::Reset()
     MarkInitialSeamsAsFaux(shell, baseMesh);
 }
 
-void ParameterizerObject::Sync()
+void ParameterizerObject::SyncChart()
 {
     for (std::size_t i = 0; i < chart->fpVec.size(); ++i) {
         for (int k = 0; k < 3; ++k) {
@@ -214,41 +215,102 @@ bool ParameterizerObject::OptimizerIsInitialized()
  * ================================ */
 
 
+bool ParameterizerObject::InitializeSolution()
+{
+    UniformSolver<Mesh> u{shell};
+    bool solved = u.Solve();
+    if (solved) SyncShellWithUV(shell);
+    return solved;
+}
+
 bool ParameterizerObject::Parameterize()
 {
     if (!OptimizerIsInitialized())
         InitializeOptimizer();
 
     if (strategy.warmStart) {
-        assert(CheckLocalInjectivity(shell));
+        // TODO
         assert(CheckUVConnectivity(shell));
+        assert(CheckLocalInjectivity(shell));
+        assert(0);
+    } else {
+        bool init = InitializeSolution();
+        if (!init) return false;
     }
 
     // check if remeshing is required during iterations
     needsRemeshing = false;
     for (auto& sf : shell.face) {
-        if (sf.holeFilling) needsRemeshing = true;
-        double areaUV = (sf.V(1)->T().P() - sf.V(0)->T().P()) ^ (sf.V(2)->T().P() - sf.V(0)->T().P());
-        assert(areaUV > 0 && "Parameterization is not bijective");
+        if (sf.holeFilling) {
+            needsRemeshing = true;
+            break;
+        }
     }
 
     // parameterizer state
     Timer t;
     int i;
-
     IterationInfo info;
+    double surfaceArea = energy->SurfaceArea();
+    double realSurfaceArea = energy->SurfaceAreaNotHoleFilling();
+    std::vector<double> vRealEnergyVal;
+    std::vector<double> vRealEnergyDiff;
+
+    double cutTrigger = 1.25;
+    double energyDiffCutTrigger = 0.02;
+
+    vRealEnergyVal.push_back(INFINITY); // placeholder for the first iteration
+    double energyCutThreshold = energy->NormalizedMinValue() * cutTrigger * realSurfaceArea;
+    double energyDiffCutTriggerThreshold = energy->NormalizedMinValue() * energyDiffCutTrigger * realSurfaceArea;
     for (i = 0; i < strategy.optimizerIterations; ++i) {
         info = Iterate();
+
         if (info.gradientNorm < gradientNormTolerance) {
             std::cout << "Stopping because gradient magnitude is small enough (" << info.gradientNorm << ")" << std::endl;
             break;
         }
-        if (info.energyDiff < energyDiffTolerance) {
+
+        if (info.energyDiff < (energyDiffTolerance * surfaceArea)) {
             std::cout << "Stopping because energy improvement is too small (" << info.energyDiff << ")" << std::endl;
             break;
         }
-        if (needsRemeshing && (i > 0) && (i % 30) == 0)
+
+        double realEnergyVal = energy->E_IgnoreMarkedFaces(false);
+        double realEnergyDiff = vRealEnergyVal.back() - realEnergyVal;
+        vRealEnergyVal.push_back(realEnergyVal);
+        vRealEnergyDiff.push_back(realEnergyDiff);
+
+        /* Evaluate whether cutting is required. A cut is placed if for the last
+         * 3 iterations the energy improvement was below a given threshold (which
+         * hints at convergence), and at the same time the energy is far from the
+         * lower bound of MIN_ENERGY * SURFACE_AREA. If this is the case, place
+         * a cut and keep iterating */
+
+        int iterationsAvailable = strategy.optimizerIterations - i;
+        bool placedCut = false;
+        if (strategy.applyCut && i > 20 && iterationsAvailable > 20) {
+            bool guessNearConvergence = true;
+            auto bit = --vRealEnergyDiff.end();
+            for (int k = 0; k < 3; ++k) {
+                guessNearConvergence &= *(bit--) < energyDiffCutTriggerThreshold;
+            }
+            if (guessNearConvergence && realEnergyVal > energyCutThreshold) {
+                // Place cut
+                bool success = PlaceCutWithConeSingularities(1);
+                if (success) {
+                    std::cout << "Placed cut with 1 cone singularity" << std::endl;
+                    InitializeSolution();
+                    placedCut = true;
+                    vRealEnergyVal.push_back(INFINITY); // this essentially resets the cut placing heuristic state
+                } else {
+                    std::cout << "Attempt to place a cut failed" << std::endl;
+                }
+            }
+        }
+
+        if (!placedCut && needsRemeshing && (i > 0) && (i % 30) == 0)
             RemeshHolefillingAreas();
+
     }
     std::cout << "Stopped after " << i << " iterations, gradient magnitude = " << info.gradientNorm
               << ", energy value = " << energy->E_IgnoreMarkedFaces() << std::endl;
@@ -349,9 +411,22 @@ void ParameterizerObject::PlaceCut()
  *  6. Remove the hole filling faces, sync the shell with its UV configuration
  *     and close the holes in UV space (this is necessary to avoid potential
  *     flips) */
-void ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
+bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
 {
     assert(ncones > 0);
+
+    // sanity check
+    ComputeDistanceFromBorderOnSeams(shell);
+    bool seamsToBoundary = false;
+    for (auto& sv : shell.vert) {
+        if (!sv.IsB() && sv.Q() < INFINITY) {
+            seamsToBoundary = true;
+            break;
+        }
+    }
+    if (!seamsToBoundary)
+        return false;
+
     // Put the shell in a configuration suitable to compute the conformal scaling factors
     ClearHoleFillingFaces(shell);
     SyncShellWithModel(shell, baseMesh);
@@ -412,7 +487,8 @@ void ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
     if (OptimizerIsInitialized())
         opt->UpdateCache();
 
-    tri::io::Exporter<Mesh>::Save(shell, "shell_after_cut.obj", tri::io::Mask::IOM_ALL);
+    //tri::io::Exporter<Mesh>::Save(shell, "shell_after_cut.obj", tri::io::Mask::IOM_ALL);
+    return true;
 }
 
 void ParameterizerObject::FindCones(int ncones, std::vector<int>& coneIndices, bool onSeams)

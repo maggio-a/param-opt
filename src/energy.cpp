@@ -149,6 +149,11 @@ double SymmetricDirichletEnergy::E(const Mesh::FaceType& f, bool normalized)
     return attenuation * energy;
 }
 
+double SymmetricDirichletEnergy::NormalizedMinValue()
+{
+    return 4.0;
+}
+
 void SymmetricDirichletEnergy::Grad(int faceIndex, Eigen::Vector2d& g0, Eigen::Vector2d& g1, Eigen::Vector2d& g2)
 {
         const MeshFace& f = m.face[faceIndex];

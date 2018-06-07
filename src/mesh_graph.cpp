@@ -203,8 +203,10 @@ void ClearHoleFillingFaces(Mesh& shell)
 {
     for (auto& f : shell.face)
         if (f.holeFilling) tri::Allocator<Mesh>::DeleteFace(shell, f);
-    tri::Allocator<Mesh>::CompactEveryVector(shell);
+    tri::Clean<Mesh>::RemoveUnreferencedVertex(shell);
+    tri::UpdateTopology<Mesh>::VertexFace(shell);
     tri::UpdateTopology<Mesh>::FaceFace(shell);
+    tri::Allocator<Mesh>::CompactEveryVector(shell);
 }
 
 void CloseShellHoles(Mesh& shell)
@@ -298,6 +300,7 @@ static void DoRemesh(Mesh& shell)
         }
     }
     tri::UpdateTopology<Mesh>::FaceFace(shell);
+    tri::UpdateTopology<Mesh>::VertexFace(shell);
 }
 
 void RemeshShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& inputMesh)
@@ -463,6 +466,19 @@ void FaceGroup::AddFace(const Mesh::FacePointer fptr)
 {
     fpVec.push_back(fptr);
     ParameterizationChanged();
+}
+
+double FaceGroup::OriginalAreaUV() const
+{
+    assert(HasWedgeTexCoordStorageAttribute(mesh));
+    auto wtcsattr = GetWedgeTexCoordStorageAttribute(mesh);
+
+    double areaUV = 0;
+    for (auto fptr : fpVec) {
+        const TexCoordStorage& tcs = wtcsattr[fptr];
+        areaUV += std::abs((tcs.tc[1].P() - tcs.tc[0].P()) ^ (tcs.tc[2].P() - tcs.tc[0].P()));
+    }
+    return areaUV;
 }
 
 double FaceGroup::AreaUV() const

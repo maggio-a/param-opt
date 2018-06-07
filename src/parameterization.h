@@ -88,10 +88,14 @@ public:
     bool Parameterize();
     IterationInfo Iterate();
     void PlaceCut();
-    void PlaceCutWithConeSingularities(int ncones);
+    bool PlaceCutWithConeSingularities(int ncones);
     void RemeshHolefillingAreas();
-    void Sync();
+
+    /* Transfers the UV coordinates from the shell to the chart */
+    void SyncChart();
+
     void Reset();
+    bool InitializeSolution();
 
     Mesh& Shell();
     int IterationCount();
