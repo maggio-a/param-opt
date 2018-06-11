@@ -219,8 +219,8 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
     RecomputeSegmentation(gm, regionCount + smallcomponents, minRegionSize);
     //ReduceTextureFragmentation_NoPacking(gm, minRegionSize);
 
-    //int c = ParameterizeGraph(gm, strategy, tolerance, true);
-    int c = ParameterizeGraph(gm, strategy, tolerance, false);
+    int c = ParameterizeGraph(gm, strategy, tolerance, true);
+    //int c = ParameterizeGraph(gm, strategy, -1, true);
     if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
 
     LogDistortionStats(graph);
@@ -285,8 +285,8 @@ int main(int argc, char *argv[])
 
     ComputeParameterizationScaleInfo(m);
     MarkSeamsAsFaux(m);
-    StoreWedgeTexCoordAsAttribute(m);
     PreprocessMesh(m);
+    StoreWedgeTexCoordAsAttribute(m);
 
     auto graph = ComputeParameterizationGraph(m, textureObject);
 

@@ -159,19 +159,24 @@ void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
         if (chart->AreaUV() > 0)
             continue;
         numNoParam++;
+
         std::cout << "Parameterizing region of " << chart->FN() << " zero UV area faces" << std::endl;
-        bool parameterized = ParameterizeChart(m, chart, strategy);
+
+        ParameterizerObject po{chart, strategy};
+        bool parameterized = po.Parameterize();
+
         if (!parameterized) {
             std::cout << "WARNING: preliminary parameterization of chart " << chart->id << " failed" << std::endl;
         } else {
+            po.SyncChart();
             // As convenience to detect regions that originally did not have a parameterization, the texcoords
             // of such regions have negative u and a randomly displaced v
             Box2d box = chart->UVBox();
-            double randomDisplacementU = rand() / (double) RAND_MAX;
+            double randomDisplacementV = rand() / (double) RAND_MAX;
             for (auto fptr : chart->fpVec) {
                 for (int i = 0; i < 3; ++i) {
                     fptr->WT(i).P().X() -= (box.min.X() + box.DimX());
-                    fptr->WT(i).P().Y() -= (box.min.Y() + randomDisplacementU);
+                    fptr->WT(i).P().Y() -= (box.min.Y() + randomDisplacementV);
                     fptr->WT(i).P() *= scale;
                 }
             }
@@ -403,7 +408,8 @@ static void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, 
 
     chartVec.push_back(c1);
     chartVec.push_back(c2);
-    std::cout << "Recovery produced two charts of sizes " << c1->numMerges + 1 << " " << c2->numMerges + 1 << std::endl;
+    std::cout << "Recovery produced two charts of sizes " << c1->numMerges + 1 << " (" << c1->id << ") and "
+              << c2->numMerges + 1 << " (" << c2->id << ")" << std::endl;
 }
 
 /*
@@ -426,7 +432,7 @@ bool ParameterizeChart(Mesh &m, ChartHandle ch, ParameterizationStrategy strateg
 bool ParameterizeChart(Mesh& m, ChartHandle ch, ParameterizationStrategy strategy, Mesh& shell)
 {
     shell.Clear();
-    BuildShell(shell, *ch, strategy.geometry);
+    BuildShell(shell, *ch, strategy.geometry, false);
 
     // TODO in case of warmStart assign the texture coordinates of the chart to
     // the shell without touching the solver code
@@ -679,16 +685,17 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
 
         ParameterizerObject po{chart, strat};
         bool ok = po.Parameterize();
-        if (ok && injectivityCheckRequired) {
+        if (ok) {
+            std::cout << "  Chart parameterized correctly" << std::endl;
             po.SyncChart();
-            RasterizedParameterizationStats stats = GetRasterizationStats(chart, 1024, 1024);
-            double fraction = stats.lostFragments / (double) stats.totalFragments;
-            if (fraction > injectivityTolerance) {
-                std::cout << "WARNING: REGION" << chart->id << " HAS OVERLAPS IN THE PARAMETERIZATION "
-                          << "(overlap fraction = " << fraction << ")" << std::endl;
-                ok = false;
-            } else {
-                std::cout << "  Chart parameterized correctly" << std::endl;
+            if (injectivityCheckRequired) {
+                RasterizedParameterizationStats stats = GetRasterizationStats(chart, 1024, 1024);
+                double fraction = stats.lostFragments / (double) stats.totalFragments;
+                if (fraction > injectivityTolerance) {
+                    std::cout << "WARNING: REGION " << chart->id << " HAS OVERLAPS IN THE PARAMETERIZATION "
+                              << "(overlap fraction = " << fraction << ")" << std::endl;
+                    ok = false;
+                }
             }
         } else {
             numFailed++;
@@ -713,33 +720,25 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
             }
             chart->numMerges = 0;
         } else {
+            // split the chart in the mesh graph using the graph manager, and readd
+            // the new task with the warmStart flag set to true
+            std::vector<ChartHandle> splitCharts;
+            gm.Split(chart->id, splitCharts);
             if (retry) {
-                /*
-                // store the computed texture coordinates for the chart faces
-                std::vector<std::pair<Mesh::FacePointer,TexCoordStorage>> vtcs;
-                vtcs.reserve(chart->FN());
-                for (auto fptr : chart->fpVec) {
-                    TexCoordStorage tcs;
-                    for (int i = 0; i < 3; ++i)
-                        tcs.tc[i] = fptr->WT(0);
-                    vtcs.push_back(std::make_pair(fptr, tcs));
-                }
-                */
-                // split the chart in the mesh graph using the graph manager, and readd
-                // the new task with the warmStart flag set to true
-                std::vector<ChartHandle> splitCharts;
                 std::vector<ChartHandle> newCharts;
-                gm.Split(chart->id, splitCharts);
                 RecoverFromSplit(splitCharts, gm, newCharts);
                 for (auto& c : newCharts)
                     paramQueue.push_back(ParamTask{c, true});
+                    //paramQueue.push_back(ParamTask{c, false});
             } else {
-                // restore original texture coordinates for each face of the chart
-                for (auto fptr : chart->fpVec) {
-                    TexCoordStorage tcs = wtcsattr[fptr];
-                    for (int i = 0; i < 3; ++i) {
-                        fptr->WT(i) = tcs.tc[i];
-                        fptr->V(i)->T() = tcs.tc[i];
+                // restore original texture coordinates for each chart
+                for (auto split : splitCharts) {
+                    for (auto fptr : split->fpVec) {
+                        TexCoordStorage tcs = wtcsattr[fptr];
+                        for (int i = 0; i < 3; ++i) {
+                            fptr->WT(i) = tcs.tc[i];
+                            fptr->V(i)->T() = tcs.tc[i];
+                        }
                     }
                 }
             }
@@ -778,8 +777,7 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
     packingParam.costFunction  = RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Parameters::LowestHorizon;
     packingParam.doubleHorizon = true;
     packingParam.cellSize = 2;
-    packingParam.pad = 4;
-    //packingParam.pad = 0;
+    packingParam.pad = 8;
     packingParam.rotationNum = 16; //number of rasterizations in 90°
 
     TextureObjectHandle to = gm.Graph()->textureObject;

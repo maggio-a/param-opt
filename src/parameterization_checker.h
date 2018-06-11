@@ -191,7 +191,7 @@ static RasterizedParameterizationStats GetRasterizationStats(const std::vector<M
                     stats.overwrittenFragments++;
                     stats.lostFragments += n - 1;
                 }
-                if (outside     // enering a segment
+                if (outside     // entering a segment
                     || j == 0   // first line in the raster
                     || j == (height-1) // last line in the raster
                     || i == (width-1) // at the right boundary of the raster

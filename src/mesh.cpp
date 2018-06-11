@@ -11,6 +11,7 @@
 
 #include "mesh.h"
 #include "gl_utils.h"
+#include "timer.h"
 
 bool LoadMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject, int &loadMask)
 {
@@ -77,10 +78,12 @@ bool SaveMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject,
     QDir::setCurrent(fi.absoluteDir().absolutePath());
 
     for (std::size_t i = 0; i < textureObject->imgVec.size(); ++i) {
-        if(textureObject->imgVec[i]->save(m.textures[i].c_str(), "png", 10) == false) {
+        Timer t;
+        if(textureObject->imgVec[i]->save(m.textures[i].c_str(), "png", 66) == false) {
             std::cout << "Error saving texture file " << m.textures[0] << std::endl;
             return false;
         }
+        std::cout << "Texture file write took " << t.TimeElapsed() << " seconds" << std::endl;
     }
 
     QDir::setCurrent(wd);

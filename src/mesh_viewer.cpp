@@ -98,7 +98,9 @@ const char *fs_text_texture[] = {
     "{                                                              \n"
     "    color = weight;                                            \n"
     "    if ((colorMask & COLOR_SRC_TEXTURE) != 0) {                \n"
-    "        color *= texture(tex0, uv);                            \n"
+    "        vec2 tc = uv;                                          \n"
+    "        if (tc.s < 0.0) tc = vec2(0.0, 0.0);                   \n"
+    "        color *= texture(tex0, tc);                            \n"
     "    }                                                          \n"
     "    if ((colorMask & COLOR_SRC_PRIMITIVE) != 0) {              \n"
     "        color *= dcol;                                         \n"
@@ -910,13 +912,13 @@ void MeshViewer::InitBuffers()
             *buffptr++ = f.cV(i)->P().X();
             *buffptr++ = f.cV(i)->P().Y();
             *buffptr++ = f.cV(i)->P().Z();
-            if (f.cWT(i).U() < 0.0) {
+            /*if (f.cWT(i).U() < 0.0) {
                 *buffptr++ = 0.0;
                 *buffptr++ = 0.0;
-            } else {
+            } else { */
                 *buffptr++ = f.cWT(i).U();
                 *buffptr++ = f.cWT(i).V();
-            }
+            //}
             unsigned char *colorptr = (unsigned char *) buffptr;
             *colorptr++ = f.cC()[0];
             *colorptr++ = f.cC()[1];

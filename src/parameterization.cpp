@@ -13,6 +13,7 @@
 
 #include <Eigen/Core>
 
+#include <wrap/io_trimesh/export.h>
 
 
 /* Constructor, destructor and utility methods
@@ -29,7 +30,7 @@ ParameterizerObject::ParameterizerObject(ChartHandle c, ParameterizationStrategy
       needsRemeshing{false},
       iterationCount{0},
       gradientNormTolerance{1e-3},
-      energyDiffTolerance{1e-9}
+      energyDiffTolerance{1e-6}
 {
     Reset();
 }
@@ -46,19 +47,20 @@ void ParameterizerObject::Reset()
     iterationCount = 0;
     shell.Clear();
 
-    // In case of warm start, we should build the shell according to the existing
-    // parameterization (after having checked that is valid wrt the given strategy
-    std::cout << "TODO FIXME WARM START CODE" << std::endl;
-    BuildShell(shell, *chart, strategy.geometry);
+    if (strategy.warmStart)
+        std::cout << "ParameterizerObject: Using warm start" << std::endl;
 
-    std::cout << "WARNING forcing warm start to true" << std::endl;
-    //strategy.warmStart = true;
+    bool init = BuildShell(shell, *chart, strategy.geometry, strategy.warmStart);
+    assert(init && "Failed to initialize ParameterizerObject solution");
+    assert(CheckUVConnectivity(shell));
+    assert(CheckLocalInjectivity(shell));
+
+    tri::io::Exporter<Mesh>::Save(shell, "warmstart.obj", tri::io::Mask::IOM_ALL);
+
     if (strategy.padBoundaries == false)
         ClearHoleFillingFaces(shell);
-
     InitializeOptimizer();
     SyncShellWithUV(shell);
-
     MarkInitialSeamsAsFaux(shell, baseMesh);
 }
 
@@ -228,16 +230,6 @@ bool ParameterizerObject::Parameterize()
     if (!OptimizerIsInitialized())
         InitializeOptimizer();
 
-    if (strategy.warmStart) {
-        // TODO
-        assert(CheckUVConnectivity(shell));
-        assert(CheckLocalInjectivity(shell));
-        assert(0);
-    } else {
-        bool init = InitializeSolution();
-        if (!init) return false;
-    }
-
     // check if remeshing is required during iterations
     needsRemeshing = false;
     for (auto& sf : shell.face) {
@@ -301,7 +293,7 @@ bool ParameterizerObject::Parameterize()
                     std::cout << "Placed cut with 1 cone singularity" << std::endl;
                     InitializeSolution();
                     placedCut = true;
-                    vRealEnergyVal.push_back(INFINITY); // this essentially resets the cut placing heuristic state
+                    vRealEnergyVal.push_back(INFINITY); // this essentially resets the cut-placing heuristic state
                 } else {
                     std::cout << "Attempt to place a cut failed" << std::endl;
                 }
@@ -343,7 +335,6 @@ void ParameterizerObject::RemeshHolefillingAreas()
     opt->UpdateCache();
 }
 
-#include <wrap/io_trimesh/export.h>
 void ParameterizerObject::PlaceCut()
 {
     ComputeDistanceFromBorderOnSeams(shell);
@@ -400,7 +391,7 @@ void ParameterizerObject::PlaceCut()
     //tri::io::Exporter<Mesh>::Save(shell, "shell_after_cut.obj", tri::io::Mask::IOM_ALL);
 }
 
-/* What this method does:
+/* What this method does is:
  *  1. Remove any hole filling faces from the shell
  *  2. Sync the shell with the model
  *  3. Close the holes
@@ -481,13 +472,13 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
     ClearHoleFillingFaces(shell);
     ComputeBoundaryInfo(shell); // boundary changed after the cut
     SyncShellWithUV(shell);
-    CloseShellHoles(shell);
+    CloseShellHoles(shell, strategy.geometry, baseMesh);
     RemeshShellHoles(shell, strategy.geometry, baseMesh);
 
     if (OptimizerIsInitialized())
         opt->UpdateCache();
 
-    //tri::io::Exporter<Mesh>::Save(shell, "shell_after_cut.obj", tri::io::Mask::IOM_ALL);
+    tri::io::Exporter<Mesh>::Save(shell, "shell_after_cut.obj", tri::io::Mask::IOM_ALL);
     return true;
 }
 

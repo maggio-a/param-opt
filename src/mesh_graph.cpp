@@ -16,6 +16,7 @@
 #include <vcg/math/histogram.h>
 #include <vcg/complex/algorithms/stat.h>
 #include <vcg/complex/algorithms/update/color.h>
+#include <vcg/complex/algorithms/attribute_seam.h>
 
 #include <vector>
 #include <unordered_set>
@@ -209,7 +210,7 @@ void ClearHoleFillingFaces(Mesh& shell)
     tri::Allocator<Mesh>::CompactEveryVector(shell);
 }
 
-void CloseShellHoles(Mesh& shell)
+void CloseShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& inputMesh)
 {
     auto ia = GetFaceIndexAttribute(shell);
 
@@ -237,6 +238,32 @@ void CloseShellHoles(Mesh& shell)
     }
 
     tri::UpdateTopology<Mesh>::FaceFace(shell);
+
+    // Compute average areas
+    auto psi = GetParameterizationScaleInfoAttribute(inputMesh);
+    auto tsa = GetTargetShapeAttribute(shell);
+    double avg3D = psi().surfaceArea / psi().numNonZero;
+    double avgUV = psi().parameterArea / psi().numNonZero;
+
+    for (auto& sf : shell.face) {
+        // only update target shape of the readded hole-filling faces
+        if (sf.holeFilling) {
+            CoordStorage target;
+            double scale = 1.0;
+            if (targetGeometry == Model)
+                scale = std::sqrt(avg3D / DistortionMetric::Area3D(sf));
+            else if (targetGeometry == Texture)
+                scale = std::sqrt(avgUV / DistortionMetric::Area3D(sf));
+            else
+                assert(0 && "Unexpected targetGeometry parameter value");
+            assert(scale > 0);
+            target.P[0] = sf.P(0) * scale;
+            target.P[1] = sf.P(1) * scale;
+            target.P[2] = sf.P(2) * scale;
+            tsa[sf] = target;
+        }
+    }
+
 }
 
 static void DoRemesh(Mesh& shell)
@@ -341,6 +368,130 @@ void RemeshShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh
     }
 }
 
+bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeometry, bool useExistingUV)
+{
+    Mesh& m = fg.mesh;
+
+    CopyToMesh(fg, shell);
+
+    tri::UpdateTopology<Mesh>::FaceFace(shell);
+    int splitCount = tri::Clean<Mesh>::SplitNonManifoldVertex(shell, 0);
+    if (splitCount > 0) {
+        std::cout << "Mesh was not vertex-manifold, " << splitCount << " vertices split" << std::endl;
+    }
+    auto ia = GetFaceIndexAttribute(shell);
+
+    if (useExistingUV) {
+        // copy wedge texture data from the input mesh
+        for (auto& sf : shell.face) {
+            auto& f = m.face[ia[sf]];
+            for (int i = 0; i < 3; ++i) {
+                sf.WT(i).P() = f.WT(i).P();
+            }
+        }
+
+        // split vertices at seams
+        int vn = shell.VN();
+        auto vExt = [](const Mesh& msrc, const MeshFace& f, int k, const Mesh& mdst, MeshVertex& v) {
+            (void) msrc;
+            (void) mdst;
+            v.ImportData(*(f.cV(k)));
+            v.T() = f.cWT(k);
+        };
+        auto vCmp = [](const Mesh& mdst, const MeshVertex& v1, const MeshVertex& v2) {
+            (void) mdst;
+            return v1.T() == v2.T();
+        };
+        tri::AttributeSeam::SplitVertex(m, vExt, vCmp);
+        if (shell.VN() != vn) {
+            tri::UpdateTopology<Mesh>::FaceFace(shell);
+            tri::UpdateTopology<Mesh>::VertexFace(shell);
+        }
+
+        // sync shell
+        // FIXME there is no guarantee that the 'outer' boundary is the same computed previously...
+        for (auto& sf : shell.face) {
+            for (int i = 0; i < 3; ++i) {
+                sf.V(i)->T() = sf.WT(i);
+            }
+        }
+        SyncShellWithUV(shell);
+        ComputeBoundaryInfo(shell);
+        CloseShellHoles(shell, targetGeometry, m);
+    } else {
+        // Compute the initial configuration (Tutte's parameterization)
+        ComputeBoundaryInfo(shell);
+        CloseMeshHoles(shell);
+        UniformSolver<Mesh> solver(shell);
+        bool solved = solver.Solve();
+        //MeanValueSolver<Mesh> solver(shell);
+        //bool solved = solver.Solve(DefaultVertexPosition<Mesh>{});
+        if (!solved) {
+            return false;
+        } else
+            SyncShellWithUV(shell);
+    }
+
+    // Compute average areas
+    auto psi = GetParameterizationScaleInfoAttribute(m);
+    double avg3D = psi().surfaceArea / psi().numNonZero;
+    double avgUV = psi().parameterArea / psi().numNonZero;
+
+    // Compute the target shapes
+    auto tsa = GetTargetShapeAttribute(shell);
+    auto wtcsa = GetWedgeTexCoordStorageAttribute(m);
+    for (auto& sf : shell.face) {
+        CoordStorage target;
+        // if the face is hole-filling the target geometry is its own shape, scaled according to the target geometry
+        if (sf.holeFilling) {
+            double scale = 1.0;
+            if (targetGeometry == Model)
+                scale = std::sqrt(avg3D / DistortionMetric::Area3D(sf));
+            else if (targetGeometry == Texture)
+                scale = std::sqrt(avgUV / DistortionMetric::Area3D(sf));
+            else
+                assert(0 && "Unexpected targetGeometry parameter value");
+            target.P[0] = sf.P(0) * scale;
+            target.P[1] = sf.P(1) * scale;
+            target.P[2] = sf.P(2) * scale;
+        } else {
+            auto& mf = m.face[ia[sf]];
+            if (targetGeometry == Model) {
+                target.P[0] = mf.P(0);
+                target.P[1] = mf.P(1);
+                target.P[2] = mf.P(2);
+            } else if (targetGeometry == Texture) {
+                const Point2d& u0 = wtcsa[mf].tc[0].P();
+                const Point2d& u1 = wtcsa[mf].tc[1].P();
+                const Point2d& u2 = wtcsa[mf].tc[2].P();
+                Point2d u10 = u1 - u0;
+                Point2d u20 = u2 - u0;
+                double area = u10 ^ u20;
+                if (area < 0) {
+                    // the original parameter triangle is flipped, correct it
+                    target.P[0] = Point3d{u0[0], u0[1], 0};
+                    target.P[1] = Point3d{u2[0], u2[1], 0};
+                    target.P[2] = Point3d{u1[0], u1[1], 0};
+                } else if (area == 0) {
+                    // zero uv area face, target the 3d shape scaled according to the target geometry
+                    double scale = std::sqrt(avgUV / DistortionMetric::Area3D(mf));
+                    target.P[0] = mf.P(0) * scale;
+                    target.P[1] = mf.P(1) * scale;
+                    target.P[2] = mf.P(2) * scale;
+                } else {
+                    // target shape is the original uv face
+                    target.P[0] = Point3d{u0[0], u0[1], 0};
+                    target.P[1] = Point3d{u1[0], u1[1], 0};
+                    target.P[2] = Point3d{u2[0], u2[1], 0};
+                }
+            }
+        }
+        tsa[sf] = target;
+    }
+    return true;
+}
+
+/*
 void BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeometry)
 {
     Mesh& m = fg.mesh;
@@ -353,7 +504,6 @@ void BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
     if (splitCount > 0) {
         std::cout << "Mesh was not vertex-manifold, " << splitCount << " vertices split" << std::endl;
     }
-
 
     ComputeBoundaryInfo(shell);
 
@@ -433,6 +583,7 @@ void BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
     }
     tri::UpdateTopology<Mesh>::FaceFace(shell);
 }
+*/
 
 // FaceGroup class implementation
 // ==============================
@@ -850,8 +1001,9 @@ void GraphManager::Split(const RegionID id, std::vector<ChartHandle>& splitChart
         }
     }
 
-    // insert new edges in the support list
+    // reset merge count and insert new edges in the support list
     for (auto c1 : newCharts) {
+        c1->numMerges = 0;
         splitCharts.push_back(c1);
         for (auto c2 : c1->adj) {
             AddEdge(c1, c2, true);
