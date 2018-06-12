@@ -67,7 +67,7 @@ void ClearHoleFillingFaces(Mesh& shell);
  * guaranteed to always elect the same boundary as the one to be preserved
  * because it choses the longest one, but the boundary of the shell can change
  * during optimization */
-void CloseShellHoles(Mesh& shell);
+void CloseShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh &inputMesh);
 
 /* Remeshes the hole filling faces of the shell, which can get heavily distorted
  * during the optimization and lock the descent step-size. */
@@ -81,7 +81,7 @@ void RemeshShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh
  * the shell-face to input mesh-face mappings, as well as the target shape
  * features of each face to guide the parameterization process.
  * See mesh_attribute.h */
-void BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeometry);
+bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeometry, bool useExistingUV);
 
 /* Computes the texture outlines of a given chart */
 template <typename ScalarType = float>

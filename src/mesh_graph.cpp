@@ -368,6 +368,7 @@ void RemeshShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh
     }
 }
 
+#include <wrap/io_trimesh/export.h>
 bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeometry, bool useExistingUV)
 {
     Mesh& m = fg.mesh;
@@ -390,6 +391,8 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
             }
         }
 
+        vcg::tri::io::Exporter<Mesh>::Save(shell, "segment.obj", tri::io::Mask::IOM_ALL);
+
         // split vertices at seams
         int vn = shell.VN();
         auto vExt = [](const Mesh& msrc, const MeshFace& f, int k, const Mesh& mdst, MeshVertex& v) {
@@ -402,11 +405,14 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
             (void) mdst;
             return v1.T() == v2.T();
         };
-        tri::AttributeSeam::SplitVertex(m, vExt, vCmp);
-        if (shell.VN() != vn) {
+        tri::AttributeSeam::SplitVertex(shell, vExt, vCmp);
+        if (shell.VN() != (int) shell.vert.size()) {
+            tri::Allocator<Mesh>::CompactEveryVector(shell);
             tri::UpdateTopology<Mesh>::FaceFace(shell);
             tri::UpdateTopology<Mesh>::VertexFace(shell);
         }
+
+        vcg::tri::io::Exporter<Mesh>::Save(shell, "segment_split.obj", tri::io::Mask::IOM_ALL);
 
         // sync shell
         // FIXME there is no guarantee that the 'outer' boundary is the same computed previously...

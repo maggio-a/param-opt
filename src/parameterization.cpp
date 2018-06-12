@@ -55,8 +55,6 @@ void ParameterizerObject::Reset()
     assert(CheckUVConnectivity(shell));
     assert(CheckLocalInjectivity(shell));
 
-    tri::io::Exporter<Mesh>::Save(shell, "warmstart.obj", tri::io::Mask::IOM_ALL);
-
     if (strategy.padBoundaries == false)
         ClearHoleFillingFaces(shell);
     InitializeOptimizer();
@@ -229,6 +227,8 @@ bool ParameterizerObject::Parameterize()
 {
     if (!OptimizerIsInitialized())
         InitializeOptimizer();
+
+    tri::io::Exporter<Mesh>::Save(shell, "shell_init.obj", tri::io::Mask::IOM_ALL);
 
     // check if remeshing is required during iterations
     needsRemeshing = false;
@@ -429,7 +429,7 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
             }
         }
     }
-    tri::io::Exporter<Mesh>::Save(shell, "shell_clear.obj", tri::io::Mask::IOM_ALL);
+    //tri::io::Exporter<Mesh>::Save(shell, "shell_clear.obj", tri::io::Mask::IOM_ALL);
     ComputeBoundaryInfo(shell);
     CloseMeshHoles(shell);
     MarkInitialSeamsAsFaux(shell, baseMesh);
@@ -478,7 +478,7 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
     if (OptimizerIsInitialized())
         opt->UpdateCache();
 
-    tri::io::Exporter<Mesh>::Save(shell, "shell_after_cut.obj", tri::io::Mask::IOM_ALL);
+    //tri::io::Exporter<Mesh>::Save(shell, "shell_after_cut.obj", tri::io::Mask::IOM_ALL);
     return true;
 }
 
@@ -591,7 +591,6 @@ void ComputeCotangentWeightedLaplacian(Mesh& shell, Mesh& baseMesh, Eigen::Spars
     L.makeCompressed();
 }
 
-#include <wrap/io_trimesh/export.h>
 
 /* Reference: BenChen 2009 curvature prescription metric scaling */
 bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf, const std::vector<int>& coneIndices)
@@ -609,7 +608,7 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf, c
     */
     Mesh& m = shell;
 
-    vcg::tri::io::Exporter<Mesh>::Save(m, "shell_model.ply");
+    //vcg::tri::io::Exporter<Mesh>::Save(m, "shell_model.ply");
 
     Timer timer;
 
