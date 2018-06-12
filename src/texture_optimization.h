@@ -31,17 +31,6 @@ void PreprocessMesh(Mesh& m);
 bool ChartParameterizationHasOverlaps(Mesh& m, GraphManager::ChartHandle chart);
 
 /*
- * m: the mesh to be parameterized
- * strategy: parameterizer configuration
- * baseMesh: the input Mesh of the whole procedure
- * */
-bool ParameterizeShell(Mesh& m, ParameterizationStrategy strategy, Mesh& baseMesh);
-
-bool ParameterizeChart(Mesh& m, ChartHandle ch, ParameterizationStrategy strategy, Mesh& shell);
-
-bool ParameterizeChart(Mesh &m, ChartHandle ch, ParameterizationStrategy strategy);
-
-/*
  * Parameterize the mesh graph. The parameterization of each region is performed
  * according to the ParameterizationStrategy passed.
  * The injectivityTolerance parameter is the fraction of overlapping fragments
