@@ -307,7 +307,7 @@ bool ParameterizerObject::Parameterize()
     std::cout << "Stopped after " << i << " iterations, gradient magnitude = " << info.gradientNorm
               << ", energy value = " << energy->E_IgnoreMarkedFaces() << std::endl;
 
-    float minq, maxq;
+    double minq, maxq;
     tri::Stat<Mesh>::ComputePerFaceQualityMinMax(shell, minq, maxq);
     std::cout << "Min distortion value = " << minq << std::endl;
     std::cout << "Max distortion value = " << maxq << std::endl;
@@ -330,7 +330,9 @@ IterationInfo ParameterizerObject::Iterate()
 
 void ParameterizerObject::RemeshHolefillingAreas()
 {
-    RemeshShellHoles(shell, strategy.geometry, baseMesh);
+    ClearHoleFillingFaces(shell);
+    CloseShellHoles(shell, strategy.geometry, baseMesh);
+    //RemeshShellHoles(shell, strategy.geometry, baseMesh);
     MarkInitialSeamsAsFaux(shell, baseMesh);
     opt->UpdateCache();
 }
@@ -429,7 +431,6 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
             }
         }
     }
-    //tri::io::Exporter<Mesh>::Save(shell, "shell_clear.obj", tri::io::Mask::IOM_ALL);
     ComputeBoundaryInfo(shell);
     CloseMeshHoles(shell);
     MarkInitialSeamsAsFaux(shell, baseMesh);
@@ -439,7 +440,6 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
 
     ComputeDistanceFromBorderOnSeams(shell);
 
-    // At this point the cones are guaranteed to be placed on a mesh vertex
     tri::UpdateFlags<Mesh>::VertexClearS(shell);
     for (int i : coneIndices)
         shell.vert[i].SetS();
@@ -469,16 +469,16 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
         tri::UpdateTopology<Mesh>::FaceFace(shell);
     }
 
+
     ClearHoleFillingFaces(shell);
     ComputeBoundaryInfo(shell); // boundary changed after the cut
     SyncShellWithUV(shell);
     CloseShellHoles(shell, strategy.geometry, baseMesh);
-    RemeshShellHoles(shell, strategy.geometry, baseMesh);
+    //RemeshShellHoles(shell, strategy.geometry, baseMesh);
 
     if (OptimizerIsInitialized())
         opt->UpdateCache();
 
-    //tri::io::Exporter<Mesh>::Save(shell, "shell_after_cut.obj", tri::io::Mask::IOM_ALL);
     return true;
 }
 
@@ -491,7 +491,7 @@ void ParameterizerObject::FindCones(int ncones, std::vector<int>& coneIndices, b
 
     for (int i = 0; i < ncones; ++i) {
         Eigen::VectorXd csf;
-        ComputeConformalScalingFactors(csf, coneIndices);
+        assert(ComputeConformalScalingFactors(csf, coneIndices));
 
         // Select seam vertices
         if (onSeams) {
@@ -521,6 +521,8 @@ void ParameterizerObject::FindCones(int ncones, std::vector<int>& coneIndices, b
                 }
             }
         }
+
+        std::cout << "CONFORMAL SCALING FACTORS: max = " << maxscale << " | min = " << minscale <<  " | ratio = " << minscale / maxscale << std::endl;
 
         coneIndices.push_back(max_k);
     }
@@ -706,7 +708,7 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf, c
 
     // Compute the metric scaling of the new target curvature
     ComputeCotangentWeightedLaplacian(m, baseMesh, M, index, ia);
-    //M += Eigen::VectorXd::Constant(M.rows(), 1e-12).asDiagonal();
+    M += Eigen::VectorXd::Constant(M.rows(), 1e-12).asDiagonal();
 
 
 
@@ -717,10 +719,13 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf, c
     if (CHOL.info() != Eigen::Success) {
         assert(0);
     }
-    Eigen::VectorXd delta{n_internal};
-    delta.setZero();
+
+    // FIXME delta size  n_internal/n_boundary ?
+
+    //Eigen::VectorXd delta{n_internal};
+    //delta.setZero();
     for (int i = 0; i < n_boundary; ++i) {
-        delta[i] = 1.0;
+        //delta[i] = 1.0;
         //G = CHOL.solve(T.col(i));
         G = CHOL.solve(-M.block(0, n_internal+i, n_internal, 1));
         //G = CHOL.solve(delta);
@@ -728,7 +733,7 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf, c
             std::cout << "Backward substitution to compute G(" << i << ") failed" << std::endl;
             return false;
         }
-        delta[i] = 0.0;
+        //delta[i] = 0.0;
         Knew[n_internal+i] = Korig[n_internal+i] + G.dot(Korig.head(n_internal));
     }
     std::cout << "Sum Knew = " << Knew.sum() << std::endl;
@@ -740,6 +745,7 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf, c
     cholesky.compute(M);
     if (cholesky.info() != Eigen::Success) {
         std::cout << "Factorization of the cotangent-weighted Laplacian failed" << std::endl;
+        std::cout << M << std::endl;
         return false;
     }
 

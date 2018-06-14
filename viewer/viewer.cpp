@@ -191,7 +191,8 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
     strategy.padBoundaries = true;
     strategy.applyCut = true;
     strategy.warmStart = false;
-    double tolerance = 0.0005;
+    //double tolerance = 0.0005;
+    double tolerance = -1;
 
     LogStrategy(strategy, tolerance);
 
@@ -283,8 +284,24 @@ int main(int argc, char *argv[])
     if (numRemovedFaces > 0)
         std::cout << "[LOG] Mesh was not edge manifold, removed " << numRemovedFaces << " faces" << std::endl;
 
+    // Print original info
+    auto dummyGraph = ComputeParameterizationGraph(m, textureObject);
+    PrintParameterizationInfo(dummyGraph);
+    dummyGraph = nullptr;
+
     ComputeParameterizationScaleInfo(m);
     MarkSeamsAsFaux(m);
+
+    /* Regularize the aspect ratio of the texture coordinates for non-square textures
+     * before storing them. This is necessary because otherwise parameterization
+     * will generate charts that are stretched along the shorter dimension */
+    double uvRatio = textureObject->TextureWidth(0) / (double) textureObject->TextureHeight(0);
+    for (auto& f : m.face) {
+        for (int i = 0; i < 3; ++i) {
+            f.WT(i).P()[0] *= uvRatio;
+        }
+    }
+
     PreprocessMesh(m);
     StoreWedgeTexCoordAsAttribute(m);
 

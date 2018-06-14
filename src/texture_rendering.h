@@ -203,6 +203,8 @@ static TextureObjectHandle RenderTexture(Mesh::FaceIterator fbegin, Mesh::FaceIt
     GLuint vertexbuf;
     glGenBuffers(1, &vertexbuf);
 
+    double uvRatio = textureObject->TextureWidth(0) / (double) textureObject->TextureHeight(0);
+
     glBindBuffer(GL_ARRAY_BUFFER, vertexbuf);
     glBufferData(GL_ARRAY_BUFFER, m.FN()*12*sizeof(float), NULL, GL_STATIC_DRAW);
     float *p = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
@@ -210,7 +212,7 @@ static TextureObjectHandle RenderTexture(Mesh::FaceIterator fbegin, Mesh::FaceIt
         for (int i = 0; i < 3; ++i) {
             *p++ = it->cWT(i).U();
             *p++ = it->cWT(i).V();
-            *p++ = WTCSh[&*it].tc[i].U();
+            *p++ = WTCSh[&*it].tc[i].U() / uvRatio;
             *p++ = WTCSh[&*it].tc[i].V();
         }
     }

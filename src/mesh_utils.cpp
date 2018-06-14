@@ -41,7 +41,25 @@ std::vector<PosF> GetFauxPosFan(PosF& startPos)
         }
         p.FlipF();
         p.FlipE();
+        if (p.IsBorder()) break;
     } while (p != startPos);
+
+    if (p.IsBorder() && p != startPos) {
+        p = startPos;
+        p.FlipE();
+        while (true) {
+            if (p.IsFaux()) {
+                PosF pp = p;
+                pp.FlipV();
+                posVec.push_back(pp);
+            }
+            if (p.IsBorder()) break;
+            p.FlipF();
+            p.FlipE();
+            assert(p != startPos);
+        }
+    }
+
     return posVec;
 }
 
@@ -205,28 +223,33 @@ bool RectifyCut(Mesh& shell, PosF boundaryPos)
     PosF p = boundaryPos;
     bool reachedFillArea = false;
     while (true) {
+        p.V()->SetV();
+
+        if (!p.IsBorder() && !reachedFillArea) {
+            PosF pp = p;
+            do {
+                if (pp.F()->holeFilling)
+                    reachedFillArea = true;
+                pp.FlipF();
+            } while (p != pp);
+        }
+
         if (reachedFillArea) {
             p.F()->ClearFaceEdgeS(p.E());
             p.FlipF();
             p.F()->ClearFaceEdgeS(p.E());
             p.FlipF();
         }
-        p.V()->SetV();
-        p.FlipV();
-        PosF pp = p;
-        do {
-            pp.FlipF();
-            if (pp.F()->holeFilling) {
-                reachedFillArea = true;
-            }
-        } while (p != pp);
+
         std::vector<PosF> fan = GetFauxPosFan(p);
         bool moved = false;
-        for (auto& fanPos : fan) if (fanPos.V()->IsV() == false) {
-            if (fanPos.F()->IsFaceEdgeS(fanPos.E())) {
-                assert(!moved && "Cut path has branches");
-                moved = true;
-                p = fanPos;
+        for (auto& fanPos : fan) {
+            if (!fanPos.V()->IsV()) {
+                if (fanPos.F()->IsFaceEdgeS(fanPos.E())) {
+                    assert(!moved && "Cut path has branches");
+                    moved = true;
+                    p = fanPos;
+                }
             }
         }
         if (!moved) break;
@@ -293,7 +316,7 @@ void CleanupShell(Mesh& shell)
     // no longer vertex manifold because the new boundary touched only a
     // vertex of a hole-filling face
     if (deleted) {
-        tri::Clean<Mesh>::SplitNonManifoldVertex(shell, 0);
+        tri::Clean<Mesh>::SplitNonManifoldVertex(shell, 0.15);
     }
 }
 

@@ -83,9 +83,15 @@ void RemeshShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh
  * See mesh_attribute.h */
 bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeometry, bool useExistingUV);
 
-/* Computes the texture outlines of a given chart */
-template <typename ScalarType = float>
-void ChartOutlinesUV(Mesh& m, ChartHandle chart, std::vector<std::vector<Point2<ScalarType>>> &outline2Vec);
+/* Computes the UV outline(s) of the given chart. If the chart has no outlines,
+ * which can happen for some inputs on small closed components that are ignored
+ * by the reparameterization procedure, it returns as outline the bounding box
+ * of the chart texture coordinates.
+ * NOTE: It assumes the face-face topology is computed according to the wedge
+ * texture coordinates of the chart/mesh */
+/// FIXME if the chart is an aggregate that has not been reparameterized this breaks...
+void ChartOutlinesUV(Mesh& m, ChartHandle chart, std::vector<std::vector<Point2d>> &outline2Vec);
+void ChartOutlinesUV(Mesh& m, ChartHandle chart, std::vector<std::vector<Point2f>> &outline2Vec);
 
 /* FaceGroup class
  * Used to store a mesh chart as an array of Face pointers */
@@ -484,91 +490,6 @@ struct WUV : EdgeWeightFunction {
 };
 
 
-
-// Template functions implementation
-// =================================
-
-/// FIXME if the chart is an aggregate that has not been reparameterized this breaks...
-/* Computes the UV outline(s) of the given chart. If the chart has no outlines,
- * which can happen for some inputs on small closed components that are ignored
- * by the reparameterization procedure, it returns as outline the uv bounding
- * box of the chart */
-template <typename ScalarType>
-void ChartOutlinesUV(Mesh& m, ChartHandle chart, std::vector<std::vector<Point2<ScalarType>>> &outline2Vec)
-{
-    assert(chart->numMerges == 0);
-
-    struct FaceAdjacency {
-        bool changed[3] = {false, false, false};
-        Mesh::FacePointer FFp[3];
-        char FFi[3];
-    };
-
-    auto CCIDh = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(m, "ConnectedComponentID");
-    assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(m, CCIDh));
-
-    std::unordered_map<Mesh::FacePointer,FaceAdjacency> savedAdj;
-    for (auto fptr : chart->fpVec) {
-        fptr->ClearV();
-        for (int i = 0; i < 3; ++i) {
-            if (CCIDh[fptr] != CCIDh[fptr->FFp(i)]) {
-                savedAdj[fptr].changed[i] = true;
-                savedAdj[fptr].FFp[i] = fptr->FFp(i);
-                savedAdj[fptr].FFi[i] = fptr->FFi(i);
-                fptr->FFp(i) = fptr;
-                fptr->FFi(i) = i;
-            }
-        }
-    }
-
-    outline2Vec.clear();
-    std::vector<Point2<ScalarType>> outline;
-
-    for (auto fptr : chart->fpVec) {
-        for (int i = 0; i < 3; ++i) {
-            if (!fptr->IsV() && face::IsBorder(*fptr, i)) {
-                face::Pos<Mesh::FaceType> p(fptr, i);
-                face::Pos<Mesh::FaceType> startPos = p;
-                assert(p.IsBorder());
-                do {
-                    assert(p.IsManifold());
-                    p.F()->SetV();
-                    //outline.push_back(Point2<ScalarType>(p.V()->P()));
-                    Point2d uv = p.F()->WT(p.VInd()).P();
-                    outline.push_back(Point2<ScalarType>(uv[0], uv[1]));
-                    p.NextB();
-                }
-                while (p != startPos);
-                outline2Vec.push_back(outline);
-                outline.clear();
-            }
-        }
-    }
-
-    for (auto& entry : savedAdj) {
-        for (int i = 0; i < 3; ++i) {
-            if (entry.second.changed[i]) {
-                entry.first->FFp(i) = entry.second.FFp[i];
-                entry.first->FFi(i) = entry.second.FFi[i];
-            }
-        }
-    }
-
-    std::size_t maxsz = 0;
-    for (std::size_t i = 0; i < outline2Vec.size(); ++i) {
-        maxsz = std::max(maxsz, outline2Vec[i].size());
-    }
-    if (maxsz == 0) {// fallback to uv box as outline
-        vcg::Box2d box = chart->UVBox();
-        std::vector<Point2<ScalarType>> outline;
-        outline.push_back(Point2<ScalarType>(box.min.X(), box.min.Y()));
-        outline.push_back(Point2<ScalarType>(box.max.X(), box.min.Y()));
-        outline.push_back(Point2<ScalarType>(box.max.X(), box.max.Y()));
-        outline.push_back(Point2<ScalarType>(box.min.X(), box.max.Y()));
-        outline2Vec.push_back(outline);
-    }
-
-}
 
 
 #endif // MESH_GRAPH_H

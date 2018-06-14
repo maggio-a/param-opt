@@ -17,6 +17,7 @@
 #include <vcg/space/rasterized_outline2_packer.h>
 #include <vcg/space/outline2_packer.h>
 #include <wrap/qt/outline2_rasterizer.h>
+#include <wrap/qt/Outline2ToQImage.h>
 #include <vcg/space/index/grid_util2d.h>
 #include <vcg/space/segment2.h>
 #include <vcg/space/intersection2.h>
@@ -56,7 +57,7 @@ bool ChartParameterizationHasOverlaps(Mesh& m, GraphManager::ChartHandle chart)
     using OutlineIndex = std::pair<std::size_t, std::size_t>;
 
     std::vector<std::vector<Point2d>> outlines;
-    ChartOutlinesUV<double>(m, chart, outlines);
+    ChartOutlinesUV(m, chart, outlines);
 
     std::unordered_map<Point2i, std::vector<OutlineIndex>, Point2iHasher> grid;
 
@@ -356,6 +357,9 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
     }
 
     // Pack the atlas
+
+    tri::UpdateTopology<Mesh>::FaceFaceFromTexCoord(graph->mesh);
+
     std::vector<std::vector<Point2f>> texOutlines;
     std::unordered_map<RegionID,std::size_t> outlineMap; // map each region to the index of its outline in texOutlines
 
@@ -385,7 +389,7 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
     packingParam.costFunction  = RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Parameters::LowestHorizon;
     packingParam.doubleHorizon = true;
     packingParam.cellSize = 2;
-    packingParam.pad = 8;
+    packingParam.pad = 4;
     packingParam.rotationNum = 16; //number of rasterizations in 90°
 
     TextureObjectHandle to = gm.Graph()->textureObject;
@@ -393,6 +397,8 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
     int gridHeight = to->TextureHeight(0) / 2;
     Point2i gridSize(gridWidth, gridHeight);
     std::vector<Similarity2f> transforms;
+
+    tri::UpdateTopology<Mesh>::FaceFaceFromTexCoord(graph->mesh);
 
     RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Pack(texOutlines, gridSize, transforms, packingParam);
 

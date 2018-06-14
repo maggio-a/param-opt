@@ -25,10 +25,6 @@
 
 #include <QImage>
 
-int GraphManager::Collapse_OK = 0;
-int GraphManager::Collapse_ERR_DISCONNECTED = 1;
-int GraphManager::Collapse_ERR_UNFEASIBLE = 2;
-
 // assumes topology is correct
 void ComputeBoundaryInfo(Mesh& m)
 {
@@ -60,6 +56,8 @@ void ComputeBoundaryInfo(Mesh& m)
             }
         }
     }
+
+    std::cout << "Mesh has " << info.N() << " boundaries" << std::endl;
 }
 
 void CloseMeshHoles(Mesh& shell)
@@ -376,7 +374,7 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
     CopyToMesh(fg, shell);
 
     tri::UpdateTopology<Mesh>::FaceFace(shell);
-    int splitCount = tri::Clean<Mesh>::SplitNonManifoldVertex(shell, 0);
+    int splitCount = tri::Clean<Mesh>::SplitNonManifoldVertex(shell, 0.15);
     if (splitCount > 0) {
         std::cout << "Mesh was not vertex-manifold, " << splitCount << " vertices split" << std::endl;
     }
@@ -391,7 +389,6 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
             }
         }
 
-        vcg::tri::io::Exporter<Mesh>::Save(shell, "segment.obj", tri::io::Mask::IOM_ALL);
 
         // split vertices at seams
         int vn = shell.VN();
@@ -412,10 +409,8 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
             tri::UpdateTopology<Mesh>::VertexFace(shell);
         }
 
-        vcg::tri::io::Exporter<Mesh>::Save(shell, "segment_split.obj", tri::io::Mask::IOM_ALL);
-
         // sync shell
-        // FIXME there is no guarantee that the 'outer' boundary is the same computed previously...
+        // FIXME (?) there is no guarantee that the 'outer' boundary is the same computed previously...
         for (auto& sf : shell.face) {
             for (int i = 0; i < 3; ++i) {
                 sf.V(i)->T() = sf.WT(i);
@@ -497,99 +492,74 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
     return true;
 }
 
-/*
-void BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeometry)
+void ChartOutlinesUV(Mesh& m, ChartHandle chart, std::vector<std::vector<Point2f>> &outline2Vec)
 {
-    Mesh& m = fg.mesh;
-    std::cout << "Building shell for a chart of size " << fg.FN() << std::endl;
-    CopyToMesh(fg, shell);
+    std::vector<std::vector<Point2d>> outVecDouble;
+    ChartOutlinesUV(m, chart, outVecDouble);
 
-    tri::UpdateTopology<Mesh>::FaceFace(shell);
-
-    int splitCount = tri::Clean<Mesh>::SplitNonManifoldVertex(shell, 0);
-    if (splitCount > 0) {
-        std::cout << "Mesh was not vertex-manifold, " << splitCount << " vertices split" << std::endl;
+    outline2Vec.clear();
+    for (auto& vec : outVecDouble) {
+        std::vector<Point2f> outline;
+        for (auto& p : vec)
+            outline.push_back(vcg::Point2f(p[0], p[1]));
+        outline2Vec.push_back(outline);
     }
+}
 
-    ComputeBoundaryInfo(shell);
+void ChartOutlinesUV(Mesh& m, ChartHandle chart, std::vector<std::vector<Point2d>> &outline2Vec)
+{
+    assert(chart->numMerges == 0);
 
-    CloseMeshHoles(shell);
+    struct FaceAdjacency {
+        bool changed[3] = {false, false, false};
+        Mesh::FacePointer FFp[3];
+        char FFi[3];
+    };
 
-    // Compute average areas
-    auto psi = GetParameterizationScaleInfoAttribute(m);
-    double avg3D = psi().surfaceArea / psi().numNonZero;
-    double avgUV = psi().parameterArea / psi().numNonZero;
+    auto CCIDh = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(m, "ConnectedComponentID");
+    assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(m, CCIDh));
 
-    // Compute the initial configuration (Tutte's parameterization)
-    UniformSolver<Mesh> solver(shell);
-    bool solved = solver.Solve();
-    //MeanValueSolver<Mesh> solver(shell);
-    //bool solved = solver.Solve(DefaultVertexPosition<Mesh>{});
-    if (!solved) {
-        ColorFace(shell);
-        //vcg::tri::io::Exporter<Mesh>::Save(shell, "injective_failed.obj", vcg::tri::io::Mask::IOM_VERTTEXCOORD);
-        assert(0 && "Failed to initialize shell with injective parameterization");
-    }
+    outline2Vec.clear();
+    std::vector<Point2d> outline;
 
-    // Map the 3D position of the mesh to the parameterization
-    SyncShellWithUV(shell);
+    for (auto fptr : chart->fpVec)
+        fptr->ClearV();
 
-    auto ia = GetFaceIndexAttribute(shell);
-
-    // Compute the target shapes
-    auto tsa = GetTargetShapeAttribute(shell);
-    auto wtcsa = GetWedgeTexCoordStorageAttribute(m);
-    for (auto& sf : shell.face) {
-        CoordStorage target;
-        // if the face is hole-filling the target geometry is its own shape, scaled according to the target geometry
-        if (sf.holeFilling) {
-            double scale = 1.0;
-            if (targetGeometry == Model)
-                scale = std::sqrt(avg3D / DistortionMetric::Area3D(sf));
-            else if (targetGeometry == Texture)
-                scale = std::sqrt(avgUV / DistortionMetric::Area3D(sf));
-            else
-                assert(0 && "Unexpected targetGeometry parameter value");
-            target.P[0] = sf.P(0) * scale;
-            target.P[1] = sf.P(1) * scale;
-            target.P[2] = sf.P(2) * scale;
-        } else {
-            auto& mf = m.face[ia[sf]];
-            if (targetGeometry == Model) {
-                target.P[0] = mf.P(0);
-                target.P[1] = mf.P(1);
-                target.P[2] = mf.P(2);
-            } else if (targetGeometry == Texture) {
-                const Point2d& u0 = wtcsa[mf].tc[0].P();
-                const Point2d& u1 = wtcsa[mf].tc[1].P();
-                const Point2d& u2 = wtcsa[mf].tc[2].P();
-                Point2d u10 = u1 - u0;
-                Point2d u20 = u2 - u0;
-                double area = u10 ^ u20;
-                if (area < 0) {
-                    // the original parameter triangle is reversed, correct it
-                    target.P[0] = Point3d{u0[0], u0[1], 0};
-                    target.P[1] = Point3d{u2[0], u2[1], 0};
-                    target.P[2] = Point3d{u1[0], u1[1], 0};
-                } else if (area == 0) {
-                    // zero uv area face, target the 3d shape scaled according to the target geometry
-                    double scale = std::sqrt(avgUV / DistortionMetric::Area3D(mf));
-                    target.P[0] = mf.P(0) * scale;
-                    target.P[1] = mf.P(1) * scale;
-                    target.P[2] = mf.P(2) * scale;
-                } else {
-                    // target shape is the original uv face
-                    target.P[0] = Point3d{u0[0], u0[1], 0};
-                    target.P[1] = Point3d{u1[0], u1[1], 0};
-                    target.P[2] = Point3d{u2[0], u2[1], 0};
+    for (auto fptr : chart->fpVec) {
+        for (int i = 0; i < 3; ++i) {
+            if (!fptr->IsV() && face::IsBorder(*fptr, i)) {
+                face::Pos<Mesh::FaceType> p(fptr, i);
+                face::Pos<Mesh::FaceType> startPos = p;
+                assert(p.IsBorder());
+                do {
+                    assert(p.IsManifold());
+                    p.F()->SetV();
+                    //outline.push_back(Point2<ScalarType>(p.V()->P()));
+                    outline.push_back(p.F()->WT(p.VInd()).P());
+                    p.NextB();
                 }
+                while (p != startPos);
+                outline2Vec.push_back(outline);
+                outline.clear();
             }
         }
-        tsa[sf] = target;
     }
-    tri::UpdateTopology<Mesh>::FaceFace(shell);
+
+    std::size_t maxsz = 0;
+    for (std::size_t i = 0; i < outline2Vec.size(); ++i) {
+        maxsz = std::max(maxsz, outline2Vec[i].size());
+    }
+    if (maxsz == 0) {// fallback to uv box as outline
+        vcg::Box2d box = chart->UVBox();
+        outline.push_back(Point2d(box.min.X(), box.min.Y()));
+        outline.push_back(Point2d(box.max.X(), box.min.Y()));
+        outline.push_back(Point2d(box.max.X(), box.max.Y()));
+        outline.push_back(Point2d(box.min.X(), box.max.Y()));
+        outline2Vec.push_back(outline);
+        outline.clear();
+    }
+
 }
-*/
 
 // FaceGroup class implementation
 // ==============================
@@ -819,6 +789,10 @@ double MeshGraph::BorderUV(float *meshBorderLengthUV, float *seamLengthUV)
 
 // GraphManager class implementation
 // =================================
+
+int GraphManager::Collapse_OK = 0;
+int GraphManager::Collapse_ERR_DISCONNECTED = 1;
+int GraphManager::Collapse_ERR_UNFEASIBLE = 2;
 
 GraphManager::GraphManager(std::shared_ptr<MeshGraph> gptr, std::unique_ptr<EdgeWeightFunction> &&wfct)
     : g{gptr},

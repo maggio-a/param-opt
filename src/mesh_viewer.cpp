@@ -333,7 +333,8 @@ MeshViewer::MeshViewer(GraphHandle gh, const std::string& fileName_)
       fileName{fileName_},
       minRegionSize{0},
       _textureCamera{},
-      _detailCamera{}
+      _detailCamera{},
+      uvRatio{_currentTexture->TextureWidth(0) / (double) _currentTexture->TextureHeight(0)}
 {
     Mesh& m = graph->mesh;
     if (m.FN() < 100000)
@@ -491,7 +492,7 @@ void MeshViewer::UpdateDetailBuffers()
                     assert(ia[sf] != -1);
                 }
                 auto& f = m.face[ia[sf]];
-                *buffptr++ = wtcs[f].tc[i].U();
+                *buffptr++ = wtcs[f].tc[i].U() / uvRatio;
                 *buffptr++ = wtcs[f].tc[i].V();
                 if (shellColorMode == NONE)
                     color = vcg::Color4b::White;
@@ -619,7 +620,7 @@ void MeshViewer::UpdateSelection(const RegionID id)
                     *buffptr++ = fptr->cV(i)->P().X();
                     *buffptr++ = fptr->cV(i)->P().Y();
                     *buffptr++ = fptr->cV(i)->P().Z();
-                    *buffptr++ = fptr->cWT(i).U();
+                    *buffptr++ = fptr->cWT(i).U() / uvRatio;
                     *buffptr++ = fptr->cWT(i).V();
                 }
             }
@@ -916,7 +917,7 @@ void MeshViewer::InitBuffers()
                 *buffptr++ = 0.0;
                 *buffptr++ = 0.0;
             } else { */
-                *buffptr++ = f.cWT(i).U();
+                *buffptr++ = f.cWT(i).U() / uvRatio;
                 *buffptr++ = f.cWT(i).V();
             //}
             unsigned char *colorptr = (unsigned char *) buffptr;
@@ -1516,7 +1517,7 @@ void MeshViewer::ManageImGuiState()
 
         if (ImGui::Button("Invoke greedy algorithm")) {
             ClearSelection();
-            RecomputeSegmentation(*gm, -1, minRegionSize);
+            RecomputeSegmentation(*gm, 20, minRegionSize);
         }
 
         static bool retry = true;
@@ -1540,6 +1541,12 @@ void MeshViewer::ManageImGuiState()
                 }
                 _currentTexture->Release();
                 _currentTexture = RenderTexture(graph->mesh, graph->textureObject, true, InterpolationMode::Linear, _window);
+                for (auto& f : graph->mesh.face) {
+                    for (int i = 0; i < 3; ++i) {
+                        f.WT(i).P()[0] *= _currentTexture->TextureWidth(0);
+                        f.WT(i).P()[1] *= _currentTexture->TextureHeight(0);
+                    }
+                }
            } else {
                std::cout << "No merges, nothing to do" << std::endl;
            }
@@ -1836,7 +1843,7 @@ void MeshViewer::ManageImGuiState()
             for (int i = 0; i < 3; ++i) {
                 buffptr += 3;
                 if (updateTexcoord) {
-                    *buffptr++ = f.cWT(i).U();
+                    *buffptr++ = f.cWT(i).U() / uvRatio;
                     *buffptr++ = f.cWT(i).V();
                 }
                 else buffptr += 2;
