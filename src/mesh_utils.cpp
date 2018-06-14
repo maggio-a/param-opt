@@ -223,7 +223,15 @@ bool RectifyCut(Mesh& shell, PosF boundaryPos)
     PosF p = boundaryPos;
     bool reachedFillArea = false;
     while (true) {
+        std::cout << tri::Index(shell, p.F()) << std::endl;
         p.V()->SetV();
+
+        if (reachedFillArea) {
+            p.F()->ClearFaceEdgeS(p.E());
+            p.FlipF();
+            p.F()->ClearFaceEdgeS(p.E());
+            p.FlipF();
+        }
 
         if (!p.IsBorder() && !reachedFillArea) {
             PosF pp = p;
@@ -231,14 +239,8 @@ bool RectifyCut(Mesh& shell, PosF boundaryPos)
                 if (pp.F()->holeFilling)
                     reachedFillArea = true;
                 pp.FlipF();
-            } while (p != pp);
-        }
-
-        if (reachedFillArea) {
-            p.F()->ClearFaceEdgeS(p.E());
-            p.FlipF();
-            p.F()->ClearFaceEdgeS(p.E());
-            p.FlipF();
+                pp.FlipE();
+            } while (p != pp && !reachedFillArea);
         }
 
         std::vector<PosF> fan = GetFauxPosFan(p);

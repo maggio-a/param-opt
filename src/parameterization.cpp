@@ -440,6 +440,7 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
 
     ComputeDistanceFromBorderOnSeams(shell);
 
+    // At this point the cones are guaranteed to be placed on a mesh vertex
     tri::UpdateFlags<Mesh>::VertexClearS(shell);
     for (int i : coneIndices)
         shell.vert[i].SetS();
@@ -468,7 +469,6 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
         CleanupShell(shell);
         tri::UpdateTopology<Mesh>::FaceFace(shell);
     }
-
 
     ClearHoleFillingFaces(shell);
     ComputeBoundaryInfo(shell); // boundary changed after the cut
