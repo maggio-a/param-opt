@@ -223,7 +223,6 @@ bool RectifyCut(Mesh& shell, PosF boundaryPos)
     PosF p = boundaryPos;
     bool reachedFillArea = false;
     while (true) {
-        std::cout << tri::Index(shell, p.F()) << std::endl;
         p.V()->SetV();
 
         if (reachedFillArea) {

@@ -89,6 +89,7 @@ public:
     IterationInfo Iterate();
     void PlaceCut();
     bool PlaceCutWithConeSingularities(int ncones);
+    int PlaceCutWithConesUntilThreshold(double conformalScalingThreshold);
     void RemeshHolefillingAreas();
 
     /* Transfers the UV coordinates from the shell to the chart */
@@ -117,10 +118,10 @@ private:
 
     void InitializeOptimizer();
     bool OptimizerIsInitialized();
-    void ProbeCut();
 
     bool ComputeConformalScalingFactors(Eigen::VectorXd& csf, const std::vector<int>& coneIndices);
-    void FindCones(int ncones, std::vector<int>& coneIndices, bool onSeams);
+    void FindCones(int ncones, std::vector<int>& coneIndices);
+    void FindConesWithThreshold(double conformalScalingThreshold, std::vector<int>& coneIndices);
 };
 
 #endif // PARAMETERIZATION_H

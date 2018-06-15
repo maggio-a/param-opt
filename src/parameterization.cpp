@@ -223,6 +223,7 @@ bool ParameterizerObject::InitializeSolution()
     return solved;
 }
 
+#if 0
 bool ParameterizerObject::Parameterize()
 {
     if (!OptimizerIsInitialized())
@@ -316,6 +317,60 @@ bool ParameterizerObject::Parameterize()
 
     return true;
 }
+#endif
+
+
+bool ParameterizerObject::Parameterize()
+{
+    constexpr double CONFORMAL_SCALING_THRESHOLD = 1.98;
+
+    if (!OptimizerIsInitialized())
+        InitializeOptimizer();
+
+    if (strategy.applyCut) {
+        while (PlaceCutWithConesUntilThreshold(CONFORMAL_SCALING_THRESHOLD) > 0) {
+            std::cout << "Placed cut" << std::endl;
+            InitializeSolution();
+        }
+    }
+
+
+    // check if remeshing is required during iterations
+    needsRemeshing = false;
+    for (auto& sf : shell.face) {
+        if (sf.holeFilling) {
+            needsRemeshing = true;
+            break;
+        }
+    }
+
+    // parameterizer state
+    Timer t;
+    int i;
+    IterationInfo info;
+    double surfaceArea = energy->SurfaceArea();
+    double realSurfaceArea = energy->SurfaceAreaNotHoleFilling();
+    for (i = 0; i < strategy.optimizerIterations; ++i) {
+        info = Iterate();
+        if (info.gradientNorm < gradientNormTolerance) {
+            std::cout << "Stopping because gradient magnitude is small enough (" << info.gradientNorm << ")" << std::endl;
+            break;
+        }
+        double realEnergyVal = energy->E_IgnoreMarkedFaces(false);
+        if (realEnergyVal < (energyDiffTolerance * realSurfaceArea)) {
+            std::cout << "Stopping because energy improvement is too small (" << info.energyDiff << ")" << std::endl;
+            break;
+        }
+        if (needsRemeshing && (i > 0) && (i % 30) == 0)
+            RemeshHolefillingAreas();
+    }
+    std::cout << "Stopped after " << i << " iterations, gradient magnitude = " << info.gradientNorm
+              << ", energy value = " << energy->E_IgnoreMarkedFaces() << std::endl;
+
+    std::cout << "Optimization took " << t.TimeSinceLastCheck() << " seconds" << std::endl;
+
+    return true;
+}
 
 IterationInfo ParameterizerObject::Iterate()
 {
@@ -402,8 +457,7 @@ void ParameterizerObject::PlaceCut()
  *     metric scaling' (2008), restricted to the vertices that lie on uv seams
  *  5. Iteratively cut the shell, connecting each cone with the boundary
  *  6. Remove the hole filling faces, sync the shell with its UV configuration
- *     and close the holes in UV space (this is necessary to avoid potential
- *     flips) */
+ *     and close the holes in UV space */
 bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
 {
     assert(ncones > 0);
@@ -436,7 +490,9 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
     MarkInitialSeamsAsFaux(shell, baseMesh);
 
     std::vector<int> coneIndices;
-    FindCones(ncones, coneIndices, true);
+    FindCones(ncones, coneIndices);
+
+    for (auto idx : coneIndices) std::cout <<"@@@@@@@@@@@@ " << idx << std::endl;
 
     ComputeDistanceFromBorderOnSeams(shell);
 
@@ -482,28 +538,113 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
     return true;
 }
 
-void ParameterizerObject::FindCones(int ncones, std::vector<int>& coneIndices, bool onSeams)
+int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScalingThreshold)
+{
+    // sanity check
+    ComputeDistanceFromBorderOnSeams(shell);
+    bool seamsToBoundary = false;
+    for (auto& sv : shell.vert) {
+        if (!sv.IsB() && sv.Q() < INFINITY) {
+            seamsToBoundary = true;
+            break;
+        }
+    }
+    if (!seamsToBoundary)
+        return false;
+
+    // Put the shell in a configuration suitable to compute the conformal scaling factors
+    ClearHoleFillingFaces(shell);
+    SyncShellWithModel(shell, baseMesh);
+    for (auto& sf : shell.face) {
+        for (int i = 0; i < 3; ++i) {
+            if (sf.IsF(i)) {
+                sf.C() = vcg::Color4b::Blue;
+                sf.FFp(i)->C() = vcg::Color4b::Blue;
+            }
+        }
+    }
+    ComputeBoundaryInfo(shell);
+    CloseMeshHoles(shell);
+    MarkInitialSeamsAsFaux(shell, baseMesh);
+
+    std::vector<int> coneIndices;
+    FindConesWithThreshold(conformalScalingThreshold, coneIndices);
+
+    for (auto idx : coneIndices) std::cout <<"@@@@@@@@@@@@ " << idx << std::endl;
+
+    if (coneIndices.size() == 0) {
+        ClearHoleFillingFaces(shell);
+        ComputeBoundaryInfo(shell); // boundary changed after the cut
+        SyncShellWithUV(shell);
+        CloseShellHoles(shell, strategy.geometry, baseMesh);
+        //RemeshShellHoles(shell, strategy.geometry, baseMesh);
+        if (OptimizerIsInitialized())
+            opt->UpdateCache();
+        return 0;
+    }
+
+    ComputeDistanceFromBorderOnSeams(shell);
+
+    // At this point the cones are guaranteed to be placed on a mesh vertex
+    tri::UpdateFlags<Mesh>::VertexClearS(shell);
+    for (int i : coneIndices)
+        shell.vert[i].SetS();
+
+    std::vector<PosF> pv;
+    for (auto& sf : shell.face) {
+        if (!sf.holeFilling) {
+            for (int i = 0; i < 3; ++i) {
+                if (sf.IsF(i) && (sf.V0(i)->IsS() || sf.V1(i)->IsS())) {
+                    PosF p(&sf, i);
+                    p.V()->ClearS();
+                    p.VFlip()->ClearS();
+                    pv.push_back(p);
+                }
+            }
+        }
+    }
+
+    for (auto p : pv) {
+        std::cout << "Selected face " << tri::Index(shell, p.F()) << " edge " << p.E() << std::endl;
+        tri::UpdateFlags<Mesh>::FaceClearFaceEdgeS(shell);
+        PosF boundaryPos = SelectShortestSeamPathToBoundary(shell, p);
+        //SelectShortestSeamPathToPeak(shell, p);
+        bool corrected = RectifyCut(shell, boundaryPos);
+        tri::CutMeshAlongSelectedFaceEdges(shell);
+        CleanupShell(shell);
+        tri::UpdateTopology<Mesh>::FaceFace(shell);
+    }
+
+    ClearHoleFillingFaces(shell);
+    ComputeBoundaryInfo(shell); // boundary changed after the cut
+    SyncShellWithUV(shell);
+    CloseShellHoles(shell, strategy.geometry, baseMesh);
+    //RemeshShellHoles(shell, strategy.geometry, baseMesh);
+
+    if (OptimizerIsInitialized())
+        opt->UpdateCache();
+
+    return int(coneIndices.size());
+}
+
+
+void ParameterizerObject::FindCones(int ncones, std::vector<int>& coneIndices)
 {
     coneIndices.clear();
 
-    if (onSeams)
-        ComputeDistanceFromBorderOnSeams(shell);
+    ComputeDistanceFromBorderOnSeams(shell);
 
     for (int i = 0; i < ncones; ++i) {
         Eigen::VectorXd csf;
         assert(ComputeConformalScalingFactors(csf, coneIndices));
 
         // Select seam vertices
-        if (onSeams) {
-            tri::UpdateFlags<Mesh>::VertexClearS(shell);
-            for (auto& sv : shell.vert)
-                if (sv.Q() < INFINITY)
-                    sv.SetS();
-        } else {
-            tri::UpdateFlags<Mesh>::VertexSetS(shell);
-        }
+        tri::UpdateFlags<Mesh>::VertexClearS(shell);
+        for (auto& sv : shell.vert)
+            if (sv.Q() < INFINITY)
+                sv.SetS();
 
-        // Find the max scale factor as seam vertices
+        // Find the max scale factor at seam vertices
         double maxscale = 0.0;
         double minscale = std::numeric_limits<double>::infinity();
         int max_k = -1;
@@ -528,10 +669,51 @@ void ParameterizerObject::FindCones(int ncones, std::vector<int>& coneIndices, b
     }
 }
 
-void ParameterizerObject::ProbeCut()
+void ParameterizerObject::FindConesWithThreshold(double conformalScalingThreshold, std::vector<int>& coneIndices)
 {
+    constexpr int MAX_NUM_CONES = 1;
+    ComputeDistanceFromBorderOnSeams(shell);
+    coneIndices.clear();
+
+    for (int i = 0; i < MAX_NUM_CONES; ++i) {
+        Eigen::VectorXd csf;
+        assert(ComputeConformalScalingFactors(csf, coneIndices));
+
+        // Select seam vertices
+        tri::UpdateFlags<Mesh>::VertexClearS(shell);
+        for (auto& sv : shell.vert)
+            if (sv.Q() < INFINITY)
+                sv.SetS();
+
+        // Find the max scale factor at seam vertices
+        double maxscale = 0.0;
+        double minscale = std::numeric_limits<double>::infinity();
+        int max_k = -1;
+        int min_k = -1;
+        for (int k = 0; k < shell.VN(); ++k) {
+            if (shell.vert[k].IsS()) {
+                double s = std::abs(csf[k]);
+                if (s > maxscale) {
+                    maxscale = s;
+                    max_k = k;
+                }
+                if (s < minscale) {
+                    minscale = s;
+                    min_k = k;
+                }
+            }
+        }
+
+        std::cout << "CONFORMAL SCALING FACTORS: max = " << maxscale << " | min = " << minscale <<  " | ratio = " << minscale / maxscale << std::endl;
+
+        if (maxscale > conformalScalingThreshold)
+            coneIndices.push_back(max_k);
+        else
+            break;
+    }
 
 }
+
 
 using Td = Eigen::Triplet<double>;
 
