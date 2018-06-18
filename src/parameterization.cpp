@@ -374,8 +374,10 @@ bool ParameterizerObject::Parameterize()
 
 IterationInfo ParameterizerObject::Iterate()
 {
-    if (!OptimizerIsInitialized())
+    if (!OptimizerIsInitialized()) {
+        std::cout << "                    Initializing optimizer" << std::endl;
         InitializeOptimizer();
+    }
     IterationInfo info;
     info.energyVal = opt->Iterate(info.gradientNorm, info.energyDiff);
     SyncShellWithUV(shell);
@@ -385,9 +387,9 @@ IterationInfo ParameterizerObject::Iterate()
 
 void ParameterizerObject::RemeshHolefillingAreas()
 {
-    ClearHoleFillingFaces(shell);
-    CloseShellHoles(shell, strategy.geometry, baseMesh);
-    //RemeshShellHoles(shell, strategy.geometry, baseMesh);
+    //ClearHoleFillingFaces(shell);
+    //CloseShellHoles(shell, strategy.geometry, baseMesh);
+    RemeshShellHoles(shell, strategy.geometry, baseMesh);
     MarkInitialSeamsAsFaux(shell, baseMesh);
     opt->UpdateCache();
 }
@@ -475,24 +477,22 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
         return false;
 
     // Put the shell in a configuration suitable to compute the conformal scaling factors
-    ClearHoleFillingFaces(shell);
+    if (strategy.padBoundaries)
+        ClearHoleFillingFaces(shell);
+
     SyncShellWithModel(shell, baseMesh);
-    for (auto& sf : shell.face) {
-        for (int i = 0; i < 3; ++i) {
-            if (sf.IsF(i)) {
-                sf.C() = vcg::Color4b::Blue;
-                sf.FFp(i)->C() = vcg::Color4b::Blue;
-            }
-        }
-    }
     ComputeBoundaryInfo(shell);
     CloseMeshHoles(shell);
     MarkInitialSeamsAsFaux(shell, baseMesh);
 
+    extern void ColorFace(Mesh& m);
+
+    ColorFace(shell);
+
+    tri::io::Exporter<Mesh>::Save(shell, "shell_reset.obj", tri::io::Mask::IOM_VERTTEXCOORD);
+
     std::vector<int> coneIndices;
     FindCones(ncones, coneIndices);
-
-    for (auto idx : coneIndices) std::cout <<"@@@@@@@@@@@@ " << idx << std::endl;
 
     ComputeDistanceFromBorderOnSeams(shell);
 
@@ -529,8 +529,14 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
     ClearHoleFillingFaces(shell);
     ComputeBoundaryInfo(shell); // boundary changed after the cut
     SyncShellWithUV(shell);
-    CloseShellHoles(shell, strategy.geometry, baseMesh);
-    //RemeshShellHoles(shell, strategy.geometry, baseMesh);
+
+    if (strategy.padBoundaries)
+        CloseShellHoles(shell, strategy.geometry, baseMesh);
+
+    //std::cout << "THIS IS IMPORTANT, UNCOMMENT" << std::endl;
+    RemeshShellHoles(shell, strategy.geometry, baseMesh);
+
+    tri::io::Exporter<Mesh>::Save(shell, "shell_resynced.obj", tri::io::Mask::IOM_ALL);
 
     if (OptimizerIsInitialized())
         opt->UpdateCache();
@@ -570,16 +576,16 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScaling
     std::vector<int> coneIndices;
     FindConesWithThreshold(conformalScalingThreshold, coneIndices);
 
-    for (auto idx : coneIndices) std::cout <<"@@@@@@@@@@@@ " << idx << std::endl;
-
     if (coneIndices.size() == 0) {
+        std::cout << "No cones" << std::endl;
         ClearHoleFillingFaces(shell);
         ComputeBoundaryInfo(shell); // boundary changed after the cut
         SyncShellWithUV(shell);
         CloseShellHoles(shell, strategy.geometry, baseMesh);
-        //RemeshShellHoles(shell, strategy.geometry, baseMesh);
+        RemeshShellHoles(shell, strategy.geometry, baseMesh);
         if (OptimizerIsInitialized())
             opt->UpdateCache();
+        tri::io::Exporter<Mesh>::Save(shell, "shell_restored.obj", tri::io::Mask::IOM_VERTTEXCOORD);
         return 0;
     }
 
@@ -619,7 +625,7 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScaling
     ComputeBoundaryInfo(shell); // boundary changed after the cut
     SyncShellWithUV(shell);
     CloseShellHoles(shell, strategy.geometry, baseMesh);
-    //RemeshShellHoles(shell, strategy.geometry, baseMesh);
+    RemeshShellHoles(shell, strategy.geometry, baseMesh);
 
     if (OptimizerIsInitialized())
         opt->UpdateCache();

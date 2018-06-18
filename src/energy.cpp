@@ -203,6 +203,8 @@ void SymmetricDirichletEnergy::UpdateCache()
     data.UpdateSize();
     for (auto&f : m.face) {
         data[f][3] = (((P(&f, 1) - P(&f, 0)) ^ (P(&f, 2) - P(&f, 0))).Norm() / 2.0);
+        assert(!std::isnan(data[f][3]));
+        assert(std::isfinite(data[f][3]));
         assert(data[f][3] > 0);
     }
     for (auto& f : m.face) {
@@ -210,6 +212,8 @@ void SymmetricDirichletEnergy::UpdateCache()
             Point3d a = P1(&f, i) - P0(&f, i);
             Point3d c = P2(&f, i) - P0(&f, i);
             data[f][i] = VecCotg(a, c);
+            assert(!std::isnan(data[f][i]));
+            assert(std::isfinite(data[f][i]));
         }
     }
 }

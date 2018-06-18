@@ -1773,6 +1773,7 @@ void MeshViewer::ManageImGuiState()
             if (colorize) parameterizer->MapEnergyToShellFaceColor();
             else parameterizer->ClearShellFaceColor();
             shellChanged = true;
+            tri::io::Exporter<Mesh>::Save(parameterizer->Shell(), "iterate.obj", tri::io::Mask::IOM_ALL);
         }
         ImGui::SameLine();
         ImGui::Text("Iterations: %d", parameterizer->IterationCount());
@@ -1791,6 +1792,7 @@ void MeshViewer::ManageImGuiState()
 
         if (ImGui::Button("Place cut with cone singularities")) {
             if (parameterizer->PlaceCutWithConeSingularities(ncones)) {
+            //if (parameterizer->PlaceCutWithConesUntilThreshold(1.98)) {
                 parameterizer->InitializeSolution();
                 shellChanged = true;
             } else {

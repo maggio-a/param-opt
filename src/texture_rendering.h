@@ -230,8 +230,8 @@ static TextureObjectHandle RenderTexture(Mesh::FaceIterator fbegin, Mesh::FaceIt
     glBindBuffer(GL_ARRAY_BUFFER, 0); // done, unbind
 
     // Setup FBO
-    int renderedTexWidth = img.width() / 2;
-    int renderedTexHeight = img.height() / 2;
+    int renderedTexWidth = img.width();
+    int renderedTexHeight = img.height();
 
     GLuint fbo;
     glGenFramebuffers(1, &fbo);

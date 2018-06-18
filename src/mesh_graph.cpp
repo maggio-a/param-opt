@@ -95,7 +95,7 @@ void CloseMeshHoles(Mesh& shell)
     }
 }
 
-static void ColorFace(Mesh& shell)
+void ColorFace(Mesh& shell)
 {
     for (auto& sf : shell.face) {
         if (sf.holeFilling) {
@@ -203,8 +203,8 @@ void ClearHoleFillingFaces(Mesh& shell)
     for (auto& f : shell.face)
         if (f.holeFilling) tri::Allocator<Mesh>::DeleteFace(shell, f);
     tri::Clean<Mesh>::RemoveUnreferencedVertex(shell);
-    tri::UpdateTopology<Mesh>::VertexFace(shell);
     tri::UpdateTopology<Mesh>::FaceFace(shell);
+    tri::UpdateTopology<Mesh>::VertexFace(shell);
     tri::Allocator<Mesh>::CompactEveryVector(shell);
 }
 
@@ -224,10 +224,13 @@ void CloseShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh&
         int k = 0;
         while (fi != shell.face.end()) {
             fi->V(0) = shell.face[info.vBoundaryFaces[i][indices[k]]].V(info.vVi[i][indices[k]]);
+            fi->WT(0) = fi->V(0)->T();
             k++;
             fi->V(1) = shell.face[info.vBoundaryFaces[i][indices[k]]].V(info.vVi[i][indices[k]]);
+            fi->WT(1) = fi->V(1)->T();
             k++;
             fi->V(2) = shell.face[info.vBoundaryFaces[i][indices[k]]].V(info.vVi[i][indices[k]]);
+            fi->WT(2) = fi->V(2)->T();
             k++;
             fi->holeFilling = true;
             ia[fi] = -1;
@@ -309,7 +312,10 @@ static void DoRemesh(Mesh& shell)
     params.smoothFlag = false;
     params.projectFlag = false;
     params.iter = 3;
-    IsotropicRemeshing<Mesh>::Do(shell, params);
+    do {
+        IsotropicRemeshing<Mesh>::Do(shell, params);
+    } while (params.stat.collapseNum + params.stat.flipNum + params.stat.splitNum > 0);
+
     tri::Allocator<Mesh>::CompactEveryVector(shell);
     ColorFace(shell);
     //vcg::tri::io::ExporterPLY<Mesh>::Save(shell, "remesh.ply", tri::io::Mask::IOM_FACECOLOR);
@@ -467,13 +473,8 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
                 const Point2d& u2 = wtcsa[mf].tc[2].P();
                 Point2d u10 = u1 - u0;
                 Point2d u20 = u2 - u0;
-                double area = u10 ^ u20;
-                if (area < 0) {
-                    // the original parameter triangle is flipped, correct it
-                    target.P[0] = Point3d{u0[0], u0[1], 0};
-                    target.P[1] = Point3d{u2[0], u2[1], 0};
-                    target.P[2] = Point3d{u1[0], u1[1], 0};
-                } else if (area == 0) {
+                double area = std::abs(u10 ^ u20) / 2.0;
+                if (area == 0) {
                     // zero uv area face, target the 3d shape scaled according to the target geometry
                     double scale = std::sqrt(avgUV / DistortionMetric::Area3D(mf));
                     target.P[0] = mf.P(0) * scale;
