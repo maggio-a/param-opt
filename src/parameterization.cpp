@@ -181,6 +181,11 @@ Mesh& ParameterizerObject::Shell()
     return shell;
 }
 
+ChartHandle ParameterizerObject::GetChart()
+{
+    return chart;
+}
+
 int ParameterizerObject::IterationCount()
 {
     return iterationCount;
@@ -221,6 +226,12 @@ bool ParameterizerObject::InitializeSolution()
     bool solved = u.Solve();
     if (solved) SyncShellWithUV(shell);
     return solved;
+}
+
+void ParameterizerObject::ForceWarmStart()
+{
+    strategy.warmStart = true;
+    Reset();
 }
 
 #if 0
@@ -338,7 +349,7 @@ bool ParameterizerObject::Parameterize()
     // check if remeshing is required during iterations
     needsRemeshing = false;
     for (auto& sf : shell.face) {
-        if (sf.holeFilling) {
+        if (sf.IsHoleFilling()) {
             needsRemeshing = true;
             break;
         }
@@ -503,7 +514,7 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
 
     std::vector<PosF> pv;
     for (auto& sf : shell.face) {
-        if (!sf.holeFilling) {
+        if (sf.IsMesh()) {
             for (int i = 0; i < 3; ++i) {
                 if (sf.IsF(i) && (sf.V0(i)->IsS() || sf.V1(i)->IsS())) {
                     PosF p(&sf, i);
@@ -598,7 +609,7 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScaling
 
     std::vector<PosF> pv;
     for (auto& sf : shell.face) {
-        if (!sf.holeFilling) {
+        if (sf.IsMesh()) {
             for (int i = 0; i < 3; ++i) {
                 if (sf.IsF(i) && (sf.V0(i)->IsS() || sf.V1(i)->IsS())) {
                     PosF p(&sf, i);
@@ -626,7 +637,6 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScaling
     SyncShellWithUV(shell);
     CloseShellHoles(shell, strategy.geometry, baseMesh);
     RemeshShellHoles(shell, strategy.geometry, baseMesh);
-
     if (OptimizerIsInitialized())
         opt->UpdateCache();
 

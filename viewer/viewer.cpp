@@ -224,6 +224,8 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
     //int c = ParameterizeGraph(gm, strategy, -1, true);
     if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
 
+    Pack(gm.Graph());
+
     LogDistortionStats(graph);
 
     RasterizedParameterizationStats after = GetRasterizationStats(m, textureObject->imgVec[0]->width(), textureObject->imgVec[0]->height());

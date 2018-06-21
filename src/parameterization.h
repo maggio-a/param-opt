@@ -99,6 +99,7 @@ public:
     bool InitializeSolution();
 
     Mesh& Shell();
+    ChartHandle GetChart();
     int IterationCount();
 
     void MapEnergyToShellFaceColor();
@@ -107,6 +108,8 @@ public:
     void MapLocalGradientVarianceToShellVertexColor();
     void MapConformalScalingFactorsToShellVertexColor();
     void ClearShellFaceColor();
+
+    void ForceWarmStart();
 
     void SetGradientNormTolerance(double tol);
     void SetEnergyDiffTolerance(double tol);

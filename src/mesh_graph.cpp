@@ -8,6 +8,7 @@
 #include "mesh_attribute.h"
 #include "uniform_solver.h"
 #include "mean_value_param.h"
+#include "timer.h"
 
 #include "polygon2_triangulator.h"
 
@@ -17,6 +18,8 @@
 #include <vcg/complex/algorithms/stat.h>
 #include <vcg/complex/algorithms/update/color.h>
 #include <vcg/complex/algorithms/attribute_seam.h>
+
+#include <wrap/io_trimesh/export.h>
 
 #include <vector>
 #include <unordered_set>
@@ -89,7 +92,7 @@ void CloseMeshHoles(Mesh& shell)
     tri::UpdateFlags<Mesh>::FaceClearS(shell);
     for (auto& f: shell.face) {
         if (int(tri::Index(shell, f)) >= startFN) {
-            f.holeFilling = true;
+            f.SetHoleFilling();
             ia[f] = -1;
         }
     }
@@ -98,7 +101,7 @@ void CloseMeshHoles(Mesh& shell)
 void ColorFace(Mesh& shell)
 {
     for (auto& sf : shell.face) {
-        if (sf.holeFilling) {
+        if (!sf.IsMesh()) {
             sf.C() = vcg::Color4b::Cyan;
         } else {
             sf.C() = vcg::Color4b::LightGreen;
@@ -173,6 +176,7 @@ void CopyToMesh(FaceGroup& fg, Mesh& m)
             mfp->V(i) = mvp;
             mfp->WT(i) = fptr->WT(i); // TODO should this be the stored initial wt?
         }
+        mfp->SetMesh();
     }
 
     std::cout << "Built mesh has " << m.FN() << " faces" << std::endl;
@@ -191,7 +195,7 @@ void SyncShellWithModel(Mesh& shell, Mesh& baseMesh)
 {
     auto ia = GetFaceIndexAttribute(shell);
     for (auto& sf : shell.face) {
-        assert(!sf.holeFilling);
+        assert(sf.IsMesh());
         auto& f = baseMesh.face[ia[sf]];
         for (int i = 0; i < 3; ++i)
             sf.P(i) = f.P(i);
@@ -201,7 +205,7 @@ void SyncShellWithModel(Mesh& shell, Mesh& baseMesh)
 void ClearHoleFillingFaces(Mesh& shell)
 {
     for (auto& f : shell.face)
-        if (f.holeFilling) tri::Allocator<Mesh>::DeleteFace(shell, f);
+        if (!f.IsMesh()) tri::Allocator<Mesh>::DeleteFace(shell, f);
     tri::Clean<Mesh>::RemoveUnreferencedVertex(shell);
     tri::UpdateTopology<Mesh>::FaceFace(shell);
     tri::UpdateTopology<Mesh>::VertexFace(shell);
@@ -216,8 +220,9 @@ void CloseShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh&
     for (std::size_t i = 0; i < info.vBoundaryFaces.size(); ++i) {
         if (i == info.LongestBoundary())
             continue;
-        std::vector<std::vector<std::array<double,2>>> polyline2 = BuildPolyline2(info.vBoundaryFaces[i], info.vVi[i], shell);
-        std::vector<uint32_t> indices = mapbox::earcut<uint32_t>(polyline2);
+        Polyline2 polyline = BuildPolyline2(info.vBoundaryFaces[i], info.vVi[i], shell);
+        Poly2 poly = { polyline };
+        std::vector<uint32_t> indices = mapbox::earcut<uint32_t>(poly);
         assert(indices.size()%3 == 0);
         int nf = indices.size() / 3;
         auto fi = tri::Allocator<Mesh>::AddFaces(shell, nf);
@@ -232,7 +237,7 @@ void CloseShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh&
             fi->V(2) = shell.face[info.vBoundaryFaces[i][indices[k]]].V(info.vVi[i][indices[k]]);
             fi->WT(2) = fi->V(2)->T();
             k++;
-            fi->holeFilling = true;
+            fi->SetHoleFilling();
             ia[fi] = -1;
             fi++;
         }
@@ -248,7 +253,7 @@ void CloseShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh&
 
     for (auto& sf : shell.face) {
         // only update target shape of the readded hole-filling faces
-        if (sf.holeFilling) {
+        if (sf.IsHoleFilling()) {
             CoordStorage target;
             double scale = 1.0;
             if (targetGeometry == Model)
@@ -264,7 +269,97 @@ void CloseShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh&
             tsa[sf] = target;
         }
     }
+}
 
+void BuildScaffold(Mesh& shell)
+{
+    // Compute uv box and make it square and larger so that the shell can be embedded
+    Box2d uvBox = UVBoxVertex(shell);
+    uvBox.MakeSquare();
+    Point2d diag = uvBox.max - uvBox.min;
+    Point2d newMax = uvBox.min + 1.15*diag;
+    Point2d newMin = uvBox.max - 1.15*diag;
+    uvBox.Add(newMax);
+    uvBox.Add(newMin);
+
+    BoundaryInfo& info = GetBoundaryInfoAttribute(shell)();
+
+    Polyline2 corners = {
+        { uvBox.min.X(), uvBox.min.Y() },
+        { uvBox.max.X(), uvBox.min.Y() },
+        { uvBox.max.X(), uvBox.max.Y() },
+        { uvBox.min.X(), uvBox.max.Y() }
+    };
+
+    std::size_t li = info.LongestBoundary();
+    Polyline2 outline = BuildPolyline2(info.vBoundaryFaces[li], info.vVi[li], shell);
+    Poly2 scaffoldPoly = { corners, outline };
+    std::vector<uint32_t> indices = mapbox::earcut<uint32_t>(scaffoldPoly);
+    auto fi = tri::Allocator<Mesh>::AddFaces(shell, indices.size() / 3);
+    auto vi = tri::Allocator<Mesh>::AddVertices(shell, 4);
+    for (int i = 0; i < 4; ++i) {
+        (vi+i)->P() = Point3d(corners[i][0], corners[i][1], 0);
+        (vi+i)->T().P() = Point2d(corners[i][0], corners[i][1]);
+    }
+
+    auto GetVertexPointer = [&](uint32_t k) {
+        if (k >= 4) {
+            return shell.face[info.vBoundaryFaces[li][k-4]].V(info.vVi[li][k-4]);
+        } else return &*(vi + k);
+    };
+
+    int k = 0;
+    auto ia = GetFaceIndexAttribute(shell);
+    while (fi != shell.face.end()) {
+        for (int i = 0; i < 3; ++i) {
+            auto vi = GetVertexPointer(indices[k++]);
+            fi->V(i) = vi;
+            fi->WT(i) = vi->T();
+        }
+        ia[fi] = -1;
+        fi->SetScaffold();
+        fi++;
+    }
+
+    tri::UpdateTopology<Mesh>::FaceFace(shell);
+    vcg::tri::io::Exporter<Mesh>::Save(shell, "scaffold.obj", tri::io::Mask::IOM_VERTTEXCOORD);
+
+    // Remesh scaffold to improve triangulation quality
+
+    tri::UpdateFlags<Mesh>::FaceClearS(shell);
+    for (auto& sf : shell.face)
+        if (sf.IsScaffold())
+            sf.SetS();
+
+    double boundaryLength = LenPolyline2(info.vBoundaryFaces[li], info.vVi[li], shell);
+
+    IsotropicRemeshing<Mesh>::Params params;
+    //params.SetTargetLen(2.0*(totalBorderLen / totalBorderFaces));
+    //params.SetTargetLen(length / count);
+    params.SetTargetLen(boundaryLength / info.vBoundarySize[li], 5);
+    params.SetFeatureAngleDeg(20);
+    params.selectedOnly = true;
+    params.smoothFlag = false;
+    params.projectFlag = false;
+    params.iter = 3;
+    int h = 0;
+    int n = 0;
+    Timer t;
+    do {
+        params.stat.Reset();
+        IsotropicRemeshing<Mesh>::Do(shell, params);
+        if (h++ % 10 == 0) {
+            std::stringstream ss;
+            ss << "scaffold_remesh_" << n++ << ".obj";
+            vcg::tri::io::Exporter<Mesh>::Save(shell, ss.str().c_str(), tri::io::Mask::IOM_VERTTEXCOORD);
+        }
+        std::cout << params.stat.collapseNum << " " << params.stat.flipNum << " " <<  params.stat.splitNum << std::endl;
+        std::cout << "Remesh iteration took " << t.TimeSinceLastCheck() << std::endl;
+    } while (params.stat.collapseNum + params.stat.flipNum + params.stat.splitNum > 0);
+
+    tri::Allocator<Mesh>::CompactEveryVector(shell);
+
+    assert(0);
 }
 
 static void DoRemesh(Mesh& shell)
@@ -284,13 +379,13 @@ static void DoRemesh(Mesh& shell)
     // select the hole-filling faces that need to be remeshed
     tri::UpdateFlags<Mesh>::FaceClearS(shell);
     for (auto& sf : shell.face) {
-        if (sf.holeFilling) sf.SetS();
+        if (sf.IsHoleFilling()) sf.SetS();
     }
 
     int startFN = 0;
     int max_i  = 0;
     for (auto& sf : shell.face) {
-        if (sf.holeFilling == false) {
+        if (sf.IsMesh()) {
             assert(ia[sf] != -1);
             startFN++;
             max_i = std::max(max_i, int(tri::Index<Mesh>(shell, sf)));
@@ -304,7 +399,7 @@ static void DoRemesh(Mesh& shell)
     //params.SetTargetLen(2.0*(totalBorderLen / totalBorderFaces));
     //params.SetTargetLen(length / count);
     params.SetTargetLen(std::sqrt(length / count));
-    params.SetFeatureAngleDeg(60);
+    params.SetFeatureAngleDeg(30);
     params.selectedOnly = true;
     //params.splitFlag = false;
     //params.swapFlag = false;
@@ -322,7 +417,7 @@ static void DoRemesh(Mesh& shell)
 
     for (auto& sf : shell.face) {
         if (int(tri::Index(shell, sf)) >= startFN) {
-            sf.holeFilling = true;
+            sf.SetHoleFilling();
             ia[sf] = -1;
             for (int i = 0; i < 3; ++i) {
                 sf.V(i)->T().U() = sf.cP(i).X();
@@ -338,7 +433,7 @@ void RemeshShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh
 {
     int c = 0;
     for (auto& sf : shell.face) {
-        if (sf.holeFilling) c++;
+        if (sf.IsHoleFilling()) c++;
     }
     if (c == 0) return;
 
@@ -354,7 +449,7 @@ void RemeshShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh
 
     for (auto& sf : shell.face) {
         // only update target shape of the readded hole-filling faces
-        if (sf.holeFilling) {
+        if (sf.IsHoleFilling()) {
             CoordStorage target;
             double scale = 1.0;
             if (targetGeometry == Model)
@@ -372,7 +467,6 @@ void RemeshShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh
     }
 }
 
-#include <wrap/io_trimesh/export.h>
 bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeometry, bool useExistingUV)
 {
     Mesh& m = fg.mesh;
@@ -450,7 +544,7 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
     for (auto& sf : shell.face) {
         CoordStorage target;
         // if the face is hole-filling the target geometry is its own shape, scaled according to the target geometry
-        if (sf.holeFilling) {
+        if (sf.IsHoleFilling()) {
             double scale = 1.0;
             if (targetGeometry == Model)
                 scale = std::sqrt(avg3D / DistortionMetric::Area3D(sf));
@@ -493,7 +587,7 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
     return true;
 }
 
-void ChartOutlinesUV(Mesh& m, ChartHandle chart, std::vector<std::vector<Point2f>> &outline2Vec)
+void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2f>> &outline2Vec)
 {
     std::vector<std::vector<Point2d>> outVecDouble;
     ChartOutlinesUV(m, chart, outVecDouble);
@@ -507,9 +601,9 @@ void ChartOutlinesUV(Mesh& m, ChartHandle chart, std::vector<std::vector<Point2f
     }
 }
 
-void ChartOutlinesUV(Mesh& m, ChartHandle chart, std::vector<std::vector<Point2d>> &outline2Vec)
+void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2d>> &outline2Vec)
 {
-    assert(chart->numMerges == 0);
+    assert(chart.numMerges == 0);
 
     struct FaceAdjacency {
         bool changed[3] = {false, false, false};
@@ -517,16 +611,52 @@ void ChartOutlinesUV(Mesh& m, ChartHandle chart, std::vector<std::vector<Point2d
         char FFi[3];
     };
 
+    /*
     auto CCIDh = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(m, "ConnectedComponentID");
     assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(m, CCIDh));
+
+    std::unordered_map<Mesh::FacePointer,FaceAdjacency> savedAdj;
+    for (auto fptr : chart.fpVec) {
+        fptr->ClearV();
+        for (int i = 0; i < 3; ++i) {
+            if (CCIDh[fptr] != CCIDh[fptr->FFp(i)]) {
+                savedAdj[fptr].changed[i] = true;
+                savedAdj[fptr].FFp[i] = fptr->FFp(i);
+                savedAdj[fptr].FFi[i] = fptr->FFi(i);
+                fptr->FFp(i) = fptr;
+                fptr->FFi(i) = i;
+            }
+        }
+    }
+    */
+
+    std::unordered_set<Mesh::FacePointer> chartFaces;
+    for (auto fptr : chart.fpVec)
+        chartFaces.insert(fptr);
+
+    std::unordered_map<Mesh::FacePointer,FaceAdjacency> savedAdj;
+    for (auto fptr : chart.fpVec) {
+        fptr->ClearV();
+        for (int i = 0; i < 3; ++i) {
+            if (chartFaces.count(fptr->FFp(i)) == 0) {
+                savedAdj[fptr].changed[i] = true;
+                savedAdj[fptr].FFp[i] = fptr->FFp(i);
+                savedAdj[fptr].FFi[i] = fptr->FFi(i);
+                fptr->FFp(i) = fptr;
+                fptr->FFi(i) = i;
+            }
+        }
+    }
+
+
 
     outline2Vec.clear();
     std::vector<Point2d> outline;
 
-    for (auto fptr : chart->fpVec)
+    for (auto fptr : chart.fpVec)
         fptr->ClearV();
 
-    for (auto fptr : chart->fpVec) {
+    for (auto fptr : chart.fpVec) {
         for (int i = 0; i < 3; ++i) {
             if (!fptr->IsV() && face::IsBorder(*fptr, i)) {
                 face::Pos<Mesh::FaceType> p(fptr, i);
@@ -546,12 +676,21 @@ void ChartOutlinesUV(Mesh& m, ChartHandle chart, std::vector<std::vector<Point2d
         }
     }
 
+    for (auto& entry : savedAdj) {
+        for (int i = 0; i < 3; ++i) {
+            if (entry.second.changed[i]) {
+                entry.first->FFp(i) = entry.second.FFp[i];
+                entry.first->FFi(i) = entry.second.FFi[i];
+            }
+        }
+    }
+
     std::size_t maxsz = 0;
     for (std::size_t i = 0; i < outline2Vec.size(); ++i) {
         maxsz = std::max(maxsz, outline2Vec[i].size());
     }
     if (maxsz == 0) {// fallback to uv box as outline
-        vcg::Box2d box = chart->UVBox();
+        vcg::Box2d box = chart.UVBox();
         outline.push_back(Point2d(box.min.X(), box.min.Y()));
         outline.push_back(Point2d(box.max.X(), box.min.Y()));
         outline.push_back(Point2d(box.max.X(), box.max.Y()));
@@ -984,7 +1123,9 @@ void GraphManager::Split(const RegionID id, std::vector<ChartHandle>& splitChart
 
     // reset merge count and insert new edges in the support list
     for (auto c1 : newCharts) {
+        assert(c1->fpVec.size() > 0);
         c1->numMerges = 0;
+        c1->id = CCIDh[c1->fpVec[0]];
         splitCharts.push_back(c1);
         for (auto c2 : c1->adj) {
             AddEdge(c1, c2, true);

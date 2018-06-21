@@ -486,7 +486,7 @@ void MeshViewer::UpdateDetailBuffers()
             *buffptr++ = sf.P(i).X();
             *buffptr++ = sf.P(i).Y();
             vcg::Color4b color = vcg::Color4b::Black;
-            if (sf.holeFilling == false) {
+            if (sf.IsMesh()) {
                 if (ia[sf] == -1) {
                     std::cout << tri::Index<Mesh>(shell, sf) << std::endl;
                     assert(ia[sf] != -1);
@@ -1522,7 +1522,8 @@ void MeshViewer::ManageImGuiState()
 
         static bool retry = true;
         static float tau = 0.0f;
-        bool clickPack = ImGui::Button("Parameterize graph");
+        //bool clickPack = ImGui::Button("Parameterize graph");
+        bool clickPack = ImGui::Button("Pack the atlas");
         ImGui::SameLine();
         ImGui::Checkbox("Retry", &retry);
         ImGui::InputFloat("tau", &tau, 0.002f, 1.0f);
@@ -1531,8 +1532,9 @@ void MeshViewer::ManageImGuiState()
         if (clickPack) {
             ClearSelection();
             if (graph->MergeCount() > 0) {
-                int c = ParameterizeGraph(*gm, strategy, tau, retry);
-                if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
+                //int c = ParameterizeGraph(*gm, strategy, tau, retry);
+                //if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
+                Pack(gm->Graph());
                 updateTexcoord = true;
                 if (activeDistIndex != -1) {
                     ParameterizationGeometry distGeom = distortionFromTexture ? Texture : Model;
@@ -1791,13 +1793,45 @@ void MeshViewer::ManageImGuiState()
 
 
         if (ImGui::Button("Place cut with cone singularities")) {
-            if (parameterizer->PlaceCutWithConeSingularities(ncones)) {
-            //if (parameterizer->PlaceCutWithConesUntilThreshold(1.98)) {
+            //if (parameterizer->PlaceCutWithConeSingularities(ncones)) {
+            if (parameterizer->PlaceCutWithConesUntilThreshold(1.98)) {
                 parameterizer->InitializeSolution();
                 shellChanged = true;
             } else {
                 std::cout << "Unable to place cut" << std::endl;
             }
+        }
+        ImGui::Separator();
+
+        if (ImGui::Button("Fix uvs")) {
+            if (primaryCharts.size() != 1) {
+                std::cout << "Unable to fix uv for non-unique primary chart" << std::endl;
+            } else {
+                parameterizer->SyncChart();
+                RegionID selId = primaryCharts.begin()->first;
+                ClearSelection();
+                Select(selId);
+                parameterizer->ForceWarmStart();
+                shellChanged = true;
+            }
+        }
+
+        if (ImGui::Button("Split chart")) {
+            if (primaryCharts.size() != 1) {
+                std::cout << "Unable to fix uv for non-unique primary chart" << std::endl;
+            } else {
+                auto id = primaryCharts.begin()->first;
+                ClearSelection();
+                extern void RecoverFromSplit2(std::vector<ChartHandle>& split, GraphManager& gm, std::vector<ChartHandle>& chartVec);
+                std::vector<ChartHandle> splitCharts;
+                gm->Split(id, splitCharts);
+                std::vector<ChartHandle> newCharts;
+                RecoverFromSplit2(splitCharts, *gm, newCharts);
+                for (auto& c : newCharts)
+                    std::cout << "Chart " << c->id << " is new" << std::endl;
+            }
+
+
         }
 
         ImGui::End();

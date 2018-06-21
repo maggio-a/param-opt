@@ -10,6 +10,7 @@
 void StoreWedgeTexCoordAsAttribute(Mesh &m);
 
 vcg::Box2d UVBox(const Mesh& m);
+vcg::Box2d UVBoxVertex(const Mesh& m);
 
 /* Computes and stores as attribute the scale factor from 3D to UV space of the
  * existing parameterization */

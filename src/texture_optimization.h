@@ -30,8 +30,7 @@ void PreprocessMesh(Mesh& m);
 
 bool ChartParameterizationHasOverlaps(Mesh& m, GraphManager::ChartHandle chart);
 
-/*
- * Parameterize the mesh graph. The parameterization of each region is performed
+/* Parameterize the mesh graph. The parameterization of each region is performed
  * according to the ParameterizationStrategy passed.
  * The injectivityTolerance parameter is the fraction of overlapping fragments
  * in the rasterized parameterization above which the chart is split into its
@@ -44,6 +43,10 @@ bool ChartParameterizationHasOverlaps(Mesh& m, GraphManager::ChartHandle chart);
  * Returns the number of charts that could not be parameterized. */
 /// TODO update distortion info if needed (this should also be done through the graph manager)
 int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, double injectivityTolerance, bool retry);
+
+/* Pack the texture atlas encoded in the graph. Assumes the segmentation
+ * correctly reflects the thexture coordinates */
+void Pack(GraphHandle graph);
 
 
 void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, std::size_t minRegionSize);

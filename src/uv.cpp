@@ -30,6 +30,18 @@ Box2d UVBox(const Mesh& m)
     return uvbox;
 }
 
+Box2d UVBoxVertex(const Mesh& m)
+{
+    Box2d uvbox;
+    for(auto const& f : m.face) {
+        for (int i = 0; i < 3; ++i) {
+            uvbox.Add(f.cV(i)->T().P());
+        }
+    }
+    return uvbox;
+}
+
+
 double ComputeParameterizationScaleInfo(Mesh& m)
 {
     auto info = GetParameterizationScaleInfoAttribute(m);

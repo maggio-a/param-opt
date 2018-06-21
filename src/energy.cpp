@@ -30,7 +30,7 @@ Energy::Energy(Mesh& mesh)
     for (auto& f : m.face) {
         double area = (((P(&f, 1) - P(&f, 0)) ^ (P(&f, 2) - P(&f, 0))).Norm() / 2.0);
         surfaceArea += area;
-        if (f.holeFilling) holeFillingArea += area;
+        if (!f.IsMesh()) holeFillingArea += area;
     }
 }
 
@@ -50,7 +50,7 @@ double Energy::E_IgnoreMarkedFaces(bool normalized)
 {
     double e = 0;
     for (auto& f : m.face)
-        if (f.holeFilling == false)
+        if (f.IsMesh())
             e += E(f);
     return e / ((normalized) ? (surfaceArea - holeFillingArea) : 1.0);
 }

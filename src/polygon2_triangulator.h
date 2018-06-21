@@ -4,18 +4,19 @@
 #include <mapbox/earcut.hpp>
 
 using Poly2Point = std::array<double,2>;
-using Poly2 = std::vector<std::vector<Poly2Point>>;
+using Polyline2 = std::vector<std::array<double,2>>;
+using Poly2 = std::vector<Polyline2>;
 
-inline Poly2 BuildPolyline2(const std::vector<std::size_t> &vfi, const std::vector<int> &vvi, const Mesh& shell2D)
+inline Polyline2 BuildPolyline2(const std::vector<std::size_t> &vfi, const std::vector<int> &vvi, const Mesh& shell2D)
 {
-    std::vector<Poly2Point> polyline;
+    Polyline2 polyline;
     polyline.reserve(vfi.size());
     for (std::size_t i = 0; i < vfi.size(); ++i) {
         const vcg::Point3d& p = shell2D.face[vfi[i]].cP(vvi[i]);
         assert(p.Z() == 0.0);
         polyline.push_back({p.X(), p.Y()});
     }
-    return {polyline};
+    return polyline;
 }
 
 inline double LenPolyline2(const std::vector<std::size_t> &vfi, const std::vector<int> &vvi, const Mesh& shell2D)

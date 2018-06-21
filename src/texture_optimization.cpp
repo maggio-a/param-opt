@@ -1,5 +1,6 @@
 #include "texture_optimization.h"
 
+#include "mesh.h"
 #include "uv.h"
 #include "mesh_graph.h"
 #include "timer.h"
@@ -52,7 +53,7 @@ static bool SegmentBoxIntersection(const Segment2<double>& seg, const Box2d& box
             box.max[1] >= std::max(seg.P0()[1], seg.P1()[1]));
 }
 
-bool ChartParameterizationHasOverlaps(Mesh& m, GraphManager::ChartHandle chart)
+bool ChartParameterizationHasOverlaps(Mesh& m, FaceGroup& chart)
 {
     using OutlineIndex = std::pair<std::size_t, std::size_t>;
 
@@ -68,7 +69,7 @@ bool ChartParameterizationHasOverlaps(Mesh& m, GraphManager::ChartHandle chart)
 
     // init grid helper
     BasicGrid2D<double> gh;
-    gh.bbox = chart->UVBox();
+    gh.bbox = chart.UVBox();
     BestDim2D<double>(elems, gh.bbox.Dim(), gh.siz);
     gh.ComputeDimAndVoxel();
 
@@ -118,13 +119,154 @@ bool ChartParameterizationHasOverlaps(Mesh& m, GraphManager::ChartHandle chart)
                     std::cout << "( " <<  a1[0] << " , " << a1[1] << " ) (" << b1[0] << " , " << b1[1] << " )" << std::endl;
                     std::cout << "( " <<  a2[0] << " , " << a2[1] << " ) (" << b2[0] << " , " << b2[1] << " )" << std::endl;
                     std::cout << intersectionPoint[0] << " , " << intersectionPoint[1] << std::endl;
-                    return true;
+                    //return true;
+                    goto isec_detected;
                 }
             }
         }
     }
 
     return false;
+
+    isec_detected:
+
+    static int n = 0;
+
+    MyMesh edgeMesh;
+
+    std::vector<std::vector<Point3d>> outline3Vec;
+    for (auto& outline : outlines) {
+        std::vector<Point3d> vec;
+        for (auto& p : outline) {
+            vec.push_back(Point3d(p.X(), p.Y(), 0));
+        }
+        outline3Vec.push_back(vec);
+    }
+    tri::OutlineUtil<double>::ConvertOutline3VecToEdgeMesh(outline3Vec, edgeMesh);
+
+    std::stringstream ss;
+    ss << "outline_intersect_" << n++ << ".obj";
+
+    tri::io::Exporter<MyMesh>::Save(edgeMesh, ss.str().c_str(), io::Mask::IOM_VERTCOORD);
+
+
+    return true;
+
+}
+
+void RecoverFromSplit2(std::vector<ChartHandle>& split, GraphManager& gm, std::vector<ChartHandle>& chartVec)
+{
+    chartVec.clear();
+
+    GraphHandle graph = gm.Graph();
+    Mesh& m = graph->mesh;
+    auto ccid = GetConnectedComponentIDAttribute(m);
+
+    tri::UpdateTopology<Mesh>::FaceFaceFromTexCoord(m);
+
+    std::vector<Mesh::FacePointer> faces;
+    for (auto ch : split) {
+        for (auto fptr : ch->fpVec) faces.push_back(fptr);
+    }
+
+    std::vector<std::unordered_set<ChartHandle, FaceGroup::Hasher>> mergeSets;
+
+    ///TODO
+    /// handle the case where a single chart overlaps itself
+    ///
+
+    std::unordered_set<Mesh::FacePointer> visited;
+
+    for (auto fptr : faces) {
+        if (visited.count(fptr) == 0) {
+            std::unordered_set<ChartHandle, FaceGroup::Hasher> currentMerge;
+            std::unordered_set<RegionID> tabuList;
+            FaceGroup aggregate{m, INVALID_ID};
+            std::stack<Mesh::FacePointer> s;
+            std::unordered_set<Mesh::FacePointer> inStack;
+            s.push(fptr);
+            inStack.insert(fptr);
+            std::cout << "Seed face " << tri::Index(m, fptr) << std::endl;
+            while (!s.empty()) {
+                Mesh::FacePointer fp = s.top();
+                s.pop();
+                assert(visited.count(fp) == 0);
+
+                assert(inStack.count(fp) > 0);
+                inStack.erase(fp);
+
+                RegionID id = ccid[fp];
+                ChartHandle chfp = graph->GetChart(id);
+                bool expandVisit = false;
+
+                if (tabuList.count(id) > 0)
+                    continue;
+
+                if (currentMerge.count(chfp) > 0) {
+                    expandVisit = true;
+                } else {
+                    // see if adding the new region causes overlaps
+                    for (auto ffp : chfp->fpVec)
+                        aggregate.AddFace(ffp);
+
+                    if (ChartParameterizationHasOverlaps(m, aggregate)) {
+                        if (currentMerge.size() == 0) {
+                            std::cout << "single subchart overlaps " << id << std::endl;
+                        }
+                        // if it does, backtrack and forbid the merge
+                        aggregate.fpVec.erase(aggregate.fpVec.end() - chfp->fpVec.size(), aggregate.fpVec.end());
+                        tabuList.insert(id);
+                    } else {
+                        // otherwise record the merge and expand the visit
+                        expandVisit = true;
+                      }
+                }
+                if (expandVisit) {
+                    visited.insert(fp);
+                    if (currentMerge.count(chfp) == 0) {
+                        currentMerge.insert(chfp);
+                    }
+
+                    for (int i = 0; i < 3; ++i) {
+                        if ((inStack.count(fp->FFp(i)) == 0) && (visited.count(fp->FFp(i)) == 0) && (tabuList.count(ccid[fp->FFp(i)]) == 0)) {
+                            s.push(fp->FFp(i));
+                            inStack.insert(fp->FFp(i));
+                        }
+                    }
+                }
+            } // while (!s.empty())
+            assert(inStack.empty());
+            for (auto cc : currentMerge) {
+                for (auto ff : cc->fpVec)
+                    assert(visited.count(ff) > 0);
+            }
+            mergeSets.push_back(currentMerge);
+        }
+    }
+
+    tri::UpdateTopology<Mesh>::FaceFace(m);
+
+    int k = 0;
+    for (auto& set : mergeSets) {
+        std::cout << "Merge set " << k++ << " = ";
+        for (auto ch : set) {
+            std::cout << ch->id << " ";
+        }
+        std::cout << endl;
+        auto res = gm.Collapse(set.begin(), set.end());
+        assert(res.first == GraphManager::Collapse_OK);
+        chartVec.push_back(res.second);
+    }
+
+    for (std::size_t i = 0; i < chartVec.size(); ++i) {
+        std::stringstream ss;
+        ss.clear();
+        ss << "split_" << i << ".obj";
+        Mesh shell;
+        BuildShell(shell, *chartVec[i], ParameterizationGeometry::Texture, true);
+        tri::io::Exporter<Mesh>::Save(shell, ss.str().c_str(), tri::io::Mask::IOM_ALL);
+    }
+
 }
 
 void PreprocessMesh(Mesh& m)
@@ -311,6 +453,8 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
             std::cout << "Parameterization failed" << std::endl;
         }
 
+        /// TODO FIXME if the parameterization failed with retry == true this sets up the subcharts
+        /// to use warm start, which is meaningless
         if (ok) {
             // If the parameterization is valid, scale chart relative to the original parameterization area value
             // Normalize area: the region gets scaled by sqrt(oldUVArea)/sqrt(newUVArea) to keep the original proportions
@@ -335,7 +479,7 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
             gm.Split(chart->id, splitCharts);
             if (retry) {
                 std::vector<ChartHandle> newCharts;
-                RecoverFromSplit(splitCharts, gm, newCharts);
+                RecoverFromSplit2(splitCharts, gm, newCharts);
                 for (auto& c : newCharts)
                     paramQueue.push_back(ParamTask{c, true});
                     //paramQueue.push_back(ParamTask{c, false});
@@ -356,6 +500,13 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
         std::cout << "Iteration " << iter++ << " took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
     }
 
+    std::cout << "Parameterization took " << timer.TimeElapsed() << " seconds" << std::endl;
+
+    return numFailed;
+}
+
+void Pack(GraphHandle graph)
+{
     // Pack the atlas
 
     tri::UpdateTopology<Mesh>::FaceFaceFromTexCoord(graph->mesh);
@@ -371,7 +522,7 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
 
         // Save the outline of the parameterization for this portion of the mesh
         std::vector<std::vector<Point2f>> uvOutlines;
-        ChartOutlinesUV(graph->mesh, chart, uvOutlines);
+        ChartOutlinesUV(graph->mesh, *chart, uvOutlines);
         int i = tri::OutlineUtil<float>::LargestOutline2(uvOutlines);
         if (tri::OutlineUtil<float>::Outline2Area(uvOutlines[i]) < 0)
             tri::OutlineUtil<float>::ReverseOutline2(uvOutlines[i]);
@@ -380,9 +531,10 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
         texOutlines.push_back(uvOutlines[i]);
     }
 
-    std::cout << "Parameterization took " << timer.TimeElapsed() << " seconds" << std::endl;
 
     std::cout << "Packing the atlas..." << std::endl;
+
+    Timer timer;
 
     // pack the atlas TODO function parameter to choose the packing strategy
     RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Parameters packingParam;
@@ -392,7 +544,7 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
     packingParam.pad = 4;
     packingParam.rotationNum = 16; //number of rasterizations in 90°
 
-    TextureObjectHandle to = gm.Graph()->textureObject;
+    TextureObjectHandle to = graph->textureObject;
     int gridWidth = to->TextureWidth(0) / 2;
     int gridHeight = to->TextureHeight(0) / 2;
     Point2i gridSize(gridWidth, gridHeight);
@@ -419,8 +571,6 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
             }
         }
     }
-
-    return numFailed;
 }
 
 void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, std::size_t minRegionSize)

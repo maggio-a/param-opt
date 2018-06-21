@@ -17,7 +17,7 @@ void MarkInitialSeamsAsFaux(Mesh& shell, Mesh& baseMesh)
     assert(HasFaceIndexAttribute(shell));
     auto ia = GetFaceIndexAttribute(shell);
     for (auto& sf : shell.face) {
-        if (sf.holeFilling == false) {
+        if (sf.IsMesh()) {
             for (int i = 0; i < 3; ++i) {
                 auto& f = baseMesh.face[ia[sf]];
                 if (f.IsF(i) && !face::IsBorder(sf, i)) {
@@ -235,7 +235,7 @@ bool RectifyCut(Mesh& shell, PosF boundaryPos)
         if (!p.IsBorder() && !reachedFillArea) {
             PosF pp = p;
             do {
-                if (pp.F()->holeFilling)
+                if (pp.F()->IsHoleFilling())
                     reachedFillArea = true;
                 pp.FlipF();
                 pp.FlipE();
@@ -273,7 +273,7 @@ void CleanupShell(Mesh& shell)
     // If a fill area touches the cut even with one single vertex, it must be removed
     tri::UpdateFlags<Mesh>::FaceClearV(shell);
     for (auto& sf : shell.face) {
-        if (sf.holeFilling && !sf.IsV()) {
+        if (sf.IsHoleFilling() && !sf.IsV()) {
             bool fillAreaReached = false;
             for (int i = 0; i < 3; ++i) {
                 if (sf.V(i)->IsS()) fillAreaReached = true;
@@ -287,7 +287,7 @@ void CleanupShell(Mesh& shell)
                     s.pop();
                     fp->SetV();
                     for (int i = 0; i < 3; ++i) {
-                        if (!fp->FFp(i)->IsV() && fp->FFp(i)->holeFilling) {
+                        if (!fp->FFp(i)->IsV() && fp->FFp(i)->IsHoleFilling()) {
                             s.push(fp->FFp(i));
                         }
                     }

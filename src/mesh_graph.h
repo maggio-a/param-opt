@@ -83,6 +83,8 @@ void RemeshShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh
  * See mesh_attribute.h */
 bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeometry, bool useExistingUV);
 
+void BuildScaffold(Mesh& shell);
+
 /* Computes the UV outline(s) of the given chart. If the chart has no outlines,
  * which can happen for some inputs on small closed components that are ignored
  * by the reparameterization procedure, it returns as outline the bounding box
@@ -90,8 +92,8 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
  * NOTE: It assumes the face-face topology is computed according to the wedge
  * texture coordinates of the chart/mesh */
 /// FIXME if the chart is an aggregate that has not been reparameterized this breaks...
-void ChartOutlinesUV(Mesh& m, ChartHandle chart, std::vector<std::vector<Point2d>> &outline2Vec);
-void ChartOutlinesUV(Mesh& m, ChartHandle chart, std::vector<std::vector<Point2f>> &outline2Vec);
+void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2d>> &outline2Vec);
+void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2f>> &outline2Vec);
 
 /* FaceGroup class
  * Used to store a mesh chart as an array of Face pointers */
