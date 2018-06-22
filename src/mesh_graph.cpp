@@ -346,6 +346,7 @@ void BuildScaffold(Mesh& shell)
     int n = 0;
     Timer t;
     do {
+        std::cout << "here at " << t.TimeElapsed() << std::endl;
         params.stat.Reset();
         IsotropicRemeshing<Mesh>::Do(shell, params);
         if (h++ % 10 == 0) {
@@ -354,7 +355,6 @@ void BuildScaffold(Mesh& shell)
             vcg::tri::io::Exporter<Mesh>::Save(shell, ss.str().c_str(), tri::io::Mask::IOM_VERTTEXCOORD);
         }
         std::cout << params.stat.collapseNum << " " << params.stat.flipNum << " " <<  params.stat.splitNum << std::endl;
-        std::cout << "Remesh iteration took " << t.TimeSinceLastCheck() << std::endl;
     } while (params.stat.collapseNum + params.stat.flipNum + params.stat.splitNum > 0);
 
     tri::Allocator<Mesh>::CompactEveryVector(shell);
@@ -407,9 +407,12 @@ static void DoRemesh(Mesh& shell)
     params.smoothFlag = false;
     params.projectFlag = false;
     params.iter = 3;
+    constexpr int MAX_ITER = 12;
+    int iter = 0;
     do {
         IsotropicRemeshing<Mesh>::Do(shell, params);
-    } while (params.stat.collapseNum + params.stat.flipNum + params.stat.splitNum > 0);
+        iter += params.iter;
+    } while (params.stat.collapseNum + params.stat.flipNum + params.stat.splitNum > 0 && iter < MAX_ITER);
 
     tri::Allocator<Mesh>::CompactEveryVector(shell);
     ColorFace(shell);

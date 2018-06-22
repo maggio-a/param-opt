@@ -33,16 +33,12 @@ bool ChartParameterizationHasOverlaps(Mesh& m, GraphManager::ChartHandle chart);
 /* Parameterize the mesh graph. The parameterization of each region is performed
  * according to the ParameterizationStrategy passed.
  * The injectivityTolerance parameter is the fraction of overlapping fragments
- * in the rasterized parameterization above which the chart is split into its
- * original components.
- * If retry is true, the original components are merged into two sub-charts and
- * parameterized again, until valid parameterizations are produced or the split
- * can no longer be performed, in which case the original texture coordinates
- * are restored.
- * After each region is parameterized the procedure packs the texture atlas.
+ * - in the rasterized parameterization - above which backtracking is triggered.
  * Returns the number of charts that could not be parameterized. */
 /// TODO update distortion info if needed (this should also be done through the graph manager)
-int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, double injectivityTolerance, bool retry);
+int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, double injectivityTolerance);
+
+void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, std::vector<ChartHandle>& chartVec, bool binarySplit);
 
 /* Pack the texture atlas encoded in the graph. Assumes the segmentation
  * correctly reflects the thexture coordinates */

@@ -1822,11 +1822,10 @@ void MeshViewer::ManageImGuiState()
             } else {
                 auto id = primaryCharts.begin()->first;
                 ClearSelection();
-                extern void RecoverFromSplit2(std::vector<ChartHandle>& split, GraphManager& gm, std::vector<ChartHandle>& chartVec);
                 std::vector<ChartHandle> splitCharts;
                 gm->Split(id, splitCharts);
                 std::vector<ChartHandle> newCharts;
-                RecoverFromSplit2(splitCharts, *gm, newCharts);
+                RecoverFromSplit(splitCharts, *gm, newCharts, true);
                 for (auto& c : newCharts)
                     std::cout << "Chart " << c->id << " is new" << std::endl;
             }
@@ -1870,7 +1869,6 @@ void MeshViewer::ManageImGuiState()
 
         UpdateDetailBuffers();
     }
-
 
     if (updateTexcoord || updateColor) {
         glBindBuffer(GL_ARRAY_BUFFER, _vertexBuffers.mesh);

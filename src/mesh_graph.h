@@ -339,6 +339,11 @@ public:
         } else return std::make_pair(p.first, nullptr);
     }
 
+    bool ExistsEdge(GraphManager::Edge e)
+    {
+        return edges.count(e) > 0;
+    }
+
 private:
 
     std::shared_ptr<MeshGraph> g;

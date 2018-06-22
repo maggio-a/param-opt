@@ -119,8 +119,8 @@ bool ChartParameterizationHasOverlaps(Mesh& m, FaceGroup& chart)
                     std::cout << "( " <<  a1[0] << " , " << a1[1] << " ) (" << b1[0] << " , " << b1[1] << " )" << std::endl;
                     std::cout << "( " <<  a2[0] << " , " << a2[1] << " ) (" << b2[0] << " , " << b2[1] << " )" << std::endl;
                     std::cout << intersectionPoint[0] << " , " << intersectionPoint[1] << std::endl;
-                    //return true;
-                    goto isec_detected;
+                    return true;
+                    //goto isec_detected;
                 }
             }
         }
@@ -154,7 +154,7 @@ bool ChartParameterizationHasOverlaps(Mesh& m, FaceGroup& chart)
 
 }
 
-void RecoverFromSplit2(std::vector<ChartHandle>& split, GraphManager& gm, std::vector<ChartHandle>& chartVec)
+void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, std::vector<ChartHandle>& chartVec, bool binarySplit)
 {
     chartVec.clear();
 
@@ -171,16 +171,12 @@ void RecoverFromSplit2(std::vector<ChartHandle>& split, GraphManager& gm, std::v
 
     std::vector<std::unordered_set<ChartHandle, FaceGroup::Hasher>> mergeSets;
 
-    ///TODO
-    /// handle the case where a single chart overlaps itself
-    ///
-
     std::unordered_set<Mesh::FacePointer> visited;
 
     for (auto fptr : faces) {
         if (visited.count(fptr) == 0) {
             std::unordered_set<ChartHandle, FaceGroup::Hasher> currentMerge;
-            std::unordered_set<RegionID> tabuList;
+            std::unordered_set<RegionID> forbidden;
             FaceGroup aggregate{m, INVALID_ID};
             std::stack<Mesh::FacePointer> s;
             std::unordered_set<Mesh::FacePointer> inStack;
@@ -199,7 +195,7 @@ void RecoverFromSplit2(std::vector<ChartHandle>& split, GraphManager& gm, std::v
                 ChartHandle chfp = graph->GetChart(id);
                 bool expandVisit = false;
 
-                if (tabuList.count(id) > 0)
+                if (forbidden.count(id) > 0)
                     continue;
 
                 if (currentMerge.count(chfp) > 0) {
@@ -211,15 +207,22 @@ void RecoverFromSplit2(std::vector<ChartHandle>& split, GraphManager& gm, std::v
 
                     if (ChartParameterizationHasOverlaps(m, aggregate)) {
                         if (currentMerge.size() == 0) {
+                            // handle special case where a single subchart is overlapping by removing it
                             std::cout << "single subchart overlaps " << id << std::endl;
+                            assert(inStack.size() == 0 && s.size() == 0); // we detect this from the starting face
+                            for (auto fptr : chfp->fpVec) {
+                                visited.insert(fptr); // set all the subchart faces as visited
+                            }
+                            currentMerge.insert(chfp);
+                            break;
+                        } else {
+                            // if it does, backtrack and forbid the merge
+                            aggregate.fpVec.erase(aggregate.fpVec.end() - chfp->fpVec.size(), aggregate.fpVec.end());
+                            forbidden.insert(id);
                         }
-                        // if it does, backtrack and forbid the merge
-                        aggregate.fpVec.erase(aggregate.fpVec.end() - chfp->fpVec.size(), aggregate.fpVec.end());
-                        tabuList.insert(id);
                     } else {
-                        // otherwise record the merge and expand the visit
                         expandVisit = true;
-                      }
+                    }
                 }
                 if (expandVisit) {
                     visited.insert(fp);
@@ -228,7 +231,7 @@ void RecoverFromSplit2(std::vector<ChartHandle>& split, GraphManager& gm, std::v
                     }
 
                     for (int i = 0; i < 3; ++i) {
-                        if ((inStack.count(fp->FFp(i)) == 0) && (visited.count(fp->FFp(i)) == 0) && (tabuList.count(ccid[fp->FFp(i)]) == 0)) {
+                        if ((inStack.count(fp->FFp(i)) == 0) && (visited.count(fp->FFp(i)) == 0) && (forbidden.count(ccid[fp->FFp(i)]) == 0)) {
                             s.push(fp->FFp(i));
                             inStack.insert(fp->FFp(i));
                         }
@@ -258,14 +261,50 @@ void RecoverFromSplit2(std::vector<ChartHandle>& split, GraphManager& gm, std::v
         chartVec.push_back(res.second);
     }
 
+    if (binarySplit) {
+        while (chartVec.size() > 2) {
+            std::sort(chartVec.begin(), chartVec.end(),
+                          [](const ChartHandle& c1, const ChartHandle& c2) { return c1->Area3D() < c2->Area3D(); }
+            );
+
+            ChartHandle c0 = chartVec[0];
+            for (std::size_t i = 1; i < chartVec.size(); ++i) {
+                ChartHandle ci = chartVec[i];
+                GraphManager::Edge e{c0, chartVec[i]};
+                if (gm.ExistsEdge(e)) {
+                    ChartHandle merged = gm.Collapse(e);
+                    chartVec.erase(std::remove_if(chartVec.begin(), chartVec.end(), [&](const ChartHandle& ch) { return ch == c0 || ch == ci; }),
+                            chartVec.end());
+                    chartVec.push_back(merged);
+                    break;
+                }
+            }
+        }
+    }
+
+    /*
+    static int n = 0;
+
     for (std::size_t i = 0; i < chartVec.size(); ++i) {
         std::stringstream ss;
         ss.clear();
-        ss << "split_" << i << ".obj";
+        ss << "split_" << n << "_" << i << ".obj";
         Mesh shell;
         BuildShell(shell, *chartVec[i], ParameterizationGeometry::Texture, true);
+        MarkInitialSeamsAsFaux(shell, m);
+        for (auto& sf : shell.face) {
+            for (int i = 0; i < 3; ++i) {
+                if (sf.IsF(i)) {
+                    sf.C() = vcg::Color4b::Blue;
+                    sf.FFp(i)->C() = vcg::Color4b::Blue;
+                }
+            }
+        }
         tri::io::Exporter<Mesh>::Save(shell, ss.str().c_str(), tri::io::Mask::IOM_ALL);
     }
+    n++;
+    */
+
 
 }
 
@@ -330,52 +369,7 @@ void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
     std::cout << "[LOG] Newly parameterized regions: " << numParameterized << "/" << numNoParam << std::endl;
 }
 
-/* Ugly function that tries to perform subsequent merges after a split. It uses
- * a very simple heuristic that selects the two largest charts in the split, and
- * iteratively grows them until all the charts in the split are covered,
- * producing to 2 new aggregates that will be parameterized independently */
-static void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, std::vector<ChartHandle>& chartVec)
-{
-    chartVec.clear();
-
-    std::sort(split.begin(), split.end(),
-              [](const ChartHandle& c1, const ChartHandle& c2) { return c1->Area3D() > c2->Area3D(); }
-    );
-    ChartHandle c1 = split[0];
-    ChartHandle c2 = split[1];
-
-    std::unordered_set<ChartHandle, FaceGroup::Hasher> charts;
-    for (std::size_t i = 2; i < split.size(); ++i) {
-        charts.insert(split[i]);
-    }
-
-    while (charts.size() > 0) {
-        // grow c1
-        for (auto ch : c1->adj) {
-            if (charts.count(ch) == 1) {
-                charts.erase(ch);
-                c1 = gm.Collapse(GraphManager::Edge(c1, ch));
-                break;
-            }
-        }
-
-        // grow c2
-        for (auto ch : c2->adj) {
-            if (charts.count(ch) == 1) {
-                charts.erase(ch);
-                c2 = gm.Collapse(GraphManager::Edge(c2, ch));
-                break;
-            }
-        }
-    }
-
-    chartVec.push_back(c1);
-    chartVec.push_back(c2);
-    std::cout << "Recovery produced two charts of sizes " << c1->numMerges + 1 << " (" << c1->id << ") and "
-              << c2->numMerges + 1 << " (" << c2->id << ")" << std::endl;
-}
-
-int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, double injectivityTolerance, bool retry)
+int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, double injectivityTolerance)
 {
     struct ParamTask {
         ChartHandle chart;
@@ -435,63 +429,60 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
             strat.warmStart = true;
 
         ParameterizerObject po{chart, strat};
-        bool ok = po.Parameterize();
-        if (ok) {
+        bool parameterized = po.Parameterize();
+        if (parameterized) {
             std::cout << "  Chart parameterized correctly" << std::endl;
             po.SyncChart();
+
+            bool backtrack = false;
             if (injectivityCheckRequired) {
                 RasterizedParameterizationStats stats = GetRasterizationStats(chart, 1024, 1024);
                 double fraction = stats.lostFragments / (double) stats.totalFragments;
                 if (fraction > injectivityTolerance) {
-                    std::cout << "WARNING: REGION " << chart->id << " HAS OVERLAPS IN THE PARAMETERIZATION "
-                              << "(overlap fraction = " << fraction << ")" << std::endl;
-                    ok = false;
+                    std::cout << "WARNING: REGION " << chart->id << " HAS OVERLAPS IN THE PARAMETERIZATION (overlap fraction = " << fraction << ")" << std::endl;
+                    backtrack = true;
                 }
+
+            }
+            if (backtrack) {
+                // split the chart in the mesh graph using the graph manager, and readd
+                // the new task with the warmStart flag set to true
+                std::vector<ChartHandle> splitCharts;
+                gm.Split(chart->id, splitCharts);
+                std::vector<ChartHandle> newCharts;
+                RecoverFromSplit(splitCharts, gm, newCharts, true);
+                for (auto& c : newCharts)
+                    paramQueue.push_back(ParamTask{c, true});
+            } else {
+                // If the parameterization is valid, scale chart relative to the original parameterization area value
+                // Normalize area: the region gets scaled by sqrt(oldUVArea)/sqrt(newUVArea) to keep the original proportions
+                // between the regions of the atlas in an attempt to not lose too much texture data when the new texture is rendered
+                double oldUvArea = chart->OriginalAreaUV();
+                double newUvArea = chart->AreaUV();
+                double scale = std::sqrt(oldUvArea / newUvArea);
+                assert(scale > 0);
+                // scale shoud be very close to 1 if we optimize for area distortion wrt to original uv coords
+                std::cout << "Chart scale value = " << scale << std::endl;
+                vcg::Box2d uvBox = chart->UVBox();
+                for (auto fptr : chart->fpVec) {
+                    for (int i = 0; i < 3; ++i) {
+                        fptr->WT(i).P() = (fptr->WT(i).P() - uvBox.min) * scale;
+                    }
+                }
+                chart->numMerges = 0;
             }
         } else {
             numFailed++;
             std::cout << "Parameterization failed" << std::endl;
-        }
-
-        /// TODO FIXME if the parameterization failed with retry == true this sets up the subcharts
-        /// to use warm start, which is meaningless
-        if (ok) {
-            // If the parameterization is valid, scale chart relative to the original parameterization area value
-            // Normalize area: the region gets scaled by sqrt(oldUVArea)/sqrt(newUVArea) to keep the original proportions
-            // between the regions of the atlas in an attempt to not lose too much texture data when the new texture is rendered
-            double oldUvArea = chart->OriginalAreaUV();
-            double newUvArea = chart->AreaUV();
-            double scale = std::sqrt(oldUvArea / newUvArea);
-            assert(scale > 0);
-            // scale shoud be very close to 1 if we optimize for area distortion wrt to original uv coords
-            std::cout << "Chart scale value = " << scale << std::endl;
-            vcg::Box2d uvBox = chart->UVBox();
-            for (auto fptr : chart->fpVec) {
-                for (int i = 0; i < 3; ++i) {
-                    fptr->WT(i).P() = (fptr->WT(i).P() - uvBox.min) * scale;
-                }
-            }
-            chart->numMerges = 0;
-        } else {
-            // split the chart in the mesh graph using the graph manager, and readd
-            // the new task with the warmStart flag set to true
+            // split the aggregate and restore the original uvs
             std::vector<ChartHandle> splitCharts;
             gm.Split(chart->id, splitCharts);
-            if (retry) {
-                std::vector<ChartHandle> newCharts;
-                RecoverFromSplit2(splitCharts, gm, newCharts);
-                for (auto& c : newCharts)
-                    paramQueue.push_back(ParamTask{c, true});
-                    //paramQueue.push_back(ParamTask{c, false});
-            } else {
-                // restore original texture coordinates for each chart
-                for (auto split : splitCharts) {
-                    for (auto fptr : split->fpVec) {
-                        TexCoordStorage tcs = wtcsattr[fptr];
-                        for (int i = 0; i < 3; ++i) {
-                            fptr->WT(i) = tcs.tc[i];
-                            fptr->V(i)->T() = tcs.tc[i];
-                        }
+            for (auto split : splitCharts) {
+                for (auto fptr : split->fpVec) {
+                    TexCoordStorage tcs = wtcsattr[fptr];
+                    for (int i = 0; i < 3; ++i) {
+                        fptr->WT(i) = tcs.tc[i];
+                        fptr->V(i)->T() = tcs.tc[i];
                     }
                 }
             }

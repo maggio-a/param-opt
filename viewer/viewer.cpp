@@ -191,8 +191,8 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
     strategy.padBoundaries = true;
     strategy.applyCut = true;
     strategy.warmStart = false;
-    //double tolerance = 0.0005;
-    double tolerance = -1;
+    double tolerance = 0.0005;
+    //double tolerance = -1;
 
     LogStrategy(strategy, tolerance);
 
@@ -220,7 +220,7 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
     RecomputeSegmentation(gm, regionCount + smallcomponents, minRegionSize);
     //ReduceTextureFragmentation_NoPacking(gm, minRegionSize);
 
-    int c = ParameterizeGraph(gm, strategy, tolerance, true);
+    int c = ParameterizeGraph(gm, strategy, tolerance);
     //int c = ParameterizeGraph(gm, strategy, -1, true);
     if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
 

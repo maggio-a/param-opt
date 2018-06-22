@@ -60,6 +60,8 @@ void ParameterizerObject::Reset()
     InitializeOptimizer();
     SyncShellWithUV(shell);
     MarkInitialSeamsAsFaux(shell, baseMesh);
+
+    tri::io::Exporter<Mesh>::Save(shell, "shell_init.obj", tri::io::Mask::IOM_ALL);
 }
 
 void ParameterizerObject::SyncChart()
@@ -808,7 +810,7 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf, c
     */
     Mesh& m = shell;
 
-    //vcg::tri::io::Exporter<Mesh>::Save(m, "shell_model.ply");
+    vcg::tri::io::Exporter<Mesh>::Save(m, "shell_model.ply");
 
     Timer timer;
 
