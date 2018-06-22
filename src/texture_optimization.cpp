@@ -410,15 +410,12 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
         ChartHandle chart = task.chart;
         std::cout << "Chart " << chart->id << " - FN=" << chart->FN() << ", FI=" << tri::Index(graph->mesh, chart->Fp()) << std::endl;
         if (chart->numMerges == 0) {
-            // if there are no merges and the ws flag is set, then this chart
-            // is the result of a final split, so restore the initial texture coordinates
-            if (task.warmStart == true) {
-                for (auto fptr : chart->fpVec) {
-                    TexCoordStorage tcs = wtcsattr[fptr];
-                    for (int i = 0; i < 3; ++i) {
-                        fptr->WT(i) = tcs.tc[i];
-                        fptr->V(i)->T() = tcs.tc[i];
-                    }
+            // restore the initial texture coordinates
+            for (auto fptr : chart->fpVec) {
+                TexCoordStorage tcs = wtcsattr[fptr];
+                for (int i = 0; i < 3; ++i) {
+                    fptr->WT(i) = tcs.tc[i];
+                    fptr->V(i)->T() = tcs.tc[i];
                 }
             }
             continue;
@@ -452,7 +449,8 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
                 std::vector<ChartHandle> newCharts;
                 RecoverFromSplit(splitCharts, gm, newCharts, true);
                 for (auto& c : newCharts)
-                    paramQueue.push_back(ParamTask{c, true});
+                    //paramQueue.push_back(ParamTask{c, true});
+                    paramQueue.push_back(ParamTask{c, false});
             } else {
                 // If the parameterization is valid, scale chart relative to the original parameterization area value
                 // Normalize area: the region gets scaled by sqrt(oldUVArea)/sqrt(newUVArea) to keep the original proportions
