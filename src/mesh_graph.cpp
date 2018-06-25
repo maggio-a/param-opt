@@ -28,6 +28,8 @@
 
 #include <QImage>
 
+static constexpr int MAX_REMESH_ITER = 12;
+
 // assumes topology is correct
 void ComputeBoundaryInfo(Mesh& m)
 {
@@ -271,9 +273,23 @@ void CloseShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh&
     }
 }
 
-void BuildScaffold(Mesh& shell)
+void RebuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& inputMesh)
 {
-    // Compute uv box and make it square and larger so that the shell can be embedded
+    for (auto& sf : shell.face)
+        if (sf.IsScaffold())
+            tri::Allocator<Mesh>::DeleteFace(shell, sf);
+
+    tri::Clean<Mesh>::RemoveUnreferencedVertex(shell);
+    tri::UpdateTopology<Mesh>::FaceFace(shell);
+    tri::UpdateTopology<Mesh>::VertexFace(shell);
+    tri::Allocator<Mesh>::CompactEveryVector(shell);
+
+    BuildScaffold(shell, targetGeometry, inputMesh);
+}
+
+void BuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& inputMesh)
+{
+    // Compute uv box and make it square and larger to fit the shell in
     Box2d uvBox = UVBoxVertex(shell);
     uvBox.MakeSquare();
     Point2d diag = uvBox.max - uvBox.min;
@@ -321,8 +337,9 @@ void BuildScaffold(Mesh& shell)
         fi++;
     }
 
+    std::cout << "scaf before remesh = " << indices.size() / 3 << std::endl;
+
     tri::UpdateTopology<Mesh>::FaceFace(shell);
-    vcg::tri::io::Exporter<Mesh>::Save(shell, "scaffold.obj", tri::io::Mask::IOM_VERTTEXCOORD);
 
     // Remesh scaffold to improve triangulation quality
 
@@ -342,24 +359,60 @@ void BuildScaffold(Mesh& shell)
     params.smoothFlag = false;
     params.projectFlag = false;
     params.iter = 3;
-    int h = 0;
-    int n = 0;
-    Timer t;
+    int iter = 0;
     do {
-        std::cout << "here at " << t.TimeElapsed() << std::endl;
         params.stat.Reset();
         IsotropicRemeshing<Mesh>::Do(shell, params);
-        if (h++ % 10 == 0) {
-            std::stringstream ss;
-            ss << "scaffold_remesh_" << n++ << ".obj";
-            vcg::tri::io::Exporter<Mesh>::Save(shell, ss.str().c_str(), tri::io::Mask::IOM_VERTTEXCOORD);
-        }
-        std::cout << params.stat.collapseNum << " " << params.stat.flipNum << " " <<  params.stat.splitNum << std::endl;
-    } while (params.stat.collapseNum + params.stat.flipNum + params.stat.splitNum > 0);
+        iter += params.iter;
+    } while (params.stat.collapseNum + params.stat.flipNum + params.stat.splitNum > 0 && iter < MAX_REMESH_ITER);
 
     tri::Allocator<Mesh>::CompactEveryVector(shell);
 
-    assert(0);
+    int count = 0;
+
+    for (auto& sf : shell.face) {
+        if (sf.IsScaffold()) {
+            count++;
+            ia[sf] = -1;
+            for (int i = 0; i < 3; ++i) {
+                sf.V(i)->T().U() = sf.cP(i).X();
+                sf.V(i)->T().V() = sf.cP(i).Y();
+            }
+        }
+    }
+    tri::UpdateTopology<Mesh>::FaceFace(shell);
+    tri::UpdateTopology<Mesh>::VertexFace(shell);
+
+    std::cout << "scaf after remesh = " << count << std::endl;
+
+
+    // Compute average areas
+    auto psi = GetParameterizationScaleInfoAttribute(inputMesh);
+    auto tsa = GetTargetShapeAttribute(shell);
+    double avg3D = psi().surfaceArea / psi().numNonZero;
+    double avgUV = psi().parameterArea / psi().numNonZero;
+
+    for (auto& sf : shell.face) {
+        // only update target shape of the readded hole-filling faces
+        if (sf.IsScaffold()) {
+            CoordStorage target;
+            double scale = 1.0;
+            if (targetGeometry == Model)
+                scale = std::sqrt(avg3D / DistortionMetric::Area3D(sf));
+            else if (targetGeometry == Texture)
+                scale = std::sqrt(avgUV / DistortionMetric::Area3D(sf));
+            else
+                assert(0 && "Unexpected targetGeometry parameter value");
+            assert(scale > 0);
+            target.P[0] = sf.P(0) * scale;
+            target.P[1] = sf.P(1) * scale;
+            target.P[2] = sf.P(2) * scale;
+            tsa[sf] = target;
+        }
+    }
+
+
+    vcg::tri::io::Exporter<Mesh>::Save(shell, "scaffold.obj", tri::io::Mask::IOM_VERTTEXCOORD);
 }
 
 static void DoRemesh(Mesh& shell)
@@ -407,12 +460,11 @@ static void DoRemesh(Mesh& shell)
     params.smoothFlag = false;
     params.projectFlag = false;
     params.iter = 3;
-    constexpr int MAX_ITER = 12;
     int iter = 0;
     do {
         IsotropicRemeshing<Mesh>::Do(shell, params);
         iter += params.iter;
-    } while (params.stat.collapseNum + params.stat.flipNum + params.stat.splitNum > 0 && iter < MAX_ITER);
+    } while (params.stat.collapseNum + params.stat.flipNum + params.stat.splitNum > 0 && iter < MAX_REMESH_ITER);
 
     tri::Allocator<Mesh>::CompactEveryVector(shell);
     ColorFace(shell);

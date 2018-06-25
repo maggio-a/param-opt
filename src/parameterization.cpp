@@ -55,6 +55,12 @@ void ParameterizerObject::Reset()
     assert(CheckUVConnectivity(shell));
     assert(CheckLocalInjectivity(shell));
 
+    std::cout << "!!!!    WARNING: FORCING strategy.scaffold TO true    !!!!" << std::endl;
+    strategy.scaffold = true;
+
+    if (strategy.scaffold)
+        BuildScaffold(shell, strategy.geometry, baseMesh);
+
     if (strategy.padBoundaries == false)
         ClearHoleFillingFaces(shell);
     InitializeOptimizer();
@@ -395,6 +401,12 @@ IterationInfo ParameterizerObject::Iterate()
     info.energyVal = opt->Iterate(info.gradientNorm, info.energyDiff);
     SyncShellWithUV(shell);
     iterationCount++;
+
+    if (strategy.scaffold) {
+        RebuildScaffold(shell, strategy.geometry, baseMesh);
+        opt->UpdateCache();
+    }
+
     return info;
 }
 

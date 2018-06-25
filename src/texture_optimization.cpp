@@ -149,7 +149,6 @@ bool ChartParameterizationHasOverlaps(Mesh& m, FaceGroup& chart)
 
     tri::io::Exporter<MyMesh>::Save(edgeMesh, ss.str().c_str(), io::Mask::IOM_VERTCOORD);
 
-
     return true;
 
 }
@@ -326,7 +325,7 @@ void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
     int numNoParam = 0;
     int numParameterized = 0;
 
-    ParameterizationStrategy strategy;
+    ParameterizationStrategy strategy = DefaultStrategy();
     strategy.directParameterizer = FixedBorderBijective;
     strategy.energy = EnergyType::SymmetricDirichlet;
     strategy.geometry = Model;

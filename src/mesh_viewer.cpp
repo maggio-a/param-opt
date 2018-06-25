@@ -334,7 +334,8 @@ MeshViewer::MeshViewer(GraphHandle gh, const std::string& fileName_)
       minRegionSize{0},
       _textureCamera{},
       _detailCamera{},
-      uvRatio{_currentTexture->TextureWidth(0) / (double) _currentTexture->TextureHeight(0)}
+      uvRatio{_currentTexture->TextureWidth(0) / (double) _currentTexture->TextureHeight(0)},
+      strategy(DefaultStrategy())
 {
     Mesh& m = graph->mesh;
     if (m.FN() < 100000)
@@ -353,7 +354,6 @@ MeshViewer::MeshViewer(GraphHandle gh, const std::string& fileName_)
         auto color = vcg::Color4f::Scatter(20, c.first % 20, 0.75f);
         regionColors.insert(std::make_pair(c.first, color/255.0f));
     }
-    strategy = DefaultStrategy();
 }
 
 bool MeshViewer::InPerspectiveView()

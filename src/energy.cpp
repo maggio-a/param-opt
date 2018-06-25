@@ -203,6 +203,8 @@ void SymmetricDirichletEnergy::UpdateCache()
     data.UpdateSize();
     for (auto&f : m.face) {
         data[f][3] = (((P(&f, 1) - P(&f, 0)) ^ (P(&f, 2) - P(&f, 0))).Norm() / 2.0);
+        double a = data[f][3];
+        int k = tri::Index(m, f);
         assert(!std::isnan(data[f][3]));
         assert(std::isfinite(data[f][3]));
         assert(data[f][3] > 0);

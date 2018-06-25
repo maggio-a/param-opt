@@ -29,8 +29,9 @@ struct ParameterizationStrategy {
     bool padBoundaries; // keep holes filled while optimizing from FixedBorderBijective
     bool applyCut;
     bool warmStart;
+    bool scaffold;
 
-    ParameterizationStrategy() = default;
+    ParameterizationStrategy() = delete;
     ParameterizationStrategy(const ParameterizationStrategy&) = default;
 };
 
@@ -41,7 +42,7 @@ inline ParameterizationStrategy DefaultStrategy()
         EnergyType::SymmetricDirichlet,
         ParameterizationGeometry::Model,
         DescentType::ScalableLocallyInjectiveMappings,
-        0, false, false, false
+        0, false, false, false, false
     };
 }
 
@@ -52,7 +53,8 @@ inline ParameterizationStrategy MakeStrategy(DirectParameterizer directParameter
                                              int optimizerIterations,
                                              bool padBoundaries,
                                              bool applyCut,
-                                             bool warmStart)
+                                             bool warmStart,
+                                             bool scaffold)
 {
     return ParameterizationStrategy{
         directParameterizer,
@@ -62,7 +64,8 @@ inline ParameterizationStrategy MakeStrategy(DirectParameterizer directParameter
         optimizerIterations,
         padBoundaries,
         applyCut,
-        warmStart
+        warmStart,
+        scaffold
     };
 }
 

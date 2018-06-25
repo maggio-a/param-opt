@@ -181,7 +181,7 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
         std::cout << "WARNING: minFaceCount > m.FN()" << std::endl;
     }
 
-    ParameterizationStrategy strategy;
+    ParameterizationStrategy strategy = DefaultStrategy();
     strategy.directParameterizer = FixedBorderBijective;
     strategy.energy = EnergyType::SymmetricDirichlet;
     strategy.geometry = Texture;

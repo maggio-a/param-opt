@@ -83,7 +83,9 @@ void RemeshShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh
  * See mesh_attribute.h */
 bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeometry, bool useExistingUV);
 
-void BuildScaffold(Mesh& shell);
+void BuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh &inputMesh);
+
+void RebuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh &inputMesh);
 
 /* Computes the UV outline(s) of the given chart. If the chart has no outlines,
  * which can happen for some inputs on small closed components that are ignored
