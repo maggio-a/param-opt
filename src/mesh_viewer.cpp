@@ -100,7 +100,8 @@ const char *fs_text_texture[] = {
     "    if ((colorMask & COLOR_SRC_TEXTURE) != 0) {                \n"
     "        vec2 tc = uv;                                          \n"
     "        if (tc.s < 0.0) tc = vec2(0.0, 0.0);                   \n"
-    "        color *= texture(tex0, tc);                            \n"
+    "        if (tc.s == 0.0 && tc.t == 0.0) color *= vec4(0.8, 0.8, 0.8, 1);                   \n"
+    "        else color *= texture(tex0, tc);                            \n"
     "    }                                                          \n"
     "    if ((colorMask & COLOR_SRC_PRIMITIVE) != 0) {              \n"
     "        color *= dcol;                                         \n"
@@ -494,18 +495,19 @@ void MeshViewer::UpdateDetailBuffers()
                 auto& f = m.face[ia[sf]];
                 *buffptr++ = wtcs[f].tc[i].U() / uvRatio;
                 *buffptr++ = wtcs[f].tc[i].V();
-                if (shellColorMode == NONE)
-                    color = vcg::Color4b::White;
-                else if (shellColorMode == FACE)
-                    color = sf.cC();
-                else if (shellColorMode == VERTEX) {
-                    color = sf.V(i)->C();
-                }
             } else {
                 *buffptr++ = 0.0;
                 *buffptr++ = 0.0;
-                color = vcg::Color4b::White;
             }
+
+            if (shellColorMode == NONE)
+                color = vcg::Color4b::White;
+            else if (shellColorMode == FACE)
+                color = sf.cC();
+            else if (shellColorMode == VERTEX) {
+                color = sf.V(i)->C();
+            }
+
             unsigned char *colorptr = (unsigned char *) buffptr;
             *colorptr++ = color[0];
             *colorptr++ = color[1];

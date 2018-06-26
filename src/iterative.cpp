@@ -371,7 +371,8 @@ SLIM::SLIM(std::shared_ptr<SymmetricDirichletEnergy> sd)
       diagAreaVector{},
       lambda{0.0001},
       solver{},
-      firstSolve{true}
+      firstSolve{true},
+      sd_energy{sd}
 {
     UpdateCache();
 }
@@ -426,7 +427,7 @@ void SLIM::UpdateCache()
     PrecomputeD12(m, D1, D2);
     diagAreaVector.resize(4 * m.FN());
     for (auto const& f : m.face) {
-        double area = energy->FaceArea(&f);
+        double area = (!f.IsScaffold()) ? energy->FaceArea(&f) : 1.0;
         int j = tri::Index(m, f);
         diagAreaVector(0 * m.FN() + j) = area;
         diagAreaVector(1 * m.FN() + j) = area;
@@ -533,6 +534,7 @@ void SLIM::PrecomputeD12(const Mesh& m, Eigen::SparseMatrix<double>& D1, Eigen::
 
 void SLIM::UpdateJRW()
 {
+    double meshEnergyValue = energy->E_IgnoreMarkedFaces();
     for (auto& f : m.face) {
         // Compute jacobian matrix by combining the inverse of the map from T_e to 3D and the map from T_e to uv
         Point2d u10 = (f.V(1)->T().P() - f.V(0)->T().P());
@@ -557,6 +559,7 @@ void SLIM::UpdateJRW()
         }
 
         double attenuation = 1.0;
+        if (f.IsScaffold()) attenuation = sd_energy->GetScaffoldWeight(f, meshEnergyValue);
         //if (f.holeFilling) attenuation = 0.0001;
 
         // Update weights (eq 28 in the paper)

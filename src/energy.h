@@ -23,19 +23,29 @@ protected:
     double holeFillingArea;
     Mesh::PerFaceAttributeHandle<CoordStorage> targetShape;
 
+    int numMeshFaces;
+    int numHoleFillingFaces;
+    int numScaffoldFaces;
+
+    virtual double E(const Mesh::FaceType& f) = 0;
+    virtual double E(const Mesh::FaceType& f, double meshEnergyValue) = 0;
+
+    virtual void Grad(int faceIndex, Eigen::Vector2d& g0, Eigen::Vector2d& g1, Eigen::Vector2d& g2) = 0;
+    virtual void Grad(int faceIndex, Eigen::Vector2d& g0, Eigen::Vector2d& g1, Eigen::Vector2d& g2, double meshEnergyValue) = 0;
+
 public:
 
     Energy(Mesh& mesh);
     virtual ~Energy();
 
     double E();
-    double E_IgnoreMarkedFaces(bool normalized = false);
-    virtual double E(const Mesh::FaceType& f, bool normalized = false) = 0;
+    double E_IgnoreMarkedFaces();
+
+    Eigen::VectorXd EnergyPerFace();
 
     virtual double NormalizedMinValue() = 0;
 
     Eigen::MatrixXd Grad();
-    virtual void Grad(int faceIndex, Eigen::Vector2d& g0, Eigen::Vector2d& g1, Eigen::Vector2d& g2) = 0;
 
     /* Utility function to update cached data. This must be called whenever the
      * underlying mesh changes. We need it to update the cached data of the
@@ -74,17 +84,27 @@ inline Mesh::CoordType Energy::P2(Mesh::ConstFacePointer fp, int i) { return P(f
 
 class SymmetricDirichletEnergy : public Energy {
 
+    friend class SLIM;
+
     /* Precomputed cotangents and area of each target shape */
     SimpleTempData<Mesh::FaceContainer, Point4d> data;
+
+    double GetScaffoldWeight(const Mesh::FaceType& f, double meshEnergyValue);
 
 public:
 
     SymmetricDirichletEnergy(Mesh& mesh);
 
-    double E(const Mesh::FaceType& f, bool normalized = false);
     double NormalizedMinValue();
-    void Grad(int faceIndex, Eigen::Vector2d& g0, Eigen::Vector2d& g1, Eigen::Vector2d& g2);
     void UpdateCache();
+
+protected:
+
+    double E(const Mesh::FaceType& f) override;
+    double E(const Mesh::FaceType& f, double meshEnergyValue) override;
+
+    void Grad(int faceIndex, Eigen::Vector2d& g0, Eigen::Vector2d& g1, Eigen::Vector2d& g2);
+    void Grad(int faceIndex, Eigen::Vector2d& g0, Eigen::Vector2d& g1, Eigen::Vector2d& g2, double meshEnergyValue);
 };
 
 

@@ -67,6 +67,8 @@ void ParameterizerObject::Reset()
     SyncShellWithUV(shell);
     MarkInitialSeamsAsFaux(shell, baseMesh);
 
+    std::cout << "ENERGY WHEN CONSTRUCTED == " << energy->E() << std::endl;
+
     //tri::io::Exporter<Mesh>::Save(shell, "shell_init.obj", tri::io::Mask::IOM_ALL);
 }
 
@@ -140,6 +142,7 @@ void ParameterizerObject::MapDescentDirectionToShellVertexColor()
 
 void ParameterizerObject::MapLocalGradientVarianceToShellVertexColor()
 {
+    /*
     Eigen::MatrixXd G = energy->Grad();
     std::vector<double> gvar(shell.VN(), 0.0);
     std::vector<double> deg(shell.VN(), 0.0);
@@ -164,6 +167,7 @@ void ParameterizerObject::MapLocalGradientVarianceToShellVertexColor()
         double v = gvar[i] / maxVar;
         shell.vert[i].C() = vcg::Color4b(255.0, (1.0-v)*255.0, (1.0-v)*255.0, 255.0);
     }
+    */
 }
 
 void ParameterizerObject::MapConformalScalingFactorsToShellVertexColor()
@@ -375,7 +379,7 @@ bool ParameterizerObject::Parameterize()
             std::cout << "Stopping because gradient magnitude is small enough (" << info.gradientNorm << ")" << std::endl;
             break;
         }
-        double realEnergyVal = energy->E_IgnoreMarkedFaces(false);
+        double realEnergyVal = energy->E_IgnoreMarkedFaces();
         if (realEnergyVal < (energyDiffTolerance * realSurfaceArea)) {
             std::cout << "Stopping because energy improvement is too small (" << info.energyDiff << ")" << std::endl;
             break;
@@ -422,6 +426,7 @@ void ParameterizerObject::RemeshHolefillingAreas()
 
 void ParameterizerObject::PlaceCut()
 {
+    /*
     ComputeDistanceFromBorderOnSeams(shell);
 
     double maxDistance = 0;
@@ -443,7 +448,7 @@ void ParameterizerObject::PlaceCut()
 
                 if (w < INFINITY) w = 1.0;
 
-                double weightedEnergy = energy->E(sf, false) * w;
+                double weightedEnergy = energy->E(sf) * w;
                 // w is INFINITY if the seam does not reach the mesh boundary
                 if (std::isfinite(weightedEnergy) && weightedEnergy > maxEnergy) {
                     maxEnergy = weightedEnergy;
@@ -474,6 +479,7 @@ void ParameterizerObject::PlaceCut()
 
     opt->UpdateCache();
     //tri::io::Exporter<Mesh>::Save(shell, "shell_after_cut.obj", tri::io::Mask::IOM_ALL);
+    */
 }
 
 /* What this method does is:

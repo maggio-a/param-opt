@@ -100,6 +100,8 @@ class SLIM : public DescentMethod {
     Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> solver;
     bool firstSolve;
 
+    std::shared_ptr<SymmetricDirichletEnergy> sd_energy;
+
 public:
 
     SLIM(std::shared_ptr<SymmetricDirichletEnergy> sd);
