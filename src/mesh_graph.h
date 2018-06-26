@@ -59,6 +59,7 @@ void SyncShellWithModel(Mesh& shell, Mesh& baseMesh);
 
 /* Removes any hole-filling face from the shell and compacts its containers */
 void ClearHoleFillingFaces(Mesh& shell);
+void ClearHoleFillingFaces(Mesh& shell, bool holefill, bool scaffold);
 
 /* Closes shell holes, updating the shell attributes accordingly. Note that
  * faces that have a direct correspondence with the input mesh faces are not
@@ -96,6 +97,14 @@ void RebuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh 
 /// FIXME if the chart is an aggregate that has not been reparameterized this breaks...
 void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2d>> &outline2Vec);
 void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2f>> &outline2Vec);
+
+
+inline void ClearHoleFillingFaces(Mesh& shell)
+{
+    ClearHoleFillingFaces(shell, true, true);
+}
+
+
 
 /* FaceGroup class
  * Used to store a mesh chart as an array of Face pointers */
