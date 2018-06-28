@@ -64,7 +64,7 @@ void ParameterizerObject::Reset()
     SyncShellWithUV(shell);
     MarkInitialSeamsAsFaux(shell, baseMesh);
 
-    std::cout << "ENERGY WHEN CONSTRUCTED == " << energy->E() << std::endl;
+//    std::cout << "ENERGY WHEN CONSTRUCTED == " << energy->E() << std::endl;
 
     //tri::io::Exporter<Mesh>::Save(shell, "shell_init.obj", tri::io::Mask::IOM_ALL);
 }
@@ -401,12 +401,10 @@ IterationInfo ParameterizerObject::Iterate()
     info.energyVal = opt->Iterate(info.gradientNorm, info.energyDiff);
     SyncShellWithUV(shell);
     iterationCount++;
-    std::cout << "Iteration took " << t.TimeElapsed() << " seconds" << std::endl;
 
     if (strategy.scaffold) {
         RebuildScaffold(shell, strategy.geometry, baseMesh);
         opt->UpdateCache();
-        std::cout << "Scaffold management took " << t.TimeSinceLastCheck() << " seconds" << std::endl;
     }
 
     return info;

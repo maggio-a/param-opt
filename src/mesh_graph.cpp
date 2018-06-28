@@ -348,6 +348,8 @@ void RebuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh&
     BuildScaffold(shell, targetGeometry, inputMesh);
 }
 
+#define SCAFFOLD_STATS false
+
 void BuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& inputMesh)
 {
     // Compute uv box and make it square and larger to fit the shell in
@@ -430,14 +432,15 @@ void BuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& i
         fi->SetScaffold();
         fi++;
     }
-
+#if SCAFFOLD_STATS
     std::cout << "========================" << std::endl;
     std::cout << "Building scaffold took " << t.TimeElapsed() << " seconds" << std::endl;
+    std::cout << "Total time " << t.TimeElapsed() << std::endl;
+    std::cout << "========================" << std::endl;
+#endif
 
     tri::UpdateTopology<Mesh>::FaceFace(shell);
     tri::UpdateTopology<Mesh>::VertexFace(shell);
-
-    vcg::tri::io::Exporter<Mesh>::Save(shell, "scaf.obj", tri::io::Mask::IOM_ALL);
 
     auto tsa = GetTargetShapeAttribute(shell);
 
@@ -520,13 +523,13 @@ void BuildScaffold2(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& 
         fi++;
     }
 
+#if SCAFFOLD_STATS
     std::cout << "========================" << std::endl;
     std::cout << "Building scaffold took " << t.TimeElapsed() << " seconds" << std::endl;
+#endif
 
     tri::UpdateTopology<Mesh>::FaceFace(shell);
     tri::UpdateTopology<Mesh>::VertexFace(shell);
-
-    vcg::tri::io::Exporter<Mesh>::Save(shell, "scaf.obj", tri::io::Mask::IOM_ALL);
 
     // Remesh scaffold to improve triangulation quality
 
@@ -557,9 +560,11 @@ void BuildScaffold2(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& 
         iter += params.iter;
     } while (params.stat.collapseNum + params.stat.flipNum + params.stat.splitNum > 0 && iter < MAX_REMESH_ITER);
 
+#if SCAFFOLD_STATS
     std::cout << "Remeshing scaffold took " << t.TimeSinceLastCheck() << " seconds" << std::endl;
     std::cout << "Total time " << t.TimeElapsed() << std::endl;
     std::cout << "========================" << std::endl;
+#endif
 
     tri::Allocator<Mesh>::CompactEveryVector(shell);
 

@@ -227,7 +227,7 @@ double DescentMethod::Search(const MatrixXd& uv, const MatrixXd& grad, const Mat
 //    std::cout << "t = " << t << std::endl << "descentCoeff = " << descentCoeff << std::endl;
 //    std::cout << "Descent took " << numIter << " iterations to decrease function" << std::endl;
 
-    std::cout << E_t << " " << E_curr << " " << E_curr + t * descentCoeff << std::endl;
+//    std::cout << E_t << " " << E_curr << " " << E_curr + t * descentCoeff << std::endl;
 
     return E_t;
 }
