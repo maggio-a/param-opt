@@ -55,9 +55,6 @@ void ParameterizerObject::Reset()
     assert(CheckUVConnectivity(shell));
     assert(CheckLocalInjectivity(shell));
 
-    std::cout << "!!!!    WARNING: FORCING strategy.scaffold TO true    !!!!" << std::endl;
-    strategy.scaffold = true;
-
     if (strategy.scaffold)
         BuildScaffold(shell, strategy.geometry, baseMesh);
 
@@ -353,7 +350,6 @@ bool ParameterizerObject::Parameterize()
     if (strategy.applyCut) {
         while (PlaceCutWithConesUntilThreshold(CONFORMAL_SCALING_THRESHOLD) > 0) {
             std::cout << "Placed cut" << std::endl;
-            InitializeSolution();
         }
     }
 
@@ -410,6 +406,7 @@ IterationInfo ParameterizerObject::Iterate()
     if (strategy.scaffold) {
         RebuildScaffold(shell, strategy.geometry, baseMesh);
         opt->UpdateCache();
+        std::cout << "Scaffold management took " << t.TimeSinceLastCheck() << " seconds" << std::endl;
     }
 
     return info;
@@ -623,10 +620,13 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScaling
     if (coneIndices.size() == 0) {
         std::cout << "No cones" << std::endl;
         ClearHoleFillingFaces(shell);
-        ComputeBoundaryInfo(shell); // boundary changed after the cut
+        ComputeBoundaryInfo(shell);
         SyncShellWithUV(shell);
         CloseShellHoles(shell, strategy.geometry, baseMesh);
         RemeshShellHoles(shell, strategy.geometry, baseMesh);
+        if (strategy.scaffold)
+            BuildScaffold(shell, strategy.geometry, baseMesh);
+
         if (OptimizerIsInitialized())
             opt->UpdateCache();
         //tri::io::Exporter<Mesh>::Save(shell, "shell_restored.obj", tri::io::Mask::IOM_VERTTEXCOORD);
@@ -670,6 +670,12 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScaling
     SyncShellWithUV(shell);
     CloseShellHoles(shell, strategy.geometry, baseMesh);
     RemeshShellHoles(shell, strategy.geometry, baseMesh);
+
+    InitializeSolution();
+
+    if (strategy.scaffold)
+        BuildScaffold(shell, strategy.geometry, baseMesh);
+
     if (OptimizerIsInitialized())
         opt->UpdateCache();
 

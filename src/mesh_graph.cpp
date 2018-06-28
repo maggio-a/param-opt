@@ -28,7 +28,7 @@
 
 #include <QImage>
 
-static constexpr int MAX_REMESH_ITER = 12;
+static constexpr int MAX_REMESH_ITER = 6;
 
 // assumes topology is correct
 void ComputeBoundaryInfo(Mesh& m)
@@ -277,6 +277,65 @@ void CloseShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh&
 
 void RebuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& inputMesh)
 {
+
+
+
+    /*
+    BoundaryInfo& info = GetBoundaryInfoAttribute(shell)();
+    std::size_t li = info.LongestBoundary();
+    double boundaryLength = LenPolyline2(info.vBoundaryFaces[li], info.vVi[li], shell);
+
+    IsotropicRemeshing<Mesh>::Params params;
+    //params.SetTargetLen(2.0*(totalBorderLen / totalBorderFaces));
+    //params.SetTargetLen(length / count);
+    params.SetTargetLen(4.0*(boundaryLength / info.vBoundarySize[li]), 4);
+    params.SetFeatureAngleDeg(20);
+    params.selectedOnly = true;
+    params.smoothFlag = false;
+    params.projectFlag = false;
+    //params.splitFlag = false;
+    //params.collapseFlag = false;
+    //params.adapt = true;
+    params.iter = 2;
+    int iter = 0;
+    do {
+        params.stat.Reset();
+        IsotropicRemeshing<Mesh>::Do(shell, params);
+        //params.splitFlag = false;
+        iter += params.iter;
+    } while (params.stat.collapseNum + params.stat.flipNum + params.stat.splitNum > 0 && iter < MAX_REMESH_ITER);
+
+    tri::Allocator<Mesh>::CompactEveryVector(shell);
+
+    for (auto& sf : shell.face) {
+        if (sf.IsScaffold()) {
+            for (int i = 0; i < 3; ++i) {
+                sf.V(i)->T().U() = sf.cP(i).X();
+                sf.V(i)->T().V() = sf.cP(i).Y();
+            }
+        }
+    }
+    tri::UpdateTopology<Mesh>::FaceFace(shell);
+    tri::UpdateTopology<Mesh>::VertexFace(shell);
+
+    // Compute average areas
+    auto tsa = GetTargetShapeAttribute(shell);
+
+    for (auto& sf : shell.face) {
+        // only update target shape of the readded hole-filling faces
+        if (sf.IsScaffold()) {
+            CoordStorage target;
+            target.P[0] = sf.P(0);
+            target.P[1] = sf.P(1);
+            target.P[2] = sf.P(2);
+            tsa[sf] = target;
+        }
+    }
+    */
+
+
+
+
     for (auto& sf : shell.face)
         if (sf.IsScaffold())
             tri::Allocator<Mesh>::DeleteFace(shell, sf);
@@ -291,7 +350,6 @@ void RebuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh&
 
 void BuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& inputMesh)
 {
-    Timer t;
     // Compute uv box and make it square and larger to fit the shell in
     Box2d uvBox = UVBoxVertex(shell);
     uvBox.MakeSquare();
@@ -303,27 +361,149 @@ void BuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& i
 
     BoundaryInfo& info = GetBoundaryInfoAttribute(shell)();
 
-    Polyline2 corners = {
-        { uvBox.min.X(), uvBox.min.Y() },
-        { uvBox.max.X(), uvBox.min.Y() },
-        { uvBox.max.X(), uvBox.max.Y() },
-        { uvBox.min.X(), uvBox.max.Y() }
-    };
+    Poly2Point c0 = { uvBox.min.X(), uvBox.min.Y() };
+    Poly2Point c1 = { uvBox.max.X(), uvBox.min.Y() };
+    Poly2Point c2 = { uvBox.max.X(), uvBox.max.Y() };
+    Poly2Point c3 = { uvBox.min.X(), uvBox.max.Y() };
+
+    constexpr int SUBDIVISION = 4;
+    Polyline2 corners(4*SUBDIVISION);
+    for (int i = 0; i < SUBDIVISION; ++i) {
+        double t = i / (double) SUBDIVISION;
+        corners[0 * SUBDIVISION + i] = Poly2PointLerp(c0, c1, t);
+        corners[1 * SUBDIVISION + i] = Poly2PointLerp(c1, c2, t);
+        corners[2 * SUBDIVISION + i] = Poly2PointLerp(c2, c3, t);
+        corners[3 * SUBDIVISION + i] = Poly2PointLerp(c3, c0, t);
+
+    }
 
     std::size_t li = info.LongestBoundary();
     Polyline2 outline = BuildPolyline2(info.vBoundaryFaces[li], info.vVi[li], shell);
+    unsigned szoutline = outline.size();
+
+    Timer t;
+
+    Poly2 scaffoldPoly = { outline, corners };
+
+    Polyline2 points;
+    std::vector<unsigned> indices;
+
+    std::vector<double> holes;
+    Point3d holeMarker = Barycenter(shell.face[0]);
+    holes.push_back(holeMarker[0]);
+    holes.push_back(holeMarker[1]);
+
+    Triangulate(scaffoldPoly, holes, points, indices);
+
+    // allocate new primitives
+    unsigned nv = points.size() - szoutline;
+    unsigned nf = indices.size() / 3;
+
+    // assign vertex coordinates
+    auto vi = tri::Allocator<Mesh>::AddVertices(shell, nv);
+    auto fi = tri::Allocator<Mesh>::AddFaces(shell, nf);
+    for (unsigned i = 0; i < nv; ++i) {
+        (vi+i)->P() = Point3d(points[szoutline + i][0], points[szoutline + i][1], 0);
+        (vi+i)->T().P() = Point2d(points[szoutline + i][0], points[szoutline + i][1]);
+    }
+
+    // if the index is smaller than szoutline it refers to a pre-existing vertex,
+    // otherwise it refers to a newly added one. helper function:
+    auto GetVertexPointer = [&](unsigned k) {
+        if (k < szoutline) {
+            return shell.face[info.vBoundaryFaces[li][k]].V(info.vVi[li][k]);
+        } else {
+            assert(k - szoutline < nv);
+            return &*(vi + (k - szoutline));
+        }
+    };
+
+    int k = 0;
+    auto ia = GetFaceIndexAttribute(shell);
+    while (fi != shell.face.end()) {
+        for (int i = 0; i < 3; ++i) {
+            auto vi = GetVertexPointer(indices[k++]);
+            fi->V(i) = vi;
+            fi->WT(i) = vi->T();
+        }
+        ia[fi] = -1;
+        fi->SetScaffold();
+        fi++;
+    }
+
+    std::cout << "========================" << std::endl;
+    std::cout << "Building scaffold took " << t.TimeElapsed() << " seconds" << std::endl;
+
+    tri::UpdateTopology<Mesh>::FaceFace(shell);
+    tri::UpdateTopology<Mesh>::VertexFace(shell);
+
+    vcg::tri::io::Exporter<Mesh>::Save(shell, "scaf.obj", tri::io::Mask::IOM_ALL);
+
+    auto tsa = GetTargetShapeAttribute(shell);
+
+    for (auto& sf : shell.face) {
+        // only update target shape of the readded hole-filling faces
+        if (sf.IsScaffold()) {
+            CoordStorage target;
+            target.P[0] = sf.P(0);
+            target.P[1] = sf.P(1);
+            target.P[2] = sf.P(2);
+            tsa[sf] = target;
+        }
+    }
+
+}
+
+
+void BuildScaffold2(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& inputMesh)
+{
+    // Compute uv box and make it square and larger to fit the shell in
+    Box2d uvBox = UVBoxVertex(shell);
+    uvBox.MakeSquare();
+    Point2d diag = uvBox.max - uvBox.min;
+    Point2d newMax = uvBox.min + 1.15*diag;
+    Point2d newMin = uvBox.max - 1.15*diag;
+    uvBox.Add(newMax);
+    uvBox.Add(newMin);
+
+    BoundaryInfo& info = GetBoundaryInfoAttribute(shell)();
+
+
+
+    Poly2Point c0 = { uvBox.min.X(), uvBox.min.Y() };
+    Poly2Point c1 = { uvBox.max.X(), uvBox.min.Y() };
+    Poly2Point c2 = { uvBox.max.X(), uvBox.max.Y() };
+    Poly2Point c3 = { uvBox.min.X(), uvBox.max.Y() };
+
+    constexpr int SUBDIVISION = 1;
+    Polyline2 corners(4*SUBDIVISION);
+    for (int i = 0; i < SUBDIVISION; ++i) {
+        double t = i / (double) SUBDIVISION;
+        corners[0 * SUBDIVISION + i] = Poly2PointLerp(c0, c1, t);
+        corners[1 * SUBDIVISION + i] = Poly2PointLerp(c1, c2, t);
+        corners[2 * SUBDIVISION + i] = Poly2PointLerp(c2, c3, t);
+        corners[3 * SUBDIVISION + i] = Poly2PointLerp(c3, c0, t);
+
+    }
+
+    std::size_t li = info.LongestBoundary();
+    Polyline2 outline = BuildPolyline2(info.vBoundaryFaces[li], info.vVi[li], shell);
+
+
+    Timer t;
+
     Poly2 scaffoldPoly = { corners, outline };
     std::vector<uint32_t> indices = mapbox::earcut<uint32_t>(scaffoldPoly);
     auto fi = tri::Allocator<Mesh>::AddFaces(shell, indices.size() / 3);
-    auto vi = tri::Allocator<Mesh>::AddVertices(shell, 4);
-    for (int i = 0; i < 4; ++i) {
+    auto vi = tri::Allocator<Mesh>::AddVertices(shell, corners.size());
+    for (unsigned i = 0; i < corners.size(); ++i) {
         (vi+i)->P() = Point3d(corners[i][0], corners[i][1], 0);
         (vi+i)->T().P() = Point2d(corners[i][0], corners[i][1]);
     }
 
     auto GetVertexPointer = [&](uint32_t k) {
-        if (k >= 4) {
-            return shell.face[info.vBoundaryFaces[li][k-4]].V(info.vVi[li][k-4]);
+        if (k >= corners.size()) {
+            return shell.face[info.vBoundaryFaces[li][k-corners.size()]].V(info.vVi[li][k-corners.size()]);
         } else return &*(vi + k);
     };
 
@@ -340,10 +520,13 @@ void BuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& i
         fi++;
     }
 
+    std::cout << "========================" << std::endl;
     std::cout << "Building scaffold took " << t.TimeElapsed() << " seconds" << std::endl;
 
     tri::UpdateTopology<Mesh>::FaceFace(shell);
+    tri::UpdateTopology<Mesh>::VertexFace(shell);
 
+    vcg::tri::io::Exporter<Mesh>::Save(shell, "scaf.obj", tri::io::Mask::IOM_ALL);
 
     // Remesh scaffold to improve triangulation quality
 
@@ -372,7 +555,11 @@ void BuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& i
         IsotropicRemeshing<Mesh>::Do(shell, params);
         //params.splitFlag = false;
         iter += params.iter;
-    } while (params.stat.collapseNum + params.stat.flipNum + params.stat.splitNum > 0 && iter < 6);
+    } while (params.stat.collapseNum + params.stat.flipNum + params.stat.splitNum > 0 && iter < MAX_REMESH_ITER);
+
+    std::cout << "Remeshing scaffold took " << t.TimeSinceLastCheck() << " seconds" << std::endl;
+    std::cout << "Total time " << t.TimeElapsed() << std::endl;
+    std::cout << "========================" << std::endl;
 
     tri::Allocator<Mesh>::CompactEveryVector(shell);
 
@@ -391,7 +578,7 @@ void BuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& i
     tri::UpdateTopology<Mesh>::FaceFace(shell);
     tri::UpdateTopology<Mesh>::VertexFace(shell);
 
-    std::cout << "scaf after remesh = " << count << std::endl;
+    std::cout << "scaffold triangles " << count << std::endl;
 
     // Compute average areas
     auto tsa = GetTargetShapeAttribute(shell);
@@ -407,7 +594,6 @@ void BuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& i
         }
     }
 
-    std::cout << "Remeshing scaffold took " << t.TimeSinceLastCheck() << " seconds" << std::endl;
 }
 
 static void DoRemesh(Mesh& shell)

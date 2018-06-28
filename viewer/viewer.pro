@@ -3,7 +3,14 @@ exists( $(HOME)/devel/vcglib ) {
      VCGPATH = $(HOME)/devel/vcglib
 }
 
+triangle.target = triangle
+triangle.commands = cd ../triangle; make trilibrary && cd $$OUT_PWD; cp ../triangle/triangle.o .
+
+QMAKE_EXTRA_TARGETS += triangle
+
 TARGET = viewer
+PRE_TARGETDEPS += triangle
+
 
 CONFIG += console
 CONFIG += c++11
@@ -13,7 +20,7 @@ QT = core gui svg
 
 TEMPLATE = app
 
-INCLUDEPATH += ../imgui ../src $$VCGPATH $$VCGPATH/eigenlib $(HOME)/include/earcut/include
+INCLUDEPATH += ../imgui ../src ../triangle $$VCGPATH $$VCGPATH/eigenlib $(HOME)/include/earcut/include
 
 QMAKE_CXXFLAGS += -g
 
@@ -23,6 +30,7 @@ QMAKE_CXXFLAGS += -g
 #}
 
 #LIBS += -lGL -lGLEW
+OBJECTS += triangle.o
 
 SOURCES += viewer.cpp \
     ../imgui/imgui_demo.cpp \

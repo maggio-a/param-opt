@@ -100,7 +100,7 @@ const char *fs_text_texture[] = {
     "    if ((colorMask & COLOR_SRC_TEXTURE) != 0) {                \n"
     "        vec2 tc = uv;                                          \n"
     "        if (tc.s < 0.0) tc = vec2(0.0, 0.0);                   \n"
-    "        if (tc.s == 0.0 && tc.t == 0.0) color *= vec4(0.8, 0.8, 0.8, 1);                   \n"
+    "        if (tc.s == 0.0 && tc.t == 0.0) color *= vec4(0.8, 0.0, 0.0, 1);                   \n"
     "        else color *= texture(tex0, tc);                            \n"
     "    }                                                          \n"
     "    if ((colorMask & COLOR_SRC_PRIMITIVE) != 0) {              \n"
@@ -1617,14 +1617,16 @@ void MeshViewer::ManageImGuiState()
         ImGui::RadioButton("Vertex position", &geometryInUse, 0);
         ImGui::RadioButton("Texture coords", &geometryInUse, 1);
 
-        static bool padBoundaries = false;
+        static bool padBoundaries = true;
         static bool applyCut = true;
+        static bool scaffold = false;
         ImGui::Text("Parameterizer");
         ImGui::RadioButton("Discrete Conformal", &parameterizerInUse, 0);
         ImGui::RadioButton("Circular border bijective", &parameterizerInUse, 1);
         if (parameterizerInUse == 1) {
             ImGui::Checkbox("Pad inner boundaries", &padBoundaries);
             ImGui::Checkbox("Apply cut", &applyCut);
+            ImGui::Checkbox("Scaffold", &scaffold);
         }
 
         //ImGui::Text("Descent method energy");
@@ -1643,6 +1645,7 @@ void MeshViewer::ManageImGuiState()
         strategy.descent = descent[descentTypeInUse];
         strategy.padBoundaries = padBoundaries;
         strategy.applyCut = applyCut;
+        strategy.scaffold = scaffold;
 
         ImGui::Text("Max descent iterations");
         ImGui::InputInt("##Optimizer iterations", &strategy.optimizerIterations, 1, 100);
@@ -1796,7 +1799,8 @@ void MeshViewer::ManageImGuiState()
 
         if (ImGui::Button("Place cut with cone singularities")) {
             //if (parameterizer->PlaceCutWithConeSingularities(ncones)) {
-            if (parameterizer->PlaceCutWithConesUntilThreshold(1.98)) {
+            //if (parameterizer->PlaceCutWithConesUntilThreshold(1.98)) {
+            if (parameterizer->PlaceCutWithConesUntilThreshold(0.01)) {
                 parameterizer->InitializeSolution();
                 shellChanged = true;
             } else {
