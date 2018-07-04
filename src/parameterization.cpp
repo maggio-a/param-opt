@@ -59,7 +59,7 @@ void ParameterizerObject::Reset()
         BuildScaffold(shell, strategy.geometry, baseMesh);
 
     if (strategy.padBoundaries == false)
-        ClearHoleFillingFaces(shell);
+        ClearHoleFillingFaces(shell, true, false);
     InitializeOptimizer();
     SyncShellWithUV(shell);
     MarkInitialSeamsAsFaux(shell, baseMesh);
@@ -380,8 +380,10 @@ bool ParameterizerObject::Parameterize()
             std::cout << "Stopping because energy improvement is too small (" << info.energyDiff << ")" << std::endl;
             break;
         }
-        if (needsRemeshing && (i > 0) && (i % 30) == 0)
+        if (needsRemeshing && (i > 0) && (i % 30) == 0) {
             RemeshHolefillingAreas();
+            opt->UpdateCache();
+        }
     }
     std::cout << "Stopped after " << i << " iterations, gradient magnitude = " << info.gradientNorm
               << ", energy value = " << energy->E_IgnoreMarkedFaces() << std::endl;
@@ -398,9 +400,17 @@ IterationInfo ParameterizerObject::Iterate()
 
     Timer t;
     IterationInfo info;
+
     info.energyVal = opt->Iterate(info.gradientNorm, info.energyDiff);
+
     SyncShellWithUV(shell);
     iterationCount++;
+
+    if (strategy.padBoundaries) {
+        RemeshHolefillingAreas();
+        if (!strategy.scaffold)
+            opt->UpdateCache();
+    }
 
     if (strategy.scaffold) {
         RebuildScaffold(shell, strategy.geometry, baseMesh);
@@ -412,11 +422,9 @@ IterationInfo ParameterizerObject::Iterate()
 
 void ParameterizerObject::RemeshHolefillingAreas()
 {
-    //ClearHoleFillingFaces(shell);
-    //CloseShellHoles(shell, strategy.geometry, baseMesh);
-    RemeshShellHoles(shell, strategy.geometry, baseMesh);
+    ClearHoleFillingFaces(shell, true, false);
+    CloseShellHoles(shell, strategy.geometry, baseMesh);
     MarkInitialSeamsAsFaux(shell, baseMesh);
-    opt->UpdateCache();
 }
 
 void ParameterizerObject::PlaceCut()
@@ -504,19 +512,12 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
         return false;
 
     // Put the shell in a configuration suitable to compute the conformal scaling factors
-    if (strategy.padBoundaries)
-        ClearHoleFillingFaces(shell);
+    ClearHoleFillingFaces(shell, strategy.padBoundaries, strategy.scaffold);
 
     SyncShellWithModel(shell, baseMesh);
     ComputeBoundaryInfo(shell);
     CloseMeshHoles(shell);
     MarkInitialSeamsAsFaux(shell, baseMesh);
-
-    extern void ColorFace(Mesh& m);
-
-    ColorFace(shell);
-
-    //tri::io::Exporter<Mesh>::Save(shell, "shell_reset.obj", tri::io::Mask::IOM_VERTTEXCOORD);
 
     std::vector<int> coneIndices;
     FindCones(ncones, coneIndices);
@@ -553,17 +554,12 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
         tri::UpdateTopology<Mesh>::FaceFace(shell);
     }
 
-    ClearHoleFillingFaces(shell);
+    ClearHoleFillingFaces(shell, true, false);
     ComputeBoundaryInfo(shell); // boundary changed after the cut
     SyncShellWithUV(shell);
 
     if (strategy.padBoundaries)
         CloseShellHoles(shell, strategy.geometry, baseMesh);
-
-    //std::cout << "THIS IS IMPORTANT, UNCOMMENT" << std::endl;
-    RemeshShellHoles(shell, strategy.geometry, baseMesh);
-
-    //tri::io::Exporter<Mesh>::Save(shell, "shell_resynced.obj", tri::io::Mask::IOM_ALL);
 
     if (OptimizerIsInitialized())
         opt->UpdateCache();
@@ -574,31 +570,29 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
 int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScalingThreshold)
 {
     // sanity check
-    {
+    if (strategy.scaffold) {
+        ClearHoleFillingFaces(shell, false, true);
+    }
+    ComputeDistanceFromBorderOnSeams(shell);
+    bool seamsToBoundary = false;
+    for (auto& sv : shell.vert) {
+        if (!sv.IsB() && sv.Q() < INFINITY) {
+            seamsToBoundary = true;
+            break;
+        }
+    }
+    if (!seamsToBoundary) {
         if (strategy.scaffold) {
-            ClearHoleFillingFaces(shell, false, true);
-        }
-        ComputeDistanceFromBorderOnSeams(shell);
-        bool seamsToBoundary = false;
-        for (auto& sv : shell.vert) {
-            if (!sv.IsB() && sv.Q() < INFINITY) {
-                seamsToBoundary = true;
-                break;
-            }
-        }
-        if (!seamsToBoundary) {
-            if (strategy.scaffold) {
-                BuildScaffold(shell, strategy.geometry, baseMesh);
-                if (OptimizerIsInitialized())
-                    opt->UpdateCache();
+            BuildScaffold(shell, strategy.geometry, baseMesh);
+            if (OptimizerIsInitialized())
+                opt->UpdateCache();
 
-            }
-            return false;
         }
+        return 0;
     }
 
     // Put the shell in a configuration suitable to compute the conformal scaling factors
-    ClearHoleFillingFaces(shell);
+    ClearHoleFillingFaces(shell, true, true);
     SyncShellWithModel(shell, baseMesh);
     for (auto& sf : shell.face) {
         for (int i = 0; i < 3; ++i) {
@@ -615,71 +609,62 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScaling
     std::vector<int> coneIndices;
     FindConesWithThreshold(conformalScalingThreshold, coneIndices);
 
-    if (coneIndices.size() == 0) {
-        std::cout << "No cones" << std::endl;
-        ClearHoleFillingFaces(shell);
-        ComputeBoundaryInfo(shell);
-        SyncShellWithUV(shell);
-        CloseShellHoles(shell, strategy.geometry, baseMesh);
-        RemeshShellHoles(shell, strategy.geometry, baseMesh);
-        if (strategy.scaffold)
-            BuildScaffold(shell, strategy.geometry, baseMesh);
+    if (coneIndices.size() > 0) {
+        // Cone singularities were found, place the cut
+        // The cones are guaranteed to be placed on a mesh vertex since
+        // CloseMeshHoles() fills holes by closing ears (no vertices are added)
 
-        if (OptimizerIsInitialized())
-            opt->UpdateCache();
-        //tri::io::Exporter<Mesh>::Save(shell, "shell_restored.obj", tri::io::Mask::IOM_VERTTEXCOORD);
-        return 0;
-    }
-
-    ComputeDistanceFromBorderOnSeams(shell);
-
-    // At this point the cones are guaranteed to be placed on a mesh vertex
-    tri::UpdateFlags<Mesh>::VertexClearS(shell);
-    for (int i : coneIndices)
-        shell.vert[i].SetS();
-
-    std::vector<PosF> pv;
-    for (auto& sf : shell.face) {
-        if (sf.IsMesh()) {
-            for (int i = 0; i < 3; ++i) {
-                if (sf.IsF(i) && (sf.V0(i)->IsS() || sf.V1(i)->IsS())) {
-                    PosF p(&sf, i);
-                    p.V()->ClearS();
-                    p.VFlip()->ClearS();
-                    pv.push_back(p);
+        ComputeDistanceFromBorderOnSeams(shell);
+        // Select cone vertices
+        tri::UpdateFlags<Mesh>::VertexClearS(shell);
+        for (int i : coneIndices)
+            shell.vert[i].SetS();
+        // Store Pos objects that lie on seams and point to cone vertices (1 pos per cone)
+        std::vector<PosF> pv;
+        for (auto& sf : shell.face) {
+            if (sf.IsMesh()) {
+                for (int i = 0; i < 3; ++i) {
+                    if (sf.IsF(i) && (sf.V0(i)->IsS() || sf.V1(i)->IsS())) {
+                        PosF p(&sf, i);
+                        p.V()->ClearS();
+                        p.VFlip()->ClearS();
+                        pv.push_back(p);
+                    }
                 }
             }
         }
+        // Repeatedly cut starting from each pos
+        // TODO cut along the approximated steiner tree yielded by the cones
+        for (auto p : pv) {
+            std::cout << "Selected face " << tri::Index(shell, p.F()) << " edge " << p.E() << std::endl;
+            tri::UpdateFlags<Mesh>::FaceClearFaceEdgeS(shell);
+            PosF boundaryPos = SelectShortestSeamPathToBoundary(shell, p);
+            //SelectShortestSeamPathToPeak(shell, p);
+            bool corrected = RectifyCut(shell, boundaryPos);
+            tri::CutMeshAlongSelectedFaceEdges(shell);
+            CleanupShell(shell);
+            tri::UpdateTopology<Mesh>::FaceFace(shell);
+        }
+    } else {
+        std::cout << "No cones" << std::endl;
     }
-
-    for (auto p : pv) {
-        std::cout << "Selected face " << tri::Index(shell, p.F()) << " edge " << p.E() << std::endl;
-        tri::UpdateFlags<Mesh>::FaceClearFaceEdgeS(shell);
-        PosF boundaryPos = SelectShortestSeamPathToBoundary(shell, p);
-        //SelectShortestSeamPathToPeak(shell, p);
-        bool corrected = RectifyCut(shell, boundaryPos);
-        tri::CutMeshAlongSelectedFaceEdges(shell);
-        CleanupShell(shell);
-        tri::UpdateTopology<Mesh>::FaceFace(shell);
-    }
-
-    ClearHoleFillingFaces(shell);
+    // Cleanup (and restore hole-filling and scaffold faces if needed)
+    ClearHoleFillingFaces(shell, true, true);
     ComputeBoundaryInfo(shell); // boundary changed after the cut
     SyncShellWithUV(shell);
-    CloseShellHoles(shell, strategy.geometry, baseMesh);
-    RemeshShellHoles(shell, strategy.geometry, baseMesh);
-
-    InitializeSolution();
-
+    if (strategy.padBoundaries)
+        CloseShellHoles(shell, strategy.geometry, baseMesh);
+    // Initialize solution if cones were placed
+    if (coneIndices.size() > 0)
+        InitializeSolution();
     if (strategy.scaffold)
         BuildScaffold(shell, strategy.geometry, baseMesh);
-
+    MarkInitialSeamsAsFaux(shell, baseMesh);
     if (OptimizerIsInitialized())
         opt->UpdateCache();
 
-    return int(coneIndices.size());
+    return (int) coneIndices.size();
 }
-
 
 void ParameterizerObject::FindCones(int ncones, std::vector<int>& coneIndices)
 {

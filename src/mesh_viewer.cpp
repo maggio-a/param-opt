@@ -1574,6 +1574,7 @@ void MeshViewer::ManageImGuiState()
 
                 tri::Clean<Mesh>::RemoveDuplicateVertex(pm);
                 tri::Allocator<Mesh>::CompactEveryVector(pm);
+                tri::UpdateTopology<Mesh>::FaceFace(pm);
 
                 tri::io::ExporterOBJ<Mesh>::Save(pm, "chart.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
             }
@@ -1743,7 +1744,6 @@ void MeshViewer::ManageImGuiState()
     */
 
     // shell parameterization controls
-    static bool colorize = false;
     bool shellChanged = false;
     static int shellColor = 0;
     if (selectedRegions.size() > 0) {
@@ -1774,13 +1774,12 @@ void MeshViewer::ManageImGuiState()
         ImGui::Text("Iteration count");
         if (ImGui::Button("Iterate")) {
             IterationInfo info;
-            for (int i = 0; i < iternum; ++i)
+            for (int i = 0; i < iternum; ++i) {
+                std::cout << "Iteration " << i << std::endl;
                 info = parameterizer->Iterate();
+            }
             std::cout << "Energy = " << info.energyVal << ", DeltaE = " << info.energyDiff << ", Gradient norm = " << info.gradientNorm << std::endl;
-            if (colorize) parameterizer->MapEnergyToShellFaceColor();
-            else parameterizer->ClearShellFaceColor();
             shellChanged = true;
-            tri::io::Exporter<Mesh>::Save(parameterizer->Shell(), "iterate.obj", tri::io::Mask::IOM_ALL);
         }
         ImGui::SameLine();
         ImGui::Text("Iterations: %d", parameterizer->IterationCount());
@@ -1798,10 +1797,8 @@ void MeshViewer::ManageImGuiState()
 
 
         if (ImGui::Button("Place cut with cone singularities")) {
-            //if (parameterizer->PlaceCutWithConeSingularities(ncones)) {
-            //if (parameterizer->PlaceCutWithConesUntilThreshold(1.98)) {
             if (parameterizer->PlaceCutWithConesUntilThreshold(0.01)) {
-                parameterizer->InitializeSolution();
+                //parameterizer->InitializeSolution();
                 shellChanged = true;
             } else {
                 std::cout << "Unable to place cut" << std::endl;

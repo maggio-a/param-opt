@@ -1,7 +1,11 @@
 #ifndef POLYGON2_TRIANGULATOR_H
 #define POLYGON2_TRIANGULATOR_H
 
-#include <mapbox/earcut.hpp>
+//#include <mapbox/earcut.hpp>
+
+#include <array>
+#include <vector>
+#include <cassert>
 
 #define ANSI_DECLARATORS
 #define REAL double
@@ -23,6 +27,7 @@ inline std::array<double,2> Poly2PointLerp(const Poly2Point& p1, const Poly2Poin
     return { ((1.0 - t) * p1[0] + t * p2[0]), ((1.0 - t) * p1[1] + t * p2[1]) };
 }
 
+/*
 inline Polyline2 BuildPolyline2(const std::vector<std::size_t> &vfi, const std::vector<int> &vvi, const Mesh& shell2D)
 {
     Polyline2 polyline;
@@ -34,7 +39,9 @@ inline Polyline2 BuildPolyline2(const std::vector<std::size_t> &vfi, const std::
     }
     return polyline;
 }
+*/
 
+/*
 inline double LenPolyline2(const std::vector<std::size_t> &vfi, const std::vector<int> &vvi, const Mesh& shell2D)
 {
     std::vector<vcg::Point3d> polyline;
@@ -48,17 +55,18 @@ inline double LenPolyline2(const std::vector<std::size_t> &vfi, const std::vecto
     len += (polyline.front() - polyline.back()).Norm();
     return len;
 }
+*/
 
 inline void Triangulate(const Poly2& poly, const std::vector<double>& holes, Polyline2& pointsOut, std::vector<unsigned>& indices)
 {
     assert(holes.size() % 2 == 0);
     pointsOut.clear();
     indices.clear();
-    struct triangulateio in;
-    struct triangulateio out;
+    struct triangulateio in = {};  // zero
+    struct triangulateio out = {}; // zero
 
-    memset(&in, 0, sizeof(struct triangulateio));
-    memset(&out, 0, sizeof(struct triangulateio));
+    //memset(&in, 0, sizeof(struct triangulateio));
+    //memset(&out, 0, sizeof(struct triangulateio));
 
     // Merge all the Polyline2 vertices in a global list
     std::vector<double> points;

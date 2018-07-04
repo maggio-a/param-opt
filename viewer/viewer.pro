@@ -11,7 +11,6 @@ QMAKE_EXTRA_TARGETS += triangle
 TARGET = viewer
 PRE_TARGETDEPS += triangle
 
-
 CONFIG += console
 CONFIG += c++11
 CONFIG -= app_bundle
