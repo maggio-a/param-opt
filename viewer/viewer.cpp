@@ -61,8 +61,10 @@ void LogStrategy(ParameterizationStrategy strategy, double tol)
     std::cout << "[LOG] Parameterization strategy: ";
     std::cout << "Geometry=" << geometry << " , "
               << "iterations=" << strategy.optimizerIterations << " , "
-              << "tolerance=" << tol << " , "
-              << "padded inner boundaries=" << strategy.padBoundaries
+              << "padded inner boundaries=" << strategy.padBoundaries << " , "
+              << "cuts=" << strategy.applyCut << " , "
+              << "scaffold=" << strategy.scaffold << " , "
+              << "tolerance=" << tol
               << std::endl;
 }
 
@@ -181,6 +183,7 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
         std::cout << "WARNING: minFaceCount > m.FN()" << std::endl;
     }
 
+    /*
     ParameterizationStrategy strategy = DefaultStrategy();
     strategy.directParameterizer = FixedBorderBijective;
     strategy.energy = EnergyType::SymmetricDirichlet;
@@ -191,8 +194,20 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
     strategy.padBoundaries = true;
     strategy.applyCut = true;
     strategy.warmStart = false;
+    */
+
+    ParameterizationStrategy strategy = MakeStrategy(
+            DirectParameterizer::FixedBorderBijective,
+            EnergyType::SymmetricDirichlet,
+            ParameterizationGeometry::Texture,
+            DescentType::ScalableLocallyInjectiveMappings,
+            500,            // Number of iterations
+            true,           // Fill holes ?
+            true,           // Use cuts ?
+            false,          // Use warm start ?
+            true           // Use scaffolding ?
+    );
     double tolerance = 0.0005;
-    //double tolerance = -1;
 
     LogStrategy(strategy, tolerance);
 

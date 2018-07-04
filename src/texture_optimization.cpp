@@ -376,7 +376,7 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
     };
 
     bool injectivityCheckRequired;
-    if (injectivityTolerance < 0)
+    if (strategy.scaffold || injectivityTolerance < 0)
         injectivityCheckRequired = false;
     else {
         assert(injectivityTolerance >= 0 && injectivityTolerance <= 1);
@@ -447,9 +447,9 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
                 gm.Split(chart->id, splitCharts);
                 std::vector<ChartHandle> newCharts;
                 RecoverFromSplit(splitCharts, gm, newCharts, true);
-                for (auto& c : newCharts)
-                    //paramQueue.push_back(ParamTask{c, true});
-                    paramQueue.push_back(ParamTask{c, false});
+                for (auto& c : newCharts) {
+                    paramQueue.push_back(ParamTask{c, strategy.warmStart});
+                }
             } else {
                 // If the parameterization is valid, scale chart relative to the original parameterization area value
                 // Normalize area: the region gets scaled by sqrt(oldUVArea)/sqrt(newUVArea) to keep the original proportions
