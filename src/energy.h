@@ -7,6 +7,38 @@
 
 #include <Eigen/Core>
 
+/*
+ *
+ * A note on the management of scaffold triangles. The issue with the scaffold
+ * is that for a non-trivial number of iterations on meshes that overlap, the
+ * scaffold triangle will degenerate to slivers. This seems to cause issues with
+ * the computation of the descent direction using SLIM, so the idea is to set a
+ * threshold value on the quality of the scaffold triangles, below which the
+ * energy contribution of the scaffold triangles is not dampened. This should
+ * also avoid generating parameterizations where the boundary of the chart gets
+ * arbitrarily close to itself without intersecting.
+ *
+ * In order to do so, an index of the quality of scaffold triangles is cached in
+ * the energy object, which is used to compute the actual energy contributions.
+ * Let q be the quality threshold. For a given scaffold face s_f, if Q[s_f] < q
+ * the energy contribution of s_f behaves exactly as any other face, otherwise
+ * the contribution is normalized according to the SCAF paper, changing the
+ * total number of scaffold faces in the energy term with the number of faces
+ * that are above the quality threshold.
+ *
+ * It turns out that simply treating the near-degenerate s_f as a mesh face is
+ * not enough to prevent slivers, because the rest pose of the face is exactly
+ * the starting configuration of the face, and therefore the optimizer induces
+ * small distortions that still shrink those faces, eventually yielding
+ * extremely close boundaries that Triangle triangulates with slivers. The
+ * solution implemented here heavily penalizes deformations applied to faces
+ * that are near-degenerate, essentially locking them. This approach has the
+ * obvious defect of preventing further optimization of the mesh faces nearby.
+ *
+ */
+
+constexpr double SCAFFOLD_QUALITY_THRESHOLD = 0;
+
 enum EnergyType {
     SymmetricDirichlet
 };
@@ -89,7 +121,14 @@ class SymmetricDirichletEnergy : public Energy {
     /* Precomputed cotangents and area of each target shape */
     SimpleTempData<Mesh::FaceContainer, Point4d> data;
 
+    int numScaffoldFacesBelowQuality;
+    std::vector<double> scafQualityIndex;
+
     double GetScaffoldWeight(const Mesh::FaceType& f, double meshEnergyValue);
+    double GetScaffoldArea(const Mesh::FaceType& f);
+
+    bool ScaffoldQualityAboveThreshold(const Mesh::FaceType& f);
+
 
 public:
 

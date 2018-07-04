@@ -70,6 +70,7 @@ double DescentMethod::Iterate(double& gradientNorm, double& objValDiff)
 
     MatrixXd uv = X();
     MatrixXd grad = energy->Grad();
+
     MatrixXd dir = ComputeDescentDirection();
     Search(uv, grad, dir);
 
@@ -202,7 +203,9 @@ double DescentMethod::Search(const MatrixXd& uv, const MatrixXd& grad, const Mat
     double c = 0.2;
     double descentCoeff = c * dir.cwiseProduct(grad).sum();
 
-    assert(descentCoeff < 0); // otherwise dir is not a descent direction
+    //assert(descentCoeff < 0); // otherwise dir is not a descent direction
+    if (descentCoeff >= 0)
+        std::cout << "WARNING Not a descent direction" << std::endl;
 
     double t = std::numeric_limits<double>::max();
     for (auto& f : m.face) {
@@ -225,7 +228,7 @@ double DescentMethod::Search(const MatrixXd& uv, const MatrixXd& grad, const Mat
     }
 
 //    std::cout << "t = " << t << std::endl << "descentCoeff = " << descentCoeff << std::endl;
-//    std::cout << "Descent took " << numIter << " iterations to decrease function" << std::endl;
+    std::cout << "Descent took " << numIter << " iterations to sufficiently decrease obj" << std::endl;
 
 //    std::cout << E_t << " " << E_curr << " " << E_curr + t * descentCoeff << std::endl;
 
@@ -427,7 +430,7 @@ void SLIM::UpdateCache()
     PrecomputeD12(m, D1, D2);
     diagAreaVector.resize(4 * m.FN());
     for (auto const& f : m.face) {
-        double area = (!f.IsScaffold()) ? energy->FaceArea(&f) : 1.0;
+        double area = (!f.IsScaffold()) ? sd_energy->FaceArea(&f) : sd_energy->GetScaffoldArea(f);
         int j = tri::Index(m, f);
         diagAreaVector(0 * m.FN() + j) = area;
         diagAreaVector(1 * m.FN() + j) = area;
@@ -559,7 +562,8 @@ void SLIM::UpdateJRW()
         }
 
         double attenuation = 1.0;
-        if (f.IsScaffold()) attenuation = sd_energy->GetScaffoldWeight(f, meshEnergyValue);
+        if (f.IsScaffold())
+            attenuation = sd_energy->GetScaffoldWeight(f, meshEnergyValue);
         //if (f.holeFilling) attenuation = 0.0001;
 
         // Update weights (eq 28 in the paper)

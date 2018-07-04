@@ -151,9 +151,33 @@ SymmetricDirichletEnergy::SymmetricDirichletEnergy(Mesh& mesh)
     UpdateCache();
 }
 
+double SymmetricDirichletEnergy::NormalizedMinValue()
+{
+    return 4.0;
+}
+
+bool SymmetricDirichletEnergy::ScaffoldQualityAboveThreshold(const Mesh::FaceType& f)
+{
+    assert(f.IsScaffold());
+    int i = tri::Index(m, f) - (numMeshFaces + numHoleFillingFaces);
+    return (scafQualityIndex[i] >= SCAFFOLD_QUALITY_THRESHOLD);
+}
+
 double SymmetricDirichletEnergy::GetScaffoldWeight(const Mesh::FaceType& f, double meshEnergyValue)
 {
-    return meshEnergyValue / (100.0 * numScaffoldFaces);
+    if (ScaffoldQualityAboveThreshold(f))
+        return meshEnergyValue / (100.0 * (numScaffoldFaces - numScaffoldFacesBelowQuality));
+    else
+        return 10;
+}
+
+double SymmetricDirichletEnergy::GetScaffoldArea(const Mesh::FaceType& f)
+{
+    if (ScaffoldQualityAboveThreshold(f))
+        return 1.0;
+    else
+        return FaceArea(&f);
+
 }
 
 double SymmetricDirichletEnergy::E(const Mesh::FaceType& f)
@@ -170,20 +194,17 @@ double SymmetricDirichletEnergy::E(const Mesh::FaceType& f)
 
     double energy = (1 + (area3D*area3D)/(areaUV*areaUV)) * (e_d);
 
-
     return energy;
 }
 
 double SymmetricDirichletEnergy::E(const Mesh::FaceType& f, double meshEnergyValue)
 {
-    assert(f.IsScaffold());
-    double weight = meshEnergyValue / (100.0 * numScaffoldFaces);
-    return weight * ((E(f) / data[f][3]) - NormalizedMinValue());
-}
-
-double SymmetricDirichletEnergy::NormalizedMinValue()
-{
-    return 4.0;
+    if (ScaffoldQualityAboveThreshold(f)) {
+        double weight = meshEnergyValue / (100.0 * (numScaffoldFaces - numScaffoldFacesBelowQuality));
+        return weight * ((E(f) / data[f][3]) - NormalizedMinValue());
+    } else {
+        return 10*E(f);
+    }
 }
 
 void SymmetricDirichletEnergy::Grad(int faceIndex, Eigen::Vector2d& g0, Eigen::Vector2d& g1, Eigen::Vector2d& g2, double meshEnergyValue)
@@ -191,7 +212,11 @@ void SymmetricDirichletEnergy::Grad(int faceIndex, Eigen::Vector2d& g0, Eigen::V
     const MeshFace& f = m.face[faceIndex];
     assert(f.IsScaffold());
     Grad(faceIndex, g0, g1, g2);
-    double w = meshEnergyValue / (100.0 * numScaffoldFaces * data[f][3]);
+    double w;
+    if (ScaffoldQualityAboveThreshold(f))
+        w = meshEnergyValue / (100.0 * (numScaffoldFaces - numScaffoldFacesBelowQuality) * data[f][3]);
+    else
+        w = 10;
     g0 *= w;
     g1 *= w;
     g2 *= w;
@@ -245,8 +270,6 @@ void SymmetricDirichletEnergy::UpdateCache()
     data.UpdateSize();
     for (auto&f : m.face) {
         data[f][3] = (((P(&f, 1) - P(&f, 0)) ^ (P(&f, 2) - P(&f, 0))).Norm() / 2.0);
-        double a = data[f][3];
-        int k = tri::Index(m, f);
         assert(!std::isnan(data[f][3]));
         assert(std::isfinite(data[f][3]));
         assert(data[f][3] > 0);
@@ -258,6 +281,16 @@ void SymmetricDirichletEnergy::UpdateCache()
             data[f][i] = VecCotg(a, c);
             assert(!std::isnan(data[f][i]));
             assert(std::isfinite(data[f][i]));
+        }
+    }
+    numScaffoldFacesBelowQuality = 0;
+    scafQualityIndex.clear();
+    for (auto& f : m.face) {
+        if (f.IsScaffold()) {
+            double q = QualityRadii(f.cP(0), f.cP(1), f.cP(2));
+            if (q < SCAFFOLD_QUALITY_THRESHOLD)
+                numScaffoldFacesBelowQuality++;
+            scafQualityIndex.push_back(q);
         }
     }
 }
