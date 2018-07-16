@@ -301,33 +301,6 @@ void CloseShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh&
     }
 
     tri::UpdateTopology<Mesh>::FaceFace(shell);
-
-    /*
-    // Compute average areas
-    auto psi = GetParameterizationScaleInfoAttribute(inputMesh);
-    auto tsa = GetTargetShapeAttribute(shell);
-    double avg3D = psi().surfaceArea / psi().numNonZero;
-    double avgUV = psi().parameterArea / psi().numNonZero;
-
-    for (auto& sf : shell.face) {
-        // only update target shape of the readded hole-filling faces
-        if (sf.IsHoleFilling()) {
-            CoordStorage target;
-            double scale = 1.0;
-            if (targetGeometry == Model)
-                scale = std::sqrt(avg3D / DistortionMetric::Area3D(sf));
-            else if (targetGeometry == Texture)
-                scale = std::sqrt(avgUV / DistortionMetric::Area3D(sf));
-            else
-                assert(0 && "Unexpected targetGeometry parameter value");
-            assert(scale > 0);
-            target.P[0] = sf.P(0) * scale;
-            target.P[1] = sf.P(1) * scale;
-            target.P[2] = sf.P(2) * scale;
-            tsa[sf] = target;
-        }
-    }
-    */
 }
 
 void RebuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& inputMesh)
@@ -342,6 +315,24 @@ void RebuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh&
     tri::Allocator<Mesh>::CompactEveryVector(shell);
 
     BuildScaffold(shell, targetGeometry, inputMesh);
+
+    /*
+    auto ia = GetFaceIndexAttribute(shell);
+    auto tsa = GetTargetShapeAttribute(shell);
+    int k = 0;
+    for (auto& sf : shell.face) {
+        if (sf.IsHoleFilling()) {
+            ia[sf] = -1;
+            // for scaffold faces the target shape is the initial shape
+            CoordStorage target;
+            target.P[0] = sf.P(0);
+            target.P[1] = sf.P(1);
+            target.P[2] = sf.P(2);
+            tsa[sf] = target;
+        }
+    }
+    */
+
 }
 
 void BuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& inputMesh)
@@ -433,115 +424,6 @@ void BuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& i
     tri::UpdateTopology<Mesh>::FaceFace(shell);
     tri::UpdateTopology<Mesh>::VertexFace(shell);
 }
-
-/*
-static void DoRemesh(Mesh& shell)
-{
-    auto ia = GetFaceIndexAttribute(shell);
-
-    // Compute border info
-    BoundaryInfo& info = GetBoundaryInfoAttribute(shell)();
-    double length = 0;
-    int count = 0;
-    for (std::size_t i = 0; i < info.vBoundaryFaces.size(); ++i) {
-        if (i == info.LongestBoundary())
-            continue;
-        length += LenPolyline2(info.vBoundaryFaces[i], info.vVi[i], shell);
-        count += info.vBoundaryFaces[i].size();
-    }
-    // select the hole-filling faces that need to be remeshed
-    tri::UpdateFlags<Mesh>::FaceClearS(shell);
-    for (auto& sf : shell.face) {
-        if (sf.IsHoleFilling()) sf.SetS();
-    }
-
-    int startFN = 0;
-    int max_i  = 0;
-    for (auto& sf : shell.face) {
-        if (sf.IsMesh()) {
-            assert(ia[sf] != -1);
-            startFN++;
-            max_i = std::max(max_i, int(tri::Index<Mesh>(shell, sf)));
-        }
-    }
-
-    // Remesh filled hole
-    ColorFace(shell);
-    //vcg::tri::io::ExporterPLY<Mesh>::Save(shell, "original.ply", tri::io::Mask::IOM_FACECOLOR);
-    IsotropicRemeshing<Mesh>::Params params;
-    //params.SetTargetLen(2.0*(totalBorderLen / totalBorderFaces));
-    //params.SetTargetLen(length / count);
-    params.SetTargetLen(std::sqrt(length / count));
-    params.SetFeatureAngleDeg(30);
-    params.selectedOnly = true;
-    //params.splitFlag = false;
-    //params.swapFlag = false;
-    //params.collapseFlag = false;
-    params.smoothFlag = false;
-    params.projectFlag = false;
-    params.iter = 3;
-    int iter = 0;
-    do {
-        IsotropicRemeshing<Mesh>::Do(shell, params);
-        iter += params.iter;
-    } while (params.stat.collapseNum + params.stat.flipNum + params.stat.splitNum > 0 && iter < MAX_REMESH_ITER);
-
-    tri::Allocator<Mesh>::CompactEveryVector(shell);
-    ColorFace(shell);
-    //vcg::tri::io::ExporterPLY<Mesh>::Save(shell, "remesh.ply", tri::io::Mask::IOM_FACECOLOR);
-
-    for (auto& sf : shell.face) {
-        if (int(tri::Index(shell, sf)) >= startFN) {
-            sf.SetHoleFilling();
-            ia[sf] = -1;
-            for (int i = 0; i < 3; ++i) {
-                sf.V(i)->T().U() = sf.cP(i).X();
-                sf.V(i)->T().V() = sf.cP(i).Y();
-            }
-        }
-    }
-    tri::UpdateTopology<Mesh>::FaceFace(shell);
-    tri::UpdateTopology<Mesh>::VertexFace(shell);
-}
-
-void RemeshShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& inputMesh)
-{
-    int c = 0;
-    for (auto& sf : shell.face) {
-        if (sf.IsHoleFilling()) c++;
-    }
-    if (c == 0) return;
-
-    //ClearHoleFillingFaces(shell);
-    //CloseShellHoles(shell);
-    DoRemesh(shell);
-
-    // Compute average areas
-    auto psi = GetParameterizationScaleInfoAttribute(inputMesh);
-    auto tsa = GetTargetShapeAttribute(shell);
-    double avg3D = psi().surfaceArea / psi().numNonZero;
-    double avgUV = psi().parameterArea / psi().numNonZero;
-
-    for (auto& sf : shell.face) {
-        // only update target shape of the readded hole-filling faces
-        if (sf.IsHoleFilling()) {
-            CoordStorage target;
-            double scale = 1.0;
-            if (targetGeometry == Model)
-                scale = std::sqrt(avg3D / DistortionMetric::Area3D(sf));
-            else if (targetGeometry == Texture)
-                scale = std::sqrt(avgUV / DistortionMetric::Area3D(sf));
-            else
-                assert(0 && "Unexpected targetGeometry parameter value");
-            assert(scale > 0);
-            target.P[0] = sf.P(0) * scale;
-            target.P[1] = sf.P(1) * scale;
-            target.P[2] = sf.P(2) * scale;
-            tsa[sf] = target;
-        }
-    }
-}
-*/
 
 bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeometry, bool useExistingUV)
 {
@@ -724,8 +606,6 @@ void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2d>
         }
     }
 
-
-
     outline2Vec.clear();
     std::vector<Point2d> outline;
 
@@ -774,8 +654,131 @@ void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2d>
         outline2Vec.push_back(outline);
         outline.clear();
     }
-
 }
+
+bool CleanSmallComponents(Mesh& m, GraphHandle graph, TextureObjectHandle texObj, double areaThreshold)
+{
+    (void) texObj;
+
+    auto CCIDh = GetConnectedComponentIDAttribute(m);
+    tri::UpdateTopology<Mesh>::FaceFace(m);
+    tri::UpdateTopology<Mesh>::VertexFace(m);
+    tri::UpdateSelection<Mesh>::FaceClear(m);
+    tri::UpdateFlags<Mesh>::FaceClearV(m);
+    bool selected = false;
+    for (auto& p : graph->charts) {
+        ChartHandle chart = p.second;
+        if (chart->AreaUV() < areaThreshold) {
+            std::cout << "Chart " << chart->id << std::endl;
+            std::unordered_set<RegionID> adj;
+            for (auto ch : chart->adj)
+                adj.insert(ch->id);
+            std::vector<Mesh::FacePointer> visitVec;
+            std::unordered_set<RegionID> visitedComponents;
+            for (auto fptr : chart->fpVec) {
+                for (int i = 0; i < 3; ++i) {
+                    vcg::face::VFIterator<Mesh::FaceType> vfi(fptr->V(i));
+                    while (!vfi.End()) {
+                        auto fp = vfi.F();
+                        if (!fp->IsV()) {
+                            fp->SetV();
+                            visitVec.push_back(fp);
+                            visitedComponents.insert(CCIDh[fp]);
+                        }
+                        ++vfi;
+                    }
+                }
+            }
+            // reset visit flags
+            for (auto fptr : visitVec)
+                fptr->ClearV();
+            // Only select if the visited components are 2, otherwise maintaining
+            // reasonable uv coordinates is troublesome
+            if (visitedComponents.size() <= 2) {
+                // Check if the visited faces result in a surface of genus > 0
+                Mesh probe;
+                MeshFromFacePointers(visitVec, probe);
+                tri::UpdateTopology<Mesh>::FaceFace(probe);
+                int nonManifoldPrimitives = tri::Clean<Mesh>::CountNonManifoldEdgeFF(probe) + tri::Clean<Mesh>::CountNonManifoldVertexFF(probe);
+                if (nonManifoldPrimitives || tri::Clean<Mesh>::MeshGenus(probe) > 0) {
+                    // select the region to clean it later
+                    for (auto& fp : visitVec)
+                        fp->SetS();
+                    selected = true;
+                }
+            }
+        }
+    }
+
+    if (!selected)
+        return false;
+
+    // store in a vertex attribute the uv coordinates at the boundary
+    auto uvattr = tri::Allocator<Mesh>::GetPerVertexAttribute<Point2d>(m, "uvattr");
+    for (auto& v : m.vert)
+        uvattr[v] = Point2d::Zero();
+    for (auto& f : m.face) {
+        if (f.IsS()) {
+            for (int i = 0; i < 3; ++i) {
+                if (!f.FFp(i)->IsS() && CCIDh[f] != CCIDh[f.FFp(i)]) {
+                    // the adjacent face is not selected and the edge is a seam edge
+                    uvattr[f.V0(i)] = f.cWT(i).P();
+                    uvattr[f.V1(i)] = f.cWT((i+1)%3).P();
+                }
+            }
+        }
+    }
+
+    for (auto& f : m.face)
+        if (!f.IsD() && f.IsS())
+            tri::Allocator<Mesh>::DeleteFace(m, f);
+
+    tri::UpdateTopology<Mesh>::VertexFace(m);
+    tri::Allocator<Mesh>::CompactEveryVector(m);
+    tri::UpdateTopology<Mesh>::FaceFace(m);
+
+    std::size_t oldFaces = m.face.size();
+
+    tri::Hole<Mesh>::EarCuttingFill<tri::MinimumWeightEar<Mesh>>(m, 30, false);
+    tri::Clean<Mesh>::RemoveUnreferencedVertex(m);
+    tri::Clean<Mesh>::RemoveDuplicateVertex(m);
+
+    tri::UpdateTopology<Mesh>::VertexFace(m);
+    tri::Allocator<Mesh>::CompactEveryVector(m);
+    tri::UpdateTopology<Mesh>::FaceFace(m);
+
+    assert(m.face.size() > oldFaces);
+    std::cout << "Added " << m.face.size() - oldFaces << " faces" << std::endl;
+
+    for (std::size_t h = oldFaces; h < m.face.size(); ++h) {
+        auto& f = m.face[h];
+        assert(!f.IsD());
+        for (int i = 0; i < 3; ++i) {
+            if (uvattr[f.V(i)] != Point2d::Zero()) {
+                f.WT(i).P() = uvattr[f.V(i)];
+            } else {
+                auto& fj = *(f.FFp(i));
+                if (tri::Index(m, fj) < oldFaces) {
+                    int j = f.FFi(i);
+                    vcg::Point2d wuv = fj.WT((j+1)%3).P();
+                    face::Pos<MeshFace> startPos(&f, i);
+                    face::Pos<MeshFace> p = startPos;
+                    do {
+                        if (p.F()->WT(p.VInd()).P() == vcg::Point2d::Zero()) {
+                            p.F()->WT(p.VInd()).P() = wuv;
+                        }
+                        p.NextE();
+                    } while (p != startPos);
+                }
+            }
+        }
+    }
+
+    tri::Allocator<Mesh>::DeletePerVertexAttribute(m, "uvattr");
+    return true;
+}
+
+
 
 // FaceGroup class implementation
 // ==============================

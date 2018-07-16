@@ -97,6 +97,12 @@ void RebuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh 
 void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2d>> &outline2Vec);
 void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2f>> &outline2Vec);
 
+/* Tries to remove topological noise in order to simplify the aggregation step.
+ * This function potentially changes the mesh geometry, leaving to the calling
+ * code the responsibility to recompute the mesh graph.
+ * Returns true if the mesh is changed (therefore invalidating the graph object,
+ * false otherwise. */
+bool CleanSmallComponents(Mesh& m, GraphHandle graph, TextureObjectHandle texObj, double areaThreshold);
 
 /* FaceGroup class
  * Used to store a mesh chart as an array of Face pointers */

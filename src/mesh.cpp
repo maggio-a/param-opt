@@ -90,6 +90,38 @@ bool SaveMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject,
     return true;
 }
 
+void MeshFromFacePointers(const std::vector<Mesh::FacePointer>& vfp, Mesh& out)
+{
+    out.Clear();
+    std::unordered_map<Mesh::VertexPointer, Mesh::VertexPointer> vpmap;
+    vpmap.reserve(vfp.size() * 2);
+    std::size_t vn = 0;
+    for (auto fptr : vfp) {
+        for (int i = 0; i < 3; ++i) {
+            if (vpmap.count(fptr->V(i)) == 0) {
+                vn++;
+                vpmap[fptr->V(i)] = nullptr;
+            }
+        }
+    }
+    auto mvi = tri::Allocator<Mesh>::AddVertices(out, vn);
+    auto mfi = tri::Allocator<Mesh>::AddFaces(out, vfp.size());
+    for (auto fptr : vfp) {
+        Mesh::FacePointer mfp = &*mfi++;
+        for (int i = 0; i < 3; ++i) {
+            Mesh::VertexPointer vp = fptr->V(i);
+            typename Mesh::VertexPointer& mvp = vpmap[vp];
+            if (mvp == nullptr) {
+                mvp = &*mvi++;
+                mvp->P() = vp->P();
+            }
+            mfp->V(i) = mvp;
+            mfp->WT(i) = fptr->WT(i);
+        }
+        mfp->SetMesh();
+    }
+}
+
 void BuildMeshFromFacePointers(Mesh &m, const std::vector<std::vector<Mesh::FacePointer>* >& vFpVecp)
 {
     m.Clear();
