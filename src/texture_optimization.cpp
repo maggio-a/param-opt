@@ -181,7 +181,7 @@ void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, std::ve
             std::unordered_set<Mesh::FacePointer> inStack;
             s.push(fptr);
             inStack.insert(fptr);
-            std::cout << "Seed face " << tri::Index(m, fptr) << std::endl;
+            //std::cout << "Seed face " << tri::Index(m, fptr) << std::endl;
             while (!s.empty()) {
                 Mesh::FacePointer fp = s.top();
                 s.pop();
@@ -207,7 +207,7 @@ void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, std::ve
                     if (ChartParameterizationHasOverlaps(m, aggregate)) {
                         if (currentMerge.size() == 0) {
                             // handle special case where a single subchart is overlapping by removing it
-                            std::cout << "single subchart overlaps " << id << std::endl;
+                            //std::cout << "single subchart overlaps " << id << std::endl;
                             assert(inStack.size() == 0 && s.size() == 0); // we detect this from the starting face
                             for (auto fptr : chfp->fpVec) {
                                 visited.insert(fptr); // set all the subchart faces as visited
@@ -250,11 +250,13 @@ void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, std::ve
 
     int k = 0;
     for (auto& set : mergeSets) {
+        /*
         std::cout << "Merge set " << k++ << " = ";
         for (auto ch : set) {
             std::cout << ch->id << " ";
         }
         std::cout << endl;
+        */
         auto res = gm.Collapse(set.begin(), set.end());
         assert(res.first == GraphManager::Collapse_OK);
         chartVec.push_back(res.second);
@@ -344,6 +346,7 @@ void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
         std::cout << "Parameterizing region of " << chart->FN() << " zero UV area faces" << std::endl;
 
         ParameterizerObject po{chart, strategy};
+        po.SetEnergyDiffTolerance(0);
         bool parameterized = po.Parameterize();
 
         if (!parameterized) {
@@ -527,6 +530,8 @@ void Pack(GraphHandle graph)
     // pack the atlas TODO function parameter to choose the packing strategy
     RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Parameters packingParam;
     packingParam.costFunction  = RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Parameters::LowestHorizon;
+    //packingParam.costFunction  = RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Parameters::MinWastedSpace;
+    //packingParam.costFunction  = RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Parameters::MixedCost;
     packingParam.doubleHorizon = true;
     packingParam.cellSize = 2;
     packingParam.pad = 4;
