@@ -227,11 +227,6 @@ double DescentMethod::Search(const MatrixXd& uv, const MatrixXd& grad, const Mat
         numIter++;
     }
 
-//    std::cout << "t = " << t << std::endl << "descentCoeff = " << descentCoeff << std::endl;
-//    std::cout << "Descent took " << numIter << " iterations to sufficiently decrease obj" << std::endl;
-
-//    std::cout << E_t << " " << E_curr << " " << E_curr + t * descentCoeff << std::endl;
-
     return E_t;
 }
 
@@ -416,6 +411,20 @@ void SLIM::UpdateCache()
     for (auto& f : m.face) {
         Point3d p10 = energy->P1(&f) - energy->P0(&f);
         Point3d p20 = energy->P2(&f) - energy->P0(&f);
+        if (f.IsScaffold()) {
+            double targetArea = (p10 ^ p20).Norm();
+            double q = QualityRadii(Point3d::Zero(), Point3d::Zero() + p10, Point3d::Zero() + p20);
+            if (q < 0.1) {
+                std::cout << "Correcting triangle coefficients" << std::endl;
+                // if the triangle is too small, consider an equilateral triangle of the same area as the target
+                // this apparently helps avoiding degeneracies in the coefficients computation
+                p10 = Point3d(1, 0, 0);
+                p20 = Point3d(std::cos(M_PI / 3.0), std::sin(M_PI / 3.0), 0);
+                p10 *= std::sqrt(targetArea);
+                p20 *= std::sqrt(targetArea);
+
+            }
+        }
         Eigen::Matrix2d fm;
         Eigen::Vector2d x1, x2;
         LocalIsometry(p10, p20, x1, x2);
