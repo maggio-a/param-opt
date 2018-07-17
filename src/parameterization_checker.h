@@ -5,6 +5,7 @@
 #include <GLFW/glfw3.h>
 
 #include <iostream>
+#include <fstream>
 
 #include <QImage>
 
@@ -14,7 +15,7 @@
 
 struct RasterizedParameterizationStats {
     int rw; // raster width
-    int rh; //raster height
+    int rh; // raster height
     int totalFragments;
     int totalFragments_bilinear;
     int overwrittenFragments; // number of fragments that were written more than once
@@ -23,7 +24,7 @@ struct RasterizedParameterizationStats {
 };
 
 static const char *vs_text_checker[] = {
-    "#version 410 core                                           \n"
+    "#version 430 core                                           \n"
     "                                                            \n"
     "in vec2 position;                                           \n"
     "                                                            \n"
@@ -35,14 +36,16 @@ static const char *vs_text_checker[] = {
 };
 
 static const char *fs_text_checker[] = {
-    "#version 410 core                                           \n"
-    "                                                            \n"
-    "out vec4 color;                                             \n"
-    "                                                            \n"
-    "void main(void)                                             \n"
-    "{                                                           \n"
-    "    color = vec4(1.0, 1.0, 1.0, 1.0);                       \n"
-    "}                                                           \n"
+    "#version 430 core                                                \n"
+    "                                                                 \n"
+    "layout (r32ui) uniform uimage2D imgbuf;                          \n"
+    "out vec4 color;                                                  \n"
+    "                                                                 \n"
+    "void main(void)                                                  \n"
+    "{                                                                \n"
+    "    color = vec4(1.0, 1.0, 1.0, 1.0);                            \n"
+    "    imageAtomicAdd(imgbuf, ivec2(gl_FragCoord.xy), 1);           \n"
+    "}                                                                \n"
 };
 
 static bool CheckLocalInjectivity(Mesh& m)
@@ -75,18 +78,20 @@ static RasterizedParameterizationStats GetRasterizationStats(ChartHandle chart, 
 
 static RasterizedParameterizationStats GetRasterizationStats(const std::vector<Mesh::FacePointer>& faces, int width, int height, const vcg::Box2d& resizeBox)
 {
+    std::cout << "RASTER STATS RESOLUTION = " << width << "x" << height << std::endl;
     // Create a hidden window
     GLFWwindow *parentWindow = glfwGetCurrentContext();
     bool sharedContext = (parentWindow != nullptr);
 
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 1);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
     //glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE);
 
-    GLFWwindow *window = glfwCreateWindow(width, height, "Window", nullptr, parentWindow);
+    //GLFWwindow *window = glfwCreateWindow(width, height, "Window", nullptr, parentWindow);
+    GLFWwindow *window = glfwCreateWindow(512, 512, "Window", nullptr, parentWindow);
     if (!window)
     {
         cout << "Failed to create window or context" << endl;
@@ -101,10 +106,9 @@ static RasterizedParameterizationStats GetRasterizationStats(const std::vector<M
     }
     glGetError();
 
-
     int fbw, fbh;
     glfwGetFramebufferSize(window, &fbw, &fbh);
-    assert(fbw == width && fbh == height);
+    //assert(fbw == width && fbh == height);
 
     // OpenGL setup
 
@@ -114,8 +118,6 @@ static RasterizedParameterizationStats GetRasterizationStats(const std::vector<M
 
     GLint program = CompileShaders(vs_text_checker, fs_text_checker);
     glUseProgram(program);
-
-    CheckGLError();
 
     // Allocate vertex data
 
@@ -147,32 +149,64 @@ static RasterizedParameterizationStats GetRasterizationStats(const std::vector<M
 
     p = nullptr;
     glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    // Create texture to store fragment writes
+    constexpr int imgbuf_unit = 0;
+    GLint loc_imgbuf = glGetUniformLocation(program, "imgbuf");
+    glUniform1i(loc_imgbuf, imgbuf_unit);
+
+    assert(sizeof(unsigned) == 4);
+    GLuint tex;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_R32UI, width, height);
+
+    // clear the texure
+    unsigned *sb = new unsigned[width*height];
+    memset(sb, 0x00, width*height*sizeof(unsigned));
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RED_INTEGER, GL_UNSIGNED_INT, sb);
+
+    glBindImageTexture(imgbuf_unit, tex, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
+
+    // bugfix (?) setup an offscreen context of the appropriate size to make sure
+    // the data is fully rendered
+    GLuint fbo;
+    glGenFramebuffers(1, &fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+    GLuint renderTarget;
+    glGenTextures(1, &renderTarget);
+    glBindTexture(GL_TEXTURE_2D, renderTarget);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, width, height);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, renderTarget, 0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+
     glViewport(0, 0, width, height);
+    glScissor(0, 0, width, height);
 
     glDisable(GL_DEPTH_TEST);
-    glEnable(GL_STENCIL_TEST);
-
-    glStencilFunc(GL_ALWAYS, 1, 0xFF);
-    glStencilOp(GL_KEEP, GL_INCR, GL_INCR); // increment stencil regardless of depth pass|fail
-    glStencilMask(0xFF);
+    glDisable(GL_STENCIL_TEST);
 
     glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
-    glClearStencil(0);
 
-    glDrawBuffer(GL_BACK);
+    glDrawBuffer(GL_COLOR_ATTACHMENT0);
 
-    glClear(GL_COLOR_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+    glClear(GL_COLOR_BUFFER_BIT);
     glfwPollEvents();
 
     glDrawArrays(GL_TRIANGLES, 0, faces.size()*3);
 
-    CheckGLError();
-
-    glReadBuffer(GL_BACK);
-    unsigned char *sb = new unsigned char[width*height];
-    glReadPixels(0, 0, width, height, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, sb);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, sb);
 
     CheckGLError();
+
+    //glReadBuffer(GL_BACK);
+    //glReadPixels(0, 0, width, height, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, sb);
 
     RasterizedParameterizationStats stats{0, 0, 0, 0, 0, 0, 0};
     stats.rw = width;
@@ -219,10 +253,6 @@ static RasterizedParameterizationStats GetRasterizationStats(const std::vector<M
         }
     }
 
-    delete sb;
-    sb = nullptr;
-
-    /*
     ofstream ofs("overlap.ppm", ios_base::binary | ios_base::out | ios_base::trunc);
     if (!ofs) {
         assert(0);
@@ -237,15 +267,20 @@ static RasterizedParameterizationStats GetRasterizationStats(const std::vector<M
         }
         ofs.close();
     }
-    */
+
+    delete sb;
+    sb = nullptr;
 
     glfwPollEvents();
 
     // clean up
     glUseProgram(0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
     glBindVertexArray(0);
 
     glDeleteBuffers(1, &vertexbuf);
+    glDeleteTextures(1, &tex);
+    glDeleteTextures(1, &renderTarget);
     glDeleteProgram(program);
     glDeleteVertexArrays(1, &vao);
 
