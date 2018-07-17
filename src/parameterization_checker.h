@@ -184,7 +184,6 @@ static RasterizedParameterizationStats GetRasterizationStats(const std::vector<M
     glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, renderTarget, 0);
     glBindTexture(GL_TEXTURE_2D, 0);
 
-
     glViewport(0, 0, width, height);
     glScissor(0, 0, width, height);
 
@@ -253,6 +252,7 @@ static RasterizedParameterizationStats GetRasterizationStats(const std::vector<M
         }
     }
 
+    /*
     ofstream ofs("overlap.ppm", ios_base::binary | ios_base::out | ios_base::trunc);
     if (!ofs) {
         assert(0);
@@ -267,6 +267,7 @@ static RasterizedParameterizationStats GetRasterizationStats(const std::vector<M
         }
         ofs.close();
     }
+    */
 
     delete sb;
     sb = nullptr;
