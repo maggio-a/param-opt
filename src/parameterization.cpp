@@ -367,19 +367,25 @@ bool ParameterizerObject::Parameterize()
     Timer t;
     int i;
     IterationInfo info;
-    double surfaceArea = energy->SurfaceArea();
-    double realSurfaceArea = energy->SurfaceAreaNotHoleFilling();
+    double meshSurfaceArea = energy->SurfaceAreaNotHoleFilling();
+    double meshCurrentEnergy = energy->E_IgnoreMarkedFaces();
     for (i = 0; i < strategy.optimizerIterations; ++i) {
         info = Iterate();
         if (info.gradientNorm < gradientNormTolerance) {
             std::cout << "Stopping because gradient magnitude is small enough (" << info.gradientNorm << ")" << std::endl;
             break;
         }
-        double realEnergyVal = energy->E_IgnoreMarkedFaces();
-        if (realEnergyVal < (energyDiffTolerance * realSurfaceArea)) {
+        double meshIterationEnergy = energy->E_IgnoreMarkedFaces();
+        if (meshIterationEnergy >= meshCurrentEnergy) {
+            std::cout << "WARNING: Stopping because energy increased" << std::endl;
+            break;
+        }
+        double meshEnergyDiff = (meshCurrentEnergy - meshIterationEnergy);
+        if (meshEnergyDiff < (energyDiffTolerance * meshSurfaceArea)) {
             std::cout << "Stopping because energy improvement is too small (" << info.energyDiff << ")" << std::endl;
             break;
         }
+        meshCurrentEnergy = meshIterationEnergy;
         if (needsRemeshing && (i > 0) && (i % 30) == 0) {
             RemeshHolefillingAreas();
             opt->UpdateCache();
@@ -398,7 +404,6 @@ IterationInfo ParameterizerObject::Iterate()
     if (!OptimizerIsInitialized())
         InitializeOptimizer();
 
-    Timer t;
     IterationInfo info;
 
     info.energyVal = opt->Iterate(info.gradientNorm, info.energyDiff);
@@ -406,16 +411,19 @@ IterationInfo ParameterizerObject::Iterate()
     SyncShellWithUV(shell);
     iterationCount++;
 
+    bool meshChanged = false;
     if (strategy.padBoundaries) {
         RemeshHolefillingAreas();
-        if (!strategy.scaffold)
-            opt->UpdateCache();
+        meshChanged = true;
     }
 
     if (strategy.scaffold) {
         RebuildScaffold(shell, strategy.geometry, baseMesh);
-        opt->UpdateCache();
+        meshChanged = true;
     }
+
+    if (meshChanged)
+        opt->UpdateCache();
 
     return info;
 }

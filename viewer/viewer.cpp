@@ -24,6 +24,10 @@
 
 #include "mesh_viewer.h"
 
+
+#define FIX_TOPOLOGY true
+
+
 using namespace vcg;
 
 struct Args {
@@ -201,13 +205,13 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
             EnergyType::SymmetricDirichlet,
             ParameterizationGeometry::Texture,
             DescentType::ScalableLocallyInjectiveMappings,
-            500,            // Number of iterations
+            100,            // Number of iterations
             true,           // Fill holes ?
             true,           // Use cuts ?
             false,          // Use warm start ?
-            true           // Use scaffolding ?
+            true            // Use scaffolding ?
     );
-    double tolerance = 0.0005;
+    double tolerance = 0.0002;
 
     LogStrategy(strategy, tolerance);
 
@@ -267,6 +271,11 @@ int MainGui(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
              Args args)
 {
     GLInit();
+    for (auto ch : graph->charts) {
+        if (ch.second->FN() == 2) {
+            std::cout << "CHID = " << ch.second->id << " AREA_UV=" << ch.second->AreaUV() << std::endl;
+        }
+    }
     MeshViewer viewer(graph, args.filename);
     viewer.Run();
     GLTerminate();
@@ -304,6 +313,12 @@ int main(int argc, char *argv[])
     // Print original info
     auto dummyGraph = ComputeParameterizationGraph(m, textureObject);
     PrintParameterizationInfo(dummyGraph);
+
+
+#if FIX_TOPOLOGY
+    CleanSmallComponents(m, dummyGraph, textureObject, 1e-4);
+#endif
+
     dummyGraph = nullptr;
 
     ComputeParameterizationScaleInfo(m);

@@ -669,7 +669,6 @@ bool CleanSmallComponents(Mesh& m, GraphHandle graph, TextureObjectHandle texObj
     for (auto& p : graph->charts) {
         ChartHandle chart = p.second;
         if (chart->AreaUV() < areaThreshold) {
-            std::cout << "Chart " << chart->id << std::endl;
             std::unordered_set<RegionID> adj;
             for (auto ch : chart->adj)
                 adj.insert(ch->id);
@@ -689,12 +688,27 @@ bool CleanSmallComponents(Mesh& m, GraphHandle graph, TextureObjectHandle texObj
                     }
                 }
             }
+
+            int numNotFullyVisited = 0;
+            for (auto id : visitedComponents) {
+                for (auto fptr : graph->GetChart(id)->fpVec) {
+                    if (!fptr->IsV()) {
+                        numNotFullyVisited++;
+                        break;
+                    }
+                }
+            }
+
             // reset visit flags
             for (auto fptr : visitVec)
                 fptr->ClearV();
-            // Only select if the visited components are 2, otherwise maintaining
-            // reasonable uv coordinates is troublesome
-            if (visitedComponents.size() <= 2) {
+
+
+            // Only select the region if at most one region was not fully visited
+            // this ensures that either a (small) component disappears, or we are
+            // able to recover meaningful texture coordinates at the boundary of
+            // the selection.
+            if (numNotFullyVisited <= 1) {
                 // Check if the visited faces result in a surface of genus > 0
                 Mesh probe;
                 MeshFromFacePointers(visitVec, probe);
