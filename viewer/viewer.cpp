@@ -205,7 +205,7 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
             EnergyType::SymmetricDirichlet,
             ParameterizationGeometry::Texture,
             DescentType::ScalableLocallyInjectiveMappings,
-            100,            // Number of iterations
+            200,            // Number of iterations
             true,           // Fill holes ?
             true,           // Use cuts ?
             false,          // Use warm start ?
@@ -271,11 +271,6 @@ int MainGui(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
              Args args)
 {
     GLInit();
-    for (auto ch : graph->charts) {
-        if (ch.second->FN() == 2) {
-            std::cout << "CHID = " << ch.second->id << " AREA_UV=" << ch.second->AreaUV() << std::endl;
-        }
-    }
     MeshViewer viewer(graph, args.filename);
     viewer.Run();
     GLTerminate();

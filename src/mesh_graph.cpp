@@ -656,6 +656,26 @@ void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2d>
     }
 }
 
+/*
+ * This function tries to eliminate small handles that can be identified by regions
+ * of genus non-zero surrounding very small charts.
+ * The logic is
+ *   1. Iterate over small charts (those with uv area below the areaThreshold parameter
+ *     1.1 Visit the faces of the chart and those adjacent to any visited face/vertex
+ *     1.2 If the visited region has genus>0 and 'the texture coordinates can be
+ *         recovered' (*), select the region
+ *   2. Delete all the selected faces
+ *   3. Close the holes that are left (by filling ears)
+ *   4. Restore the texture coordinates around the closed hole
+ *
+ * (*) Recovering texture coordinates
+ * To ensure that valid texture coordinates are kept around the filled area, check
+ * that at most one chart is not fully selected. This guarantees that no seams are
+ * crossed by the selection.
+ * Note that if the selection only touches a seam, we store the wedge texcoords
+ * of the face to be deleted on the vertices (as attributes) to easily retrieve
+ * them after the face is deleted.
+ * */
 bool CleanSmallComponents(Mesh& m, GraphHandle graph, TextureObjectHandle texObj, double areaThreshold)
 {
     (void) texObj;
@@ -702,7 +722,6 @@ bool CleanSmallComponents(Mesh& m, GraphHandle graph, TextureObjectHandle texObj
             // reset visit flags
             for (auto fptr : visitVec)
                 fptr->ClearV();
-
 
             // Only select the region if at most one region was not fully visited
             // this ensures that either a (small) component disappears, or we are
@@ -791,7 +810,6 @@ bool CleanSmallComponents(Mesh& m, GraphHandle graph, TextureObjectHandle texObj
     tri::Allocator<Mesh>::DeletePerVertexAttribute(m, "uvattr");
     return true;
 }
-
 
 
 // FaceGroup class implementation
