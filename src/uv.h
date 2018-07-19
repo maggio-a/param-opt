@@ -1,13 +1,15 @@
 #ifndef UV_H
 #define UV_H
 
-#include "mesh.h"
-#include <vcg/space/texcoord2.h>
 #include <vcg/space/box2.h>
+
+#include "mesh_graph.h"
+
+class Mesh;
 
 /* Save a copy of the original texture coordinates (this will be used to render
  * the new texture) */
-void StoreWedgeTexCoordAsAttribute(Mesh &m);
+void StoreWedgeTexCoordAsAttribute(Mesh &m, GraphHandle graph);
 
 vcg::Box2d UVBox(const Mesh& m);
 vcg::Box2d UVBoxVertex(const Mesh& m);

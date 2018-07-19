@@ -309,11 +309,8 @@ void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, std::ve
 
 }
 
-void PreprocessMesh(Mesh& m)
+void PreprocessMesh(Mesh& m, GraphHandle graph)
 {
-    std::cout << "FIXME" << std::endl;
-    // Compute preliminary parameterization graph
-    auto graph = ComputeParameterizationGraph(m, nullptr);
     // Parameterize regions that are not parameterized
     ReparameterizeZeroAreaRegions(m, graph);
 }
@@ -337,6 +334,9 @@ void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
     strategy.applyCut = false;
     strategy.warmStart = false;
 
+    TextureObjectHandle textureObject = graph->textureObject;
+    double uvRatio = textureObject->TextureWidth(0) / (double) textureObject->TextureHeight(0);
+
     for (auto& entry : graph->charts) {
         auto chart = entry.second;
         if (chart->AreaUV() > 0)
@@ -359,12 +359,20 @@ void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
             double randomDisplacementV = rand() / (double) RAND_MAX;
             for (auto fptr : chart->fpVec) {
                 for (int i = 0; i < 3; ++i) {
+
+                    // Handle squashed texture coordinates due to non square textures
+                    if (uvRatio > 1)
+                        fptr->WT(i).P().X() /= uvRatio;
+                    else if (uvRatio < 1)
+                        fptr->WT(i).P().Y() *= uvRatio;
+
                     fptr->WT(i).P().X() -= (box.min.X() + box.DimX());
                     fptr->WT(i).P().Y() -= (box.min.Y() + randomDisplacementV);
                     fptr->WT(i).P() *= scale;
                 }
             }
             numParameterized++;
+            chart->ParameterizationChanged();
         }
     }
 

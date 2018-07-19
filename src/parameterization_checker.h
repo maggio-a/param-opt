@@ -78,7 +78,6 @@ static RasterizedParameterizationStats GetRasterizationStats(ChartHandle chart, 
 
 static RasterizedParameterizationStats GetRasterizationStats(const std::vector<Mesh::FacePointer>& faces, int width, int height, const vcg::Box2d& resizeBox)
 {
-    std::cout << "RASTER STATS RESOLUTION = " << width << "x" << height << std::endl;
     // Create a hidden window
     GLFWwindow *parentWindow = glfwGetCurrentContext();
     bool sharedContext = (parentWindow != nullptr);

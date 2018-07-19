@@ -301,14 +301,18 @@ int main(int argc, char *argv[])
     //CompactTextureData(m, textureObject, &packingCoverage);
 
     tri::UpdateTopology<Mesh>::FaceFace(m);
+    int numVertexSplit = tri::Clean<Mesh>::SplitNonManifoldVertex(m, 0);
+    if (numVertexSplit > 0)
+        std::cout << "[LOG] Mesh was not vertex manifold, split " << numVertexSplit << " vertices" << std::endl;
     int numRemovedFaces = tri::Clean<Mesh>::RemoveNonManifoldFace(m);
     if (numRemovedFaces > 0)
         std::cout << "[LOG] Mesh was not edge manifold, removed " << numRemovedFaces << " faces" << std::endl;
 
+    tri::Clean<Mesh>::RemoveSmallConnectedComponentsSize(m, 2.5e-4 * m.FN());
+
     // Print original info
     auto dummyGraph = ComputeParameterizationGraph(m, textureObject);
     PrintParameterizationInfo(dummyGraph);
-
 
 #if FIX_TOPOLOGY
     CleanSmallComponents(m, dummyGraph, textureObject, 1e-4);
@@ -319,20 +323,10 @@ int main(int argc, char *argv[])
     ComputeParameterizationScaleInfo(m);
     MarkSeamsAsFaux(m);
 
-    /* Regularize the aspect ratio of the texture coordinates for non-square textures
-     * before storing them. This is necessary because otherwise parameterization
-     * will generate charts that are stretched along the shorter dimension */
-    double uvRatio = textureObject->TextureWidth(0) / (double) textureObject->TextureHeight(0);
-    for (auto& f : m.face) {
-        for (int i = 0; i < 3; ++i) {
-            f.WT(i).P()[0] *= uvRatio;
-        }
-    }
-
-    PreprocessMesh(m);
-    StoreWedgeTexCoordAsAttribute(m);
-
     auto graph = ComputeParameterizationGraph(m, textureObject);
+    PreprocessMesh(m, graph);
+    StoreWedgeTexCoordAsAttribute(m, graph);
+
 
     // Print original info
     PrintParameterizationInfo(graph);

@@ -493,8 +493,13 @@ void MeshViewer::UpdateDetailBuffers()
                     assert(ia[sf] != -1);
                 }
                 auto& f = m.face[ia[sf]];
-                *buffptr++ = wtcs[f].tc[i].U() / uvRatio;
-                *buffptr++ = wtcs[f].tc[i].V();
+                if (uvRatio > 1) {
+                    *buffptr++ = wtcs[f].tc[i].U() / uvRatio;
+                    *buffptr++ = wtcs[f].tc[i].V();
+                } else if (uvRatio < 1) {
+                    *buffptr++ = wtcs[f].tc[i].U();
+                    *buffptr++ = wtcs[f].tc[i].V() * uvRatio;
+                }
             } else {
                 *buffptr++ = 0.0;
                 *buffptr++ = 0.0;
@@ -622,7 +627,7 @@ void MeshViewer::UpdateSelection(const RegionID id)
                     *buffptr++ = fptr->cV(i)->P().X();
                     *buffptr++ = fptr->cV(i)->P().Y();
                     *buffptr++ = fptr->cV(i)->P().Z();
-                    *buffptr++ = fptr->cWT(i).U() / uvRatio;
+                    *buffptr++ = fptr->cWT(i).U();
                     *buffptr++ = fptr->cWT(i).V();
                 }
             }
@@ -919,7 +924,7 @@ void MeshViewer::InitBuffers()
                 *buffptr++ = 0.0;
                 *buffptr++ = 0.0;
             } else { */
-                *buffptr++ = f.cWT(i).U() / uvRatio;
+                *buffptr++ = f.cWT(i).U();
                 *buffptr++ = f.cWT(i).V();
             //}
             unsigned char *colorptr = (unsigned char *) buffptr;
@@ -1534,8 +1539,8 @@ void MeshViewer::ManageImGuiState()
         if (clickPack) {
             ClearSelection();
             if (graph->MergeCount() > 0) {
-                //int c = ParameterizeGraph(*gm, strategy, tau, retry);
-                //if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
+                int c = ParameterizeGraph(*gm, strategy, retry ? tau : -1);
+                if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
                 Pack(gm->Graph());
                 updateTexcoord = true;
                 if (activeDistIndex != -1) {
@@ -1880,7 +1885,7 @@ void MeshViewer::ManageImGuiState()
             for (int i = 0; i < 3; ++i) {
                 buffptr += 3;
                 if (updateTexcoord) {
-                    *buffptr++ = f.cWT(i).U() / uvRatio;
+                    *buffptr++ = f.cWT(i).U();
                     *buffptr++ = f.cWT(i).V();
                 }
                 else buffptr += 2;

@@ -719,15 +719,22 @@ bool CleanSmallComponents(Mesh& m, GraphHandle graph, TextureObjectHandle texObj
                 }
             }
 
-            // reset visit flags
-            for (auto fptr : visitVec)
-                fptr->ClearV();
+            // Check that only one region touches seams, otherwise the wedge
+            // texcoords will not agree
+            std::unordered_set<RegionID> boundaryId;
+            for (auto fptr : visitVec) {
+                for (int i = 0; i < 3; ++i) {
+                    if (CCIDh[fptr] != CCIDh[fptr->FFp(i)] && !fptr->FFp(i)->IsV()) {
+                        boundaryId.insert(CCIDh[fptr]);
+                    }
+                }
+            }
 
             // Only select the region if at most one region was not fully visited
             // this ensures that either a (small) component disappears, or we are
             // able to recover meaningful texture coordinates at the boundary of
             // the selection.
-            if (numNotFullyVisited <= 1) {
+            if (boundaryId.size() <= 1 && numNotFullyVisited <= 1) {
                 // Check if the visited faces result in a surface of genus > 0
                 Mesh probe;
                 MeshFromFacePointers(visitVec, probe);
@@ -740,11 +747,24 @@ bool CleanSmallComponents(Mesh& m, GraphHandle graph, TextureObjectHandle texObj
                     selected = true;
                 }
             }
+
+            // reset visit flags
+            for (auto fptr : visitVec)
+                fptr->ClearV();
         }
     }
 
     if (!selected)
         return false;
+
+
+    for (auto& f : m.face)
+        if (!f.IsD() && f.IsS())
+           f.C() = vcg::Color4b::Cyan;
+       else
+           f.C() = vcg::Color4b::DarkGray;
+
+    tri::io::Exporter<Mesh>::Save(m, "color.obj", io::Mask::IOM_ALL);
 
     // store in a vertex attribute the uv coordinates at the boundary
     auto uvattr = tri::Allocator<Mesh>::GetPerVertexAttribute<Point2d>(m, "uvattr");
@@ -806,6 +826,8 @@ bool CleanSmallComponents(Mesh& m, GraphHandle graph, TextureObjectHandle texObj
             }
         }
     }
+
+    tri::io::Exporter<Mesh>::Save(m, "fixed.obj", io::Mask::IOM_ALL);
 
     tri::Allocator<Mesh>::DeletePerVertexAttribute(m, "uvattr");
     return true;

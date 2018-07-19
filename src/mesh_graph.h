@@ -21,7 +21,6 @@
 #include "gl_utils.h"
 #include "math_utils.h"
 #include "metric.h"
-#include "uv.h"
 
 
 class MeshGraph;

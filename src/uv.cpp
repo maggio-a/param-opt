@@ -3,19 +3,28 @@
 #include "metric.h"
 #include "math_utils.h"
 #include "mesh_attribute.h"
+#include "mesh_graph.h"
 
 using namespace vcg;
 
-void StoreWedgeTexCoordAsAttribute(Mesh &m)
+void StoreWedgeTexCoordAsAttribute(Mesh &m, GraphHandle graph)
 {
+    TextureObjectHandle textureObject = graph->textureObject;
+    double uvRatio = textureObject->TextureWidth(0) / (double) textureObject->TextureHeight(0);
+
     auto WTCSh = GetWedgeTexCoordStorageAttribute(m);
     for (auto &f : m.face) {
-        WTCSh[&f].tc[0].P() = f.WT(0).P();
-        WTCSh[&f].tc[0].N() = f.WT(0).N();
-        WTCSh[&f].tc[1].P() = f.WT(1).P();
-        WTCSh[&f].tc[1].N() = f.WT(1).N();
-        WTCSh[&f].tc[2].P() = f.WT(2).P();
-        WTCSh[&f].tc[2].N() = f.WT(2).N();
+        for (int i = 0; i < 3; ++i) {
+            WTCSh[&f].tc[i].P() = f.WT(i).P();
+            WTCSh[&f].tc[i].N() = f.WT(i).N();
+
+            // Handle squashed texcoords. Note that this is the opposite of
+            // what is done to parameterize zero uv area regions.
+            if (uvRatio > 1)
+                WTCSh[&f].tc[i].P().X() *= uvRatio;
+            else if (uvRatio < 1)
+                WTCSh[&f].tc[i].P().Y() /= uvRatio;
+        }
     }
 }
 

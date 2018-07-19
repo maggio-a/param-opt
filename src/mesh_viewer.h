@@ -93,7 +93,6 @@ private:
 
     double uvRatio;
 
-
     ParameterizationStrategy strategy;
 
 

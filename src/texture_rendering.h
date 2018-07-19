@@ -212,8 +212,13 @@ static TextureObjectHandle RenderTexture(Mesh::FaceIterator fbegin, Mesh::FaceIt
         for (int i = 0; i < 3; ++i) {
             *p++ = it->cWT(i).U();
             *p++ = it->cWT(i).V();
-            *p++ = WTCSh[&*it].tc[i].U() / uvRatio;
-            *p++ = WTCSh[&*it].tc[i].V();
+            vcg::Point2d uv = WTCSh[it].tc[i].P();
+            if (uvRatio > 1)
+                uv.X() /= uvRatio;
+            else if (uvRatio < 1)
+                uv.Y() *= uvRatio;
+            *p++ = uv.X();
+            *p++ = uv.Y();
         }
     }
     glUnmapBuffer(GL_ARRAY_BUFFER);
