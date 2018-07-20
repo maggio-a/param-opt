@@ -496,7 +496,7 @@ void MeshViewer::UpdateDetailBuffers()
                 if (uvRatio > 1) {
                     *buffptr++ = wtcs[f].tc[i].U() / uvRatio;
                     *buffptr++ = wtcs[f].tc[i].V();
-                } else if (uvRatio < 1) {
+                } else if (uvRatio <= 1) {
                     *buffptr++ = wtcs[f].tc[i].U();
                     *buffptr++ = wtcs[f].tc[i].V() * uvRatio;
                 }
