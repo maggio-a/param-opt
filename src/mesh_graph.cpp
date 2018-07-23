@@ -28,8 +28,6 @@
 
 #include <QImage>
 
-static constexpr int MAX_REMESH_ITER = 6;
-
 inline Polyline2 BuildPolyline2(const std::vector<std::size_t> &vfi, const std::vector<int> &vvi, const Mesh& shell2D)
 {
     Polyline2 polyline;
@@ -446,8 +444,6 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
                 sf.WT(i).P() = f.WT(i).P();
             }
         }
-
-
         // split vertices at seams
         int vn = shell.VN();
         auto vExt = [](const Mesh& msrc, const MeshFace& f, int k, const Mesh& mdst, MeshVertex& v) {
@@ -526,6 +522,7 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
                 Point2d u10 = u1 - u0;
                 Point2d u20 = u2 - u0;
                 double area = std::abs(u10 ^ u20) / 2.0;
+
                 if (area == 0) {
                     // zero uv area face, target the 3d shape scaled according to the target geometry
                     double scale = std::sqrt(avgUV / DistortionMetric::Area3D(mf));
@@ -533,10 +530,38 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
                     target.P[1] = mf.P(1) * scale;
                     target.P[2] = mf.P(2) * scale;
                 } else {
+                    // Compute the isometry to the model coordinates and scale them to match the texture area
+                    Point2d x10;
+                    Point2d x20;
+                    LocalIsometry(mf.P(1) - mf.P(0), mf.P(2) - mf.P(0), x10, x20);
+                    double areaModel = std::abs(x10 ^ x20) / 2.0;
+                    x10 *= std::sqrt(area / areaModel);
+                    x20 *= std::sqrt(area / areaModel);
+
+                    // Evaluate the angle difference between the existing parameterization and the model
+                    // if the distortion is low, we use the triangle defined by the parameterization, otherwise
+                    // we linearly interpolate between the texture and model shape to try and correct the distortion
+                    double angleDist = 0;
+                    angleDist += std::abs(VecAngle(u10, u20) - VecAngle(x10, x20));
+                    angleDist += std::abs(VecAngle(u10 + (u20 - u10), -u10) - VecAngle(x10 + (x20 - x10), -x10));
+                    angleDist += std::abs(VecAngle(u20 - u10, -u20) - VecAngle(x20 - x10, -x20));
+                    double interpolationFactor = angleDist / (2.0 * M_PI);
+
+                    if (angleDist > 0.5 * M_PI)
+                        interpolationFactor = 1.0;
+                    else
+                        interpolationFactor = 0.0;
+
+                    Point2d v10 = (1.0 - interpolationFactor) * u10 + (interpolationFactor) * x10;
+                    Point2d v20 = (1.0 - interpolationFactor) * u20 + (interpolationFactor) * x20;
+
                     // target shape is the original uv face
-                    target.P[0] = Point3d{u0[0], u0[1], 0};
-                    target.P[1] = Point3d{u1[0], u1[1], 0};
-                    target.P[2] = Point3d{u2[0], u2[1], 0};
+                    //target.P[0] = Point3d{u0[0], u0[1], 0};
+                    //target.P[1] = Point3d{u1[0], u1[1], 0};
+                    //target.P[2] = Point3d{u2[0], u2[1], 0};
+                    target.P[0] = Point3d{0, 0, 0};
+                    target.P[1] = Point3d{v10[0], v10[1], 0};
+                    target.P[2] = Point3d{v20[0], v20[1], 0};
                 }
             }
         }
@@ -873,12 +898,12 @@ double FaceGroup::OriginalAreaUV() const
     assert(HasWedgeTexCoordStorageAttribute(mesh));
     auto wtcsattr = GetWedgeTexCoordStorageAttribute(mesh);
 
-    double areaUV = 0;
+    double doubleAreaUV = 0;
     for (auto fptr : fpVec) {
         const TexCoordStorage& tcs = wtcsattr[fptr];
-        areaUV += std::abs((tcs.tc[1].P() - tcs.tc[0].P()) ^ (tcs.tc[2].P() - tcs.tc[0].P()));
+        doubleAreaUV += std::abs((tcs.tc[1].P() - tcs.tc[0].P()) ^ (tcs.tc[2].P() - tcs.tc[0].P()));
     }
-    return areaUV;
+    return 0.5 * doubleAreaUV;
 }
 
 double FaceGroup::AreaUV() const
