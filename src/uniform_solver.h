@@ -98,10 +98,10 @@ public:
 
         assert(vBorderVertices.size() == 1);
         // map border to the unit circle (store coord in vertex texcoord)
-        constexpr float twoPi = 2 * M_PI;
+        constexpr double twoPi = 2 * M_PI;
         for (std::size_t i = 0; i < vBorderVertices[0].size(); ++i) {
             //float angle = (vCumulativeBorder[0][i] / vTotalBorderLength[0]) * twoPi;
-            float angle = (i / double(vBorderVertices[0].size())) * twoPi;
+            double angle = (i / double(vBorderVertices[0].size())) * twoPi;
             Point2d uvCoord = Point2d{std::sin(angle), std::cos(angle)};
             mesh.vert[vBorderVertices[0][i]].T().P() = uvCoord;
             AddConstraint(vBorderVertices[0][i], uvCoord);
@@ -146,7 +146,7 @@ public:
         //std::cout << Eigen::MatrixXd(A) << std::endl;
         //std::cout << b << std::endl;
 
-        //Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> solver;
+        //Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> solver; requires to reorder vertices so boundary vs are last
         Eigen::SparseLU<Eigen::SparseMatrix<double,Eigen::ColMajor>, Eigen::COLAMDOrdering<Eigen::SparseMatrix<double>::StorageIndex>> solver;
 
         A.makeCompressed();
