@@ -60,7 +60,7 @@ bool SaveMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject,
 
     // Quick and dirty, make sure the texture extension is consistent
     for (std::string& textureName : m.textures) {
-        textureName = textureName.substr(0, textureName.find_last_of('.')).append(".png");
+        textureName = std::string("out_") + textureName.substr(0, textureName.find_last_of('.')).append(".png");
     }
 
     if (color) mask = mask | tri::io::Mask::IOM_FACEQUALITY | tri::io::Mask::IOM_FACECOLOR;

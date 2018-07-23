@@ -3,11 +3,18 @@
 
 #include "mesh.h"
 
+#include "mesh_graph.h"
+#include "gl_utils.h"
+
 #include <vector>
 
 #include <QImage>
 #include <QPainter>
 #include <vcg/space/rect_packer.h>
+
+void GenerateDistortionTextures(Mesh& m, TextureObjectHandle textureObject);
+
+void EvaluateGutterResistance(Mesh& m, TextureObjectHandle textureObject);
 
 static void CompactTextureData(Mesh& m, TextureObjectHandle texture, double *coverage)
 {
@@ -72,7 +79,7 @@ static void CompactTextureData(Mesh& m, TextureObjectHandle texture, double *cov
     painter.end();
 
     assert(img->save("test.jpg", 0, 100));
-    tri::io::Exporter<Mesh>::Save(m, "test.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
+    //tri::io::Exporter<Mesh>::Save(m, "test.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
 
     *coverage = texels / (double) (img->width() * img->height());
     texture->imgVec.clear();

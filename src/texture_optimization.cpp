@@ -401,13 +401,18 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
     assert(HasWedgeTexCoordStorageAttribute(graph->mesh));
     auto wtcsattr = GetWedgeTexCoordStorageAttribute(graph->mesh);
 
+    double uvRatio = graph->textureObject->TextureWidth(0) / (double) graph->textureObject->TextureHeight(0);
+
     std::cout << "Parameterizing " << graph->charts.size() << " regions..." << std::endl;
 
     // gather the charts to parameterize
     std::deque<ParamTask> paramQueue;
     for (auto entry : graph->charts) {
         ChartHandle chart = entry.second;
-        if (chart->numMerges > 0)
+        if (uvRatio != 1.0 || chart->numMerges > 0)
+            // if the texture is non square, put the chart in the queue anyway so that
+            // the coordinates are restored with the corrected aspect ratio for the
+            // subsequent packing
             paramQueue.push_back(ParamTask{chart, false});
     }
 
@@ -425,7 +430,6 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
                 TexCoordStorage tcs = wtcsattr[fptr];
                 for (int i = 0; i < 3; ++i) {
                     fptr->WT(i) = tcs.tc[i];
-                    fptr->V(i)->T() = tcs.tc[i];
                 }
             }
             continue;

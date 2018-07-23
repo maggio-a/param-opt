@@ -198,6 +198,8 @@ static RasterizedParameterizationStats GetRasterizationStats(const std::vector<M
 
     glDrawArrays(GL_TRIANGLES, 0, faces.size()*3);
 
+    glMemoryBarrier(GL_ALL_BARRIER_BITS);
+
     glBindTexture(GL_TEXTURE_2D, tex);
     glGetTexImage(GL_TEXTURE_2D, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, sb);
 

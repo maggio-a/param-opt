@@ -25,7 +25,7 @@
 #include "mesh_viewer.h"
 
 
-#define FIX_TOPOLOGY true
+#define FIX_TOPOLOGY false
 
 
 using namespace vcg;
@@ -182,6 +182,7 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
 
     //assert(m.FN() < 2000000);
     //assert(m.FN() < 1000000);
+    //assert(m.FN() < 500000);
 
     if (minRegionSize > m.FN()) {
         std::cout << "WARNING: minFaceCount > m.FN()" << std::endl;
@@ -205,7 +206,7 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
             EnergyType::SymmetricDirichlet,
             ParameterizationGeometry::Texture,
             DescentType::ScalableLocallyInjectiveMappings,
-            200,            // Number of iterations
+            500,            // Number of iterations
             true,           // Fill holes ?
             true,           // Use cuts ?
             false,          // Use warm start ?
@@ -252,6 +253,8 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
 
     std::cout << "Rendering texture..." << std::endl;
     TextureObjectHandle newTexture = RenderTexture(m, textureObject, args.filter, InterpolationMode::Linear, nullptr);
+
+    GenerateDistortionTextures(m, textureObject);
 
     std::cout << "Processing took " << t.TimeElapsed() << " seconds" << std::endl;
 
@@ -308,7 +311,12 @@ int main(int argc, char *argv[])
     if (numRemovedFaces > 0)
         std::cout << "[LOG] Mesh was not edge manifold, removed " << numRemovedFaces << " faces" << std::endl;
 
-    tri::Clean<Mesh>::RemoveSmallConnectedComponentsSize(m, 2.5e-4 * m.FN());
+    int smallCCSizeThreshold = int(2.5e-4 * m.FN());
+    auto p = tri::Clean<Mesh>::RemoveSmallConnectedComponentsSize(m, 2.5e-4 * m.FN());
+    std::cout << "[LOG] RemoveSmallConnectedComponents (total cc, removed cc, threshold) = "
+              << p.first << " , "  << p.second << " , " << smallCCSizeThreshold << std::endl;
+
+    tri::Allocator<Mesh>::CompactEveryVector(m);
 
     // Print original info
     auto dummyGraph = ComputeParameterizationGraph(m, textureObject);

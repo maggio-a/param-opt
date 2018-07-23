@@ -44,7 +44,8 @@ SOURCES += viewer.cpp \
     ../src/uv.cpp \
     ../src/gl_utils.cpp \
     ../src/mesh_utils.cpp \
-    ../src/parameterization.cpp
+    ../src/parameterization.cpp \
+    ../src/texture.cpp
 
 SOURCES += \
     ../src/mesh_viewer.cpp \
