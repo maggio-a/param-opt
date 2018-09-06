@@ -6,10 +6,14 @@
 #include "parameterization.h"
 
 #include <vcg/space/point2.h>
+#include <wrap/qt/outline2_rasterizer.h>
+#include <vcg/space/rasterized_outline2_packer.h>
 
 #include <utility>
 
 class Mesh;
+
+using RasterizationBasedPacker = vcg::RasterizedOutline2Packer<float, QtOutline2Rasterizer>;
 
 struct Point2iHasher {
     std::size_t operator()(const Point2i& p) const noexcept
@@ -25,10 +29,20 @@ enum TexCoordOptimizer {
     AreaPreserving, SymmetricDirichletOpt, MIPS
 };
 
+struct PackingOptions {
+    RasterizationBasedPacker::Parameters::CostFuncEnum costFunction;
+    bool lowResPacking;
+    bool usePermutations;
+    bool useInnerHorizons;
+    bool oneContainer; // only meaningful if the input model has multiple textures
+};
+
 void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph);
 void PreprocessMesh(Mesh& m, GraphHandle graph);
 
 bool ChartParameterizationHasOverlaps(Mesh& m, GraphManager::ChartHandle chart);
+
+void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, std::size_t minRegionSize);
 
 /* Parameterize the mesh graph. The parameterization of each region is performed
  * according to the ParameterizationStrategy passed.
@@ -42,9 +56,8 @@ void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, std::ve
 
 /* Pack the texture atlas encoded in the graph. Assumes the segmentation
  * correctly reflects the thexture coordinates */
-void Pack(GraphHandle graph);
+RasterizationBasedPacker::PackingStats Pack(GraphHandle graph, const PackingOptions& options);
 
 
-void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, std::size_t minRegionSize);
 
 #endif // TEXTURE_OPTIMIZATION_H

@@ -10,6 +10,8 @@
 #include "metric.h"
 #include "parameterization_checker.h"
 #include "mesh_utils.h"
+#include "packing_utils.h"
+#include "texture_rendering.h"
 
 #include <vcg/complex/complex.h>
 #include <vcg/complex/algorithms/update/texture.h>
@@ -334,9 +336,6 @@ void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
     strategy.applyCut = false;
     strategy.warmStart = false;
 
-    TextureObjectHandle textureObject = graph->textureObject;
-    double uvRatio = textureObject->TextureWidth(0) / (double) textureObject->TextureHeight(0);
-
     for (auto& entry : graph->charts) {
         auto chart = entry.second;
         if (chart->AreaUV() > 0)
@@ -359,13 +358,6 @@ void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
             double randomDisplacementV = rand() / (double) RAND_MAX;
             for (auto fptr : chart->fpVec) {
                 for (int i = 0; i < 3; ++i) {
-
-                    // Handle squashed texture coordinates due to non square textures
-                    if (uvRatio > 1)
-                        fptr->WT(i).P().X() /= uvRatio;
-                    else if (uvRatio < 1)
-                        fptr->WT(i).P().Y() *= uvRatio;
-
                     fptr->WT(i).P().X() -= (box.min.X() + box.DimX());
                     fptr->WT(i).P().Y() -= (box.min.Y() + randomDisplacementV);
                     fptr->WT(i).P() *= scale;
@@ -378,6 +370,47 @@ void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
 
     std::cout << "[LOG] Newly parameterized regions: " << numParameterized << "/" << numNoParam << std::endl;
 }
+
+void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, std::size_t minRegionSize)
+{
+    Timer timer;
+    int mergeCount;
+    int numIter = 0;
+
+    assert(regionCount > 0);
+
+    std::cout << "[LOG] Reduction strategy TargetRegionCount=" << regionCount << " (region threshold " << minRegionSize << ")" << std::endl;
+
+    do {
+        mergeCount = gm.CloseMacroRegions(minRegionSize);
+        //mergeCount = 0;
+
+        while (gm.HasNextEdge()) {
+            auto we = gm.PeekNextEdge();
+            bool regionReached = (regionCount <= 0) || (gm.Graph()->Count() <= regionCount);
+            bool sizeThresholdReached = (we.first.a->FN() > minRegionSize && we.first.b->FN() > minRegionSize);
+            if (regionReached && sizeThresholdReached)
+                break;
+            else {
+                gm.RemoveNextEdge();
+                gm.Collapse(we.first);
+                mergeCount++;
+                if (mergeCount%50 == 0) {
+                    std::cout << "Merged " << mergeCount << " regions..." << std::endl;
+                }
+            }
+        }
+
+        std::cout << "Iteration "  << numIter << " took " << timer.TimeSinceLastCheck() << " seconds ("
+                  << mergeCount << " merges took place)" << std::endl;
+
+        numIter++;
+
+    } while (mergeCount > 0);
+
+    std::cout << "Stopping after " << numIter << " passes and " << timer.TimeElapsed() << " seconds" << std::endl;
+}
+
 
 int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, double injectivityTolerance)
 {
@@ -401,18 +434,13 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
     assert(HasWedgeTexCoordStorageAttribute(graph->mesh));
     auto wtcsattr = GetWedgeTexCoordStorageAttribute(graph->mesh);
 
-    double uvRatio = graph->textureObject->TextureWidth(0) / (double) graph->textureObject->TextureHeight(0);
-
     std::cout << "Parameterizing " << graph->charts.size() << " regions..." << std::endl;
 
     // gather the charts to parameterize
     std::deque<ParamTask> paramQueue;
     for (auto entry : graph->charts) {
         ChartHandle chart = entry.second;
-        if (uvRatio != 1.0 || chart->numMerges > 0)
-            // if the texture is non square, put the chart in the queue anyway so that
-            // the coordinates are restored with the corrected aspect ratio for the
-            // subsequent packing
+        if (chart->numMerges > 0)
             paramQueue.push_back(ParamTask{chart, false});
     }
 
@@ -508,13 +536,23 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
     return numFailed;
 }
 
-void Pack(GraphHandle graph)
+static std::vector<double> ComputeContainerRatios(TextureObjectHandle textureObject, bool oneContainer)
+{
+    int nTex = oneContainer ? 1 : textureObject->ArraySize();
+    std::vector<TextureSize> texSizeVec = ComputeSizes(nTex, textureObject);
+    std::vector<double> containerRatios;
+    for (auto& tsz : texSizeVec) {
+        containerRatios.push_back(tsz.w / (double)tsz.h);
+    }
+    return containerRatios;
+}
+
+RasterizationBasedPacker::PackingStats Pack(GraphHandle graph, const PackingOptions& options)
 {
     // Pack the atlas
-
     tri::UpdateTopology<Mesh>::FaceFaceFromTexCoord(graph->mesh);
 
-    std::vector<std::vector<Point2f>> texOutlines;
+    std::vector<Outline2f> texOutlines;
     std::unordered_map<RegionID,std::size_t> outlineMap; // map each region to the index of its outline in texOutlines
 
     for (auto entry : graph->charts) {
@@ -524,7 +562,7 @@ void Pack(GraphHandle graph)
         chart->ParameterizationChanged(); // packing changes texture coords even for charts that are not reparameterized
 
         // Save the outline of the parameterization for this portion of the mesh
-        std::vector<std::vector<Point2f>> uvOutlines;
+        std::vector<Outline2f> uvOutlines;
         ChartOutlinesUV(graph->mesh, *chart, uvOutlines);
         int i = tri::OutlineUtil<float>::LargestOutline2(uvOutlines);
         if (tri::OutlineUtil<float>::Outline2Area(uvOutlines[i]) < 0)
@@ -539,81 +577,115 @@ void Pack(GraphHandle graph)
 
     Timer timer;
 
-    // pack the atlas TODO function parameter to choose the packing strategy
-    RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Parameters packingParam;
-    packingParam.costFunction  = RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Parameters::LowestHorizon;
-    //packingParam.costFunction  = RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Parameters::MinWastedSpace;
-    //packingParam.costFunction  = RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Parameters::MixedCost;
+    RasterizationBasedPacker::Parameters packingParam;
+    packingParam.costFunction = options.costFunction;
     packingParam.doubleHorizon = true;
-    packingParam.cellSize = 2;
-    packingParam.pad = 4;
+    packingParam.innerHorizon = options.useInnerHorizons;
+    packingParam.permutations = options.usePermutations;
+    packingParam.cellSize = 1;
     packingParam.rotationNum = 16; //number of rasterizations in 90°
 
-    TextureObjectHandle to = graph->textureObject;
-    int gridWidth = to->TextureWidth(0) / 2;
-    int gridHeight = to->TextureHeight(0) / 2;
-    Point2i gridSize(gridWidth, gridHeight);
-    std::vector<Similarity2f> transforms;
+    // TODO padding computation should depend on the destination size and should be handled better, really...
+    std::vector<double> containerRatios = ComputeContainerRatios(graph->textureObject, options.oneContainer);
+
+    int sizeUnit;
+    if (options.lowResPacking) {
+        sizeUnit = 256;
+        packingParam.pad = 1;
+    } else {
+        sizeUnit = 2048;
+        packingParam.pad = 4;
+    }
+
+    std::vector<Point2i> containerVec;
+    for (auto ratio : containerRatios) {
+        Point2i gridSize(sizeUnit, sizeUnit);
+        if (ratio > 1)
+            gridSize.X() *= ratio;
+        else if (ratio < 1)
+            gridSize.Y() /= ratio;
+        containerVec.push_back(gridSize);
+    }
+
+    std::vector<Similarity2f> packingTransforms;
+    std::vector<int> containerIndices;
 
     tri::UpdateTopology<Mesh>::FaceFaceFromTexCoord(graph->mesh);
 
-    RasterizedOutline2Packer<float, QtOutline2Rasterizer>::Pack(texOutlines, gridSize, transforms, packingParam);
-
-    Point2f cover;
-    //PolyPacker<float>::PackAsObjectOrientedRect(texOutlines, gridSize, transforms, cover);
-    //PolyPacker<float>::PackAsAxisAlignedRect(texOutlines, gridSize, transforms, cover);
+    RasterizationBasedPacker::PackingStats stats;
+    RasterizationBasedPacker::Pack(texOutlines, containerVec, packingTransforms, containerIndices, packingParam, stats);
 
     std::cout << "Packing took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
 
-    //assert(transforms.size() == pdata.charts.size());
-
-    for (auto p : outlineMap) {
-        for (auto fptr : graph->charts[p.first]->fpVec) {
+    for (auto entry : outlineMap) {
+        for (auto fptr : graph->charts[entry.first]->fpVec) {
+            int ic = containerIndices[entry.second];
+            Point2i gridSize = containerVec[ic];
             for (int j = 0; j < fptr->VN(); ++j) {
                 Point2d uv = fptr->WT(j).P();
-                Point2f transformedTexCoordPos = transforms[p.second] * (Point2f(uv[0], uv[1]));
-                fptr->WT(j).P() = Point2d{transformedTexCoordPos[0] / double(gridSize.X()), transformedTexCoordPos[1] / double(gridSize.Y())};
+                Point2f p = packingTransforms[entry.second] * (Point2f(uv[0], uv[1]));
+                p.X() /= (double) gridSize.X();
+                p.Y() /= (double) gridSize.Y();
+                fptr->WT(j).P() = Point2d(p.X(), p.Y());
+                fptr->WT(j).N() = ic;
             }
         }
     }
-}
 
-void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, std::size_t minRegionSize)
-{
-    Timer timer;
-    int mergeCount;
-    int numIter = 0;
+    if (options.lowResPacking) {
+        // transform the outlines to match the computed atlas
+        for (std::size_t i = 0; i < texOutlines.size(); ++i) {
+            int ic = containerIndices[i];
+            Point2i gridSize = containerVec[ic];
+            for (std::size_t j = 0; j < texOutlines[i].size(); ++j) {
+                Point2f p = packingTransforms[i] * texOutlines[i][j];
+                texOutlines[i][j] = Point2f(p.X() / gridSize.X(), p.Y() / gridSize.Y());
+            }
+        }
 
-    assert(regionCount > 0);
+        std::vector<Similarity2f> shiftingTransforms(texOutlines.size());
+        std::vector<double> scaleFactors(texOutlines.size());
 
-    std::cout << "[LOG] Reduction strategy TargetRegionCount=" << regionCount << " (region threshold " << minRegionSize << ")" << std::endl;
+        // for each container, pick all the outlines mapped to that container and
+        // invoke the shifting procedure
+        for (unsigned c = 0; c < containerVec.size(); ++c) {
+            std::vector<int> outlineIndex;
+            std::vector<Outline2f> containerOutlines;
+            for (unsigned i = 0; i < texOutlines.size(); ++i) {
+                if (containerIndices[i] == (int)c) {
+                    outlineIndex.push_back(i);
+                    containerOutlines.push_back(texOutlines[i]);
+                }
+            }
+            std::vector<Similarity2f> containerTransforms;
+            PixelShiftingOptimizer<float, QtOutline2Rasterizer>::Parameters par = {4096, 4096, 4};
+            float scale = PixelShiftingOptimizer<float, QtOutline2Rasterizer>::Apply(containerOutlines, containerTransforms, par);
+            for (unsigned j = 0; j < containerTransforms.size(); ++j) {
+                shiftingTransforms[outlineIndex[j]] = containerTransforms[j];
+                scaleFactors[outlineIndex[j]] = scale;
+            }
+        }
 
-    do {
-        mergeCount = gm.CloseMacroRegions(minRegionSize);
-        //mergeCount = 0;
-
-        while (gm.HasNextEdge()) {
-            auto we = gm.PeekNextEdge();
-            bool regionReached = (regionCount <= 0) || (gm.Graph()->Count() <= regionCount);
-            bool sizeThresholdReached = (we.first.a->FN() > minRegionSize && we.first.b->FN() > minRegionSize);
-            if (regionReached && sizeThresholdReached)
-                break;
-            else {
-                gm.RemoveNextEdge();
-                gm.Collapse(we.first);
-                mergeCount++;
-                if (mergeCount%50 == 0) {
-                    std::cout << "Merged " << mergeCount << " regions..." << std::endl;
+        //PixelShiftingOptimizer<float, QtOutline2Rasterizer>::Parameters par = {1024, 1024, 1};
+        //float scale = PixelShiftingOptimizer<float, QtOutline2Rasterizer>::Apply(texOutlines, shiftingTransforms, par);
+        // apply the transforms
+        for (auto entry : outlineMap) {
+            for (auto fptr : graph->charts[entry.first]->fpVec) {
+                for (int j = 0; j < fptr->VN(); ++j) {
+                    Point2d uv = fptr->WT(j).P();
+                    Point2f p(uv[0], uv[1]);
+                    p = shiftingTransforms[entry.second] * p;
+                    p /= scaleFactors[entry.second];
+                    fptr->WT(j).P() = Point2d(p.X(), p.Y());
                 }
             }
         }
 
-        std::cout << "Iteration "  << numIter << " took " << timer.TimeSinceLastCheck() << " seconds ("
-                  << mergeCount << " merges took place)" << std::endl;
-
-        numIter++;
-
-    } while (mergeCount > 0);
-
-    std::cout << "Stopping after " << numIter << " passes and " << timer.TimeElapsed() << " seconds" << std::endl;
+        std::cout << "FIXME" << std::endl;
+        stats.efficiency = graph->AreaUV();
+        return stats;
+    } else {
+        return stats;
+    }
 }
+
