@@ -1,0 +1,4 @@
+[submodule "vcglib"]
+	path = vcglib
+	url = https://github.com/maggio-a/vcglib.git
+	branch = devel
