@@ -8,15 +8,6 @@
 
 #include <QImage>
 
-
-#include <vcg/complex/complex.h>
-#include <vcg/complex/algorithms/parametrization/distortion.h>
-#include <vcg/math/histogram.h>
-#include <vcg/complex/algorithms/stat.h>
-#include <vcg/complex/algorithms/update/color.h>
-#include <vcg/complex/algorithms/hole.h>
-#include<vcg/complex/algorithms/isotropic_remeshing.h>
-
 #include "mesh.h"
 #include "gl_utils.h"
 #include "math_utils.h"
@@ -75,16 +66,24 @@ void RemeshShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh
 /* Builds a shell for the given chart. A shell is a mesh object specifically
  * constructed to compute the parameterization of a chart. In order to support
  * the various operations that we need to perform on it, it is more convenient
- * to keep its shape as the parameter-space configuration of the chart (possibly
+ * to keep its shape as the current 2D parameter-space configuration (possibly
  * not updated). The shell has suitable attributes to retrieve information about
  * the shell-face to input mesh-face mappings, as well as the target shape
- * features of each face to guide the parameterization process.
- * See mesh_attribute.h */
+ * features of each face to guide the parameterization process. (See also the
+ * comments in mesh_attribute.h).
+ * The shell is initialized using Tutte's parameterization, and it is scaled so
+ * that it matches the target area. */
 bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeometry, bool useExistingUV);
 
 void BuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh &inputMesh);
 
 void RebuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh &inputMesh);
+
+/* This function is used to 'correct' degenerate triangles (too small and/or
+ * slivers), by assigning to the CoordStorage ref the shape of a equiareal
+ * triangle of comparable area. This should prevent numerical issues during
+ * the optimization process */
+void Stabilize(CoordStorage& cs);
 
 /* Computes the UV outline(s) of the given chart. If the chart has no outlines,
  * which can happen for some inputs on small closed components that are ignored
@@ -159,7 +158,7 @@ struct MeshGraph {
 
     Mesh& mesh;
 
-    std::unordered_map<std::size_t, std::shared_ptr<FaceGroup>> charts;
+    std::unordered_map<RegionID, std::shared_ptr<FaceGroup>> charts;
     TextureObjectHandle textureObject;
 
     MeshGraph(Mesh& m);

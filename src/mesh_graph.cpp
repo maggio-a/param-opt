@@ -28,6 +28,7 @@
 
 #include <QImage>
 
+
 inline Polyline2 BuildPolyline2(const std::vector<std::size_t> &vfi, const std::vector<int> &vvi, const Mesh& shell2D)
 {
     Polyline2 polyline;
@@ -39,6 +40,7 @@ inline Polyline2 BuildPolyline2(const std::vector<std::size_t> &vfi, const std::
     }
     return polyline;
 }
+
 
 // assumes topology is correct
 void ComputeBoundaryInfo(Mesh& m)
@@ -294,6 +296,8 @@ void CloseShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh&
             target.P[2] = fi->P(2) * scale;
             tsa[fi] = target;
 
+            Stabilize(tsa[fi]);
+
             fi++;
         }
     }
@@ -313,24 +317,6 @@ void RebuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh&
     tri::Allocator<Mesh>::CompactEveryVector(shell);
 
     BuildScaffold(shell, targetGeometry, inputMesh);
-
-    /*
-    auto ia = GetFaceIndexAttribute(shell);
-    auto tsa = GetTargetShapeAttribute(shell);
-    int k = 0;
-    for (auto& sf : shell.face) {
-        if (sf.IsHoleFilling()) {
-            ia[sf] = -1;
-            // for scaffold faces the target shape is the initial shape
-            CoordStorage target;
-            target.P[0] = sf.P(0);
-            target.P[1] = sf.P(1);
-            target.P[2] = sf.P(2);
-            tsa[sf] = target;
-        }
-    }
-    */
-
 }
 
 void BuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& inputMesh)
@@ -416,6 +402,8 @@ void BuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& i
         target.P[2] = fi->P(2);
         tsa[fi] = target;
 
+        Stabilize(tsa[fi]);
+
         fi++;
     }
 
@@ -492,6 +480,8 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
     double avg3D = psi().surfaceArea / psi().numNonZero;
     double avgUV = psi().parameterArea / psi().numNonZero;
 
+    double targetArea = 0;
+
     // Compute the target shapes
     auto tsa = GetTargetShapeAttribute(shell);
     auto wtcsa = GetWedgeTexCoordStorageAttribute(m);
@@ -519,8 +509,11 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
                 const Point2d& u0 = wtcsa[mf].tc[0].P();
                 const Point2d& u1 = wtcsa[mf].tc[1].P();
                 const Point2d& u2 = wtcsa[mf].tc[2].P();
-                Point2d u10 = u1 - u0;
-                Point2d u20 = u2 - u0;
+                //Point2d u10 = u1 - u0;
+                //Point2d u20 = u2 - u0;
+                Point2d u10;
+                Point2d u20;
+                LocalIsometry(u1 - u0, u2 - u0, u10, u20);
                 double area = std::abs(u10 ^ u20) / 2.0;
 
                 if (area == 0) {
@@ -534,41 +527,83 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
                     Point2d x10;
                     Point2d x20;
                     LocalIsometry(mf.P(1) - mf.P(0), mf.P(2) - mf.P(0), x10, x20);
-                    double areaModel = std::abs(x10 ^ x20) / 2.0;
-                    x10 *= std::sqrt(area / areaModel);
-                    x20 *= std::sqrt(area / areaModel);
 
-                    // Evaluate the angle difference between the existing parameterization and the model
-                    // if the distortion is low, we use the triangle defined by the parameterization, otherwise
-                    // we linearly interpolate between the texture and model shape to try and correct the distortion
-                    double angleDist = 0;
-                    angleDist += std::abs(VecAngle(u10, u20) - VecAngle(x10, x20));
-                    angleDist += std::abs(VecAngle(u10 + (u20 - u10), -u10) - VecAngle(x10 + (x20 - x10), -x10));
-                    angleDist += std::abs(VecAngle(u20 - u10, -u20) - VecAngle(x20 - x10, -x20));
-                    double interpolationFactor = angleDist / (2.0 * M_PI);
+                    //double areaModel = std::abs(x10 ^ x20) / 2.0;
+                    //x10 *= std::sqrt(area / areaModel);
+                    //x20 *= std::sqrt(area / areaModel);
+                    x10 *= psi().scale;
+                    x20 *= psi().scale;
 
-                    if (angleDist > 0.5 * M_PI)
-                        interpolationFactor = 1.0;
-                    else
-                        interpolationFactor = 0.0;
+                    // compute the singular values of the transformation matrix, s2 > s1
+                    // ref for the formula: smith&schaefer 2015 bijective,
+                    Eigen::Matrix2d phi = ComputeTransformationMatrix(x10, x20, u10, u20);
+                    double bcplus  = std::pow(phi(0, 1) + phi(1, 0), 2.0);
+                    double bcminus = std::pow(phi(0, 1) - phi(1, 0), 2.0);
+                    double adplus  = std::pow(phi(0, 0) + phi(1, 1), 2.0);
+                    double adminus = std::pow(phi(0, 0) - phi(1, 1), 2.0);
+                    double s1 = 0.5 * std::abs(std::sqrt(bcplus + adminus) - std::sqrt(bcminus + adplus));
+                    double s2 = 0.5 * (std::sqrt(bcplus + adminus) + std::sqrt(bcminus + adplus));
+
+                    double interpolationFactor = 1.0 - (s1 / s2);
+                    assert(interpolationFactor > 0);
+                    assert(interpolationFactor <= 1);
 
                     Point2d v10 = (1.0 - interpolationFactor) * u10 + (interpolationFactor) * x10;
                     Point2d v20 = (1.0 - interpolationFactor) * u20 + (interpolationFactor) * x20;
 
-                    // target shape is the original uv face
-                    //target.P[0] = Point3d{u0[0], u0[1], 0};
-                    //target.P[1] = Point3d{u1[0], u1[1], 0};
-                    //target.P[2] = Point3d{u2[0], u2[1], 0};
-                    target.P[0] = Point3d{0, 0, 0};
-                    target.P[1] = Point3d{v10[0], v10[1], 0};
-                    target.P[2] = Point3d{v20[0], v20[1], 0};
+                    target.P[0] = Point3d(0, 0, 0);
+                    target.P[1] = Point3d(v10[0], v10[1], 0);
+                    target.P[2] = Point3d(v20[0], v20[1], 0);
                 }
             }
         }
         tsa[sf] = target;
+        Point2d u10 = Point2d(target.P[1].X() - target.P[0].X(), target.P[1].Y() - target.P[0].Y());
+        Point2d u20 = Point2d(target.P[2].X() - target.P[0].X(), target.P[2].Y() - target.P[0].Y());
+        targetArea += std::abs(u10 ^ u20) / 2.0;
     }
+
+    for (auto& sf : shell.face) {
+        Stabilize(tsa[sf]);
+    }
+
+    double shellUvArea = 0;
+    for (auto& f : shell.face) {
+        double area = ((f.V(1)->T().P() - f.V(0)->T().P()) ^ (f.V(2)->T().P() - f.V(0)->T().P())) / 2.0;
+        shellUvArea += std::abs(area);
+    }
+
+    // Scale the shell size to match the target shape area
+    double areaScaleFactor = std::sqrt(targetArea / shellUvArea);
+    assert(areaScaleFactor > 0);
+    for (auto& v : shell.vert)
+        v.T().P() *= areaScaleFactor;
+    SyncShellWithUV(shell);
+
     return true;
 }
+
+/* This function is used to 'correct' degenerate triangles (too small and/or
+ * slivers), by assigning to the CoordStorage ref the shape of a equiareal
+ * triangle of comparable area. This should prevent numerical issues during
+ * the optimization process */
+void Stabilize(CoordStorage& cs)
+{
+    Point3d p10 = cs.P[1] - cs.P[0];
+    Point3d p20 = cs.P[1] - cs.P[0];
+    double targetArea = (p10 ^ p20).Norm() / 2.0;
+    double q = QualityRadii(Point3d::Zero(), Point3d::Zero() + p10, Point3d::Zero() + p20);
+    if (q < 0.1) {
+        p10 = Point3d(1, 0, 0);
+        p20 = Point3d(std::cos(M_PI / 3.0), std::sin(M_PI / 3.0), 0);
+        p10 *= std::sqrt(targetArea);
+        p20 *= std::sqrt(targetArea);
+    }
+    cs.P[1] = cs.P[0] + p10;
+    cs.P[2] = cs.P[0] + p20;
+}
+
+
 
 void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2f>> &outline2Vec)
 {
@@ -587,49 +622,6 @@ void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2f>
 void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2d>> &outline2Vec)
 {
     assert(chart.numMerges == 0);
-
-    struct FaceAdjacency {
-        bool changed[3] = {false, false, false};
-        Mesh::FacePointer FFp[3];
-        char FFi[3];
-    };
-
-    /*
-    auto CCIDh = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(m, "ConnectedComponentID");
-    assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(m, CCIDh));
-
-    std::unordered_map<Mesh::FacePointer,FaceAdjacency> savedAdj;
-    for (auto fptr : chart.fpVec) {
-        fptr->ClearV();
-        for (int i = 0; i < 3; ++i) {
-            if (CCIDh[fptr] != CCIDh[fptr->FFp(i)]) {
-                savedAdj[fptr].changed[i] = true;
-                savedAdj[fptr].FFp[i] = fptr->FFp(i);
-                savedAdj[fptr].FFi[i] = fptr->FFi(i);
-                fptr->FFp(i) = fptr;
-                fptr->FFi(i) = i;
-            }
-        }
-    }
-    */
-
-    std::unordered_set<Mesh::FacePointer> chartFaces;
-    for (auto fptr : chart.fpVec)
-        chartFaces.insert(fptr);
-
-    std::unordered_map<Mesh::FacePointer,FaceAdjacency> savedAdj;
-    for (auto fptr : chart.fpVec) {
-        fptr->ClearV();
-        for (int i = 0; i < 3; ++i) {
-            if (chartFaces.count(fptr->FFp(i)) == 0) {
-                savedAdj[fptr].changed[i] = true;
-                savedAdj[fptr].FFp[i] = fptr->FFp(i);
-                savedAdj[fptr].FFi[i] = fptr->FFi(i);
-                fptr->FFp(i) = fptr;
-                fptr->FFi(i) = i;
-            }
-        }
-    }
 
     outline2Vec.clear();
     std::vector<Point2d> outline;
@@ -657,20 +649,12 @@ void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2d>
         }
     }
 
-    for (auto& entry : savedAdj) {
-        for (int i = 0; i < 3; ++i) {
-            if (entry.second.changed[i]) {
-                entry.first->FFp(i) = entry.second.FFp[i];
-                entry.first->FFi(i) = entry.second.FFi[i];
-            }
-        }
-    }
-
     std::size_t maxsz = 0;
     for (std::size_t i = 0; i < outline2Vec.size(); ++i) {
         maxsz = std::max(maxsz, outline2Vec[i].size());
     }
     if (maxsz == 0) {// fallback to uv box as outline
+        std::cout << "[LOG] Falling back to UVBox as outline for chart " << chart.id << std::endl;
         vcg::Box2d box = chart.UVBox();
         outline.push_back(Point2d(box.min.X(), box.min.Y()));
         outline.push_back(Point2d(box.max.X(), box.min.Y()));
@@ -714,18 +698,43 @@ bool CleanSmallComponents(Mesh& m, GraphHandle graph, TextureObjectHandle texObj
     for (auto& p : graph->charts) {
         ChartHandle chart = p.second;
         if (chart->AreaUV() < areaThreshold) {
+            /*
             std::unordered_set<RegionID> adj;
             for (auto ch : chart->adj)
                 adj.insert(ch->id);
+                */
             std::vector<Mesh::FacePointer> visitVec;
             std::unordered_set<RegionID> visitedComponents;
+
+            // I do the visit in two passes, first i select faces that are edge-adjacent to
+            // the seed chart, then I expand the visit around vertices only to the region
+            // already visited
+
+            for (auto fptr : chart->fpVec) {
+                fptr->SetV();
+                visitVec.push_back(fptr);
+                visitedComponents.insert(CCIDh[fptr]);
+            }
+            for (auto fptr : chart->fpVec) {
+                for (int i = 0; i < 3; ++i) {
+                    Mesh::FacePointer fp = fptr->FFp(i);
+                    if (!fp->IsV()) {
+                        fp->SetV();
+                        assert(std::find(visitVec.begin(), visitVec.end(), fp) == visitVec.end());
+                        visitVec.push_back(fp);
+                        visitedComponents.insert(CCIDh[fp]);
+                    }
+                }
+            }
+
             for (auto fptr : chart->fpVec) {
                 for (int i = 0; i < 3; ++i) {
                     vcg::face::VFIterator<Mesh::FaceType> vfi(fptr->V(i));
                     while (!vfi.End()) {
                         auto fp = vfi.F();
-                        if (!fp->IsV()) {
+                        if (!fp->IsV() && (visitedComponents.count(CCIDh[fp]) > 0)) {
                             fp->SetV();
+                            assert(std::find(visitVec.begin(), visitVec.end(), fp) == visitVec.end());
                             visitVec.push_back(fp);
                             visitedComponents.insert(CCIDh[fp]);
                         }

@@ -2,6 +2,7 @@
 #define MATH_UTILS_H
 
 #include <cmath>
+#include <Eigen/Core>
 
 template <typename FaceType>
 inline double EdgeLength(const FaceType& f, int i)
@@ -59,6 +60,24 @@ void LocalIsometry(const PointType& v1, const PointType& v2, PointTypeOut& w1, P
     w1[1] = 0;
     w2[0] = v2n * std::cos(theta);
     w2[1] = v2n * std::sin(theta);
+}
+
+template <typename PointType>
+Eigen::Matrix2d ComputeTransformationMatrix(const PointType& x10, const PointType& x20, const PointType& u10, const PointType& u20)
+{
+    Eigen::Matrix2d f;
+    Eigen::Matrix2d g;
+
+    f(0, 0) = x10[0];
+    f(1, 0) = x10[1];
+    f(0, 1) = x20[0];
+    f(1, 1) = x20[1];
+    g(0, 0) = u10[0];
+    g(1, 0) = u10[1];
+    g(0, 1) = u20[0];
+    g(1, 1) = u20[1];
+
+    return g * f.inverse();
 }
 
 #endif // MATH_UTILS_H
