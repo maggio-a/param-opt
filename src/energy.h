@@ -37,8 +37,6 @@
  *
  */
 
-constexpr double SCAFFOLD_QUALITY_THRESHOLD = 0;
-
 enum EnergyType {
     SymmetricDirichlet
 };
@@ -47,6 +45,7 @@ class Energy {
 
     friend class DescentMethod;
     friend class SLIM;
+    friend class CompMaj;
 
 protected:
 
@@ -59,11 +58,10 @@ protected:
     int numHoleFillingFaces;
     int numScaffoldFaces;
 
-    virtual double E(const Mesh::FaceType& f) = 0;
-    virtual double E(const Mesh::FaceType& f, double meshEnergyValue) = 0;
+    double scaffoldRegularizationTerm;
 
+    virtual double E(const Mesh::FaceType& f) = 0;
     virtual void Grad(int faceIndex, Eigen::Vector2d& g0, Eigen::Vector2d& g1, Eigen::Vector2d& g2) = 0;
-    virtual void Grad(int faceIndex, Eigen::Vector2d& g0, Eigen::Vector2d& g1, Eigen::Vector2d& g2, double meshEnergyValue) = 0;
 
 public:
 
@@ -79,9 +77,17 @@ public:
 
     Eigen::MatrixXd Grad();
 
+    double GetScaffoldWeight() const;
+    double GetScaffoldFaceArea() const;
+
     /* Utility function to update cached data. This must be called whenever the
      * underlying mesh changes. We need it to update the cached data of the
-     * hole-filling faces when they are remeshed. */
+     * hole-filling faces when they are remeshed.
+     * In order to update the Energy obj cache with the scaffold weight, I need
+     * to be able to compute the energy value in the current configuration, but
+     * to do so the actual energy object needs to have its cacheed data already
+     * updated. This means that subclasses are required to call Energy::UpdateCache()
+     * only _after_ their cache has already been updated. */
     virtual void UpdateCache();
 
     void MapToFaceQuality(bool normalized);
@@ -110,25 +116,35 @@ public:
 
 };
 
+inline Mesh::CoordType Energy::P(Mesh::ConstFacePointer fp, int i)
+{
+   assert(i >= 0 && i <= 2);
+   return targetShape[fp].P[i];
+}
+
 inline Mesh::CoordType Energy::P0(Mesh::ConstFacePointer fp, int i) { return P(fp, i); }
 inline Mesh::CoordType Energy::P1(Mesh::ConstFacePointer fp, int i) { return P(fp, (i+1)%3); }
 inline Mesh::CoordType Energy::P2(Mesh::ConstFacePointer fp, int i) { return P(fp, (i+2)%3); }
 
+inline double Energy::GetScaffoldWeight() const
+{
+    assert(scaffoldRegularizationTerm > 0);
+    return scaffoldRegularizationTerm;
+}
+
+inline double Energy::GetScaffoldFaceArea() const
+{
+    return 1.0;
+}
+
+
 class SymmetricDirichletEnergy : public Energy {
 
     friend class SLIM;
+    friend class CompMaj;
 
     /* Precomputed cotangents and area of each target shape */
     SimpleTempData<Mesh::FaceContainer, Point4d> data;
-
-    int numScaffoldFacesBelowQuality;
-    std::vector<double> scafQualityIndex;
-
-    double GetScaffoldWeight(const Mesh::FaceType& f, double meshEnergyValue);
-    double GetScaffoldArea(const Mesh::FaceType& f);
-
-    bool ScaffoldQualityAboveThreshold(const Mesh::FaceType& f);
-
 
 public:
 
@@ -140,10 +156,7 @@ public:
 protected:
 
     double E(const Mesh::FaceType& f) override;
-    double E(const Mesh::FaceType& f, double meshEnergyValue) override;
-
-    void Grad(int faceIndex, Eigen::Vector2d& g0, Eigen::Vector2d& g1, Eigen::Vector2d& g2);
-    void Grad(int faceIndex, Eigen::Vector2d& g0, Eigen::Vector2d& g1, Eigen::Vector2d& g2, double meshEnergyValue);
+    void Grad(int faceIndex, Eigen::Vector2d& g0, Eigen::Vector2d& g1, Eigen::Vector2d& g2) override;
 };
 
 
