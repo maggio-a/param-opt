@@ -10,6 +10,7 @@
 #include <memory>
 
 #include <vcg/complex/algorithms/crease_cut.h>
+#include <vcg/complex/algorithms/update/color.h>
 
 #include <Eigen/Core>
 
@@ -213,8 +214,11 @@ void ParameterizerObject::InitializeOptimizer()
     case DescentType::ScalableLocallyInjectiveMappings:
         opt = std::make_shared<SLIM>(energy_sd);
         break;
+    case DescentType::CompositeMajorization:
+        opt = std::make_shared<CompMaj>(energy_sd);
+        break;
     default:
-        assert(0);
+        assert(0 && "Unknown descent algorithm");
     }
     energy = energy_sd;
 }
