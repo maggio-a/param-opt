@@ -7,23 +7,35 @@
 
 using namespace vcg;
 
-void StoreWedgeTexCoordAsAttribute(Mesh &m, GraphHandle graph)
+void StoreWedgeTexCoordAsAttribute(Mesh &m)
 {
-    TextureObjectHandle textureObject = graph->textureObject;
-    double uvRatio = textureObject->TextureWidth(0) / (double) textureObject->TextureHeight(0);
-
     auto WTCSh = GetWedgeTexCoordStorageAttribute(m);
     for (auto &f : m.face) {
         for (int i = 0; i < 3; ++i) {
             WTCSh[&f].tc[i].P() = f.WT(i).P();
             WTCSh[&f].tc[i].N() = f.WT(i).N();
+        }
+    }
+}
 
-            // Handle squashed texcoords. Note that this is the opposite of
-            // what is done to parameterize zero uv area regions.
-            if (uvRatio > 1)
-                WTCSh[&f].tc[i].P().X() *= uvRatio;
-            else if (uvRatio < 1)
-                WTCSh[&f].tc[i].P().Y() /= uvRatio;
+void ScaleTextureCoordinatesToImage(Mesh& m, TextureObjectHandle textureObject)
+{
+    for (auto& f : m.face) {
+        int ti = f.WT(0).N();
+        for (int i = 0; i < f.VN(); ++i) {
+            f.WT(i).P().X() *= textureObject->TextureWidth(ti);
+            f.WT(i).P().Y() *= textureObject->TextureHeight(ti);
+        }
+    }
+}
+
+void ScaleTextureCoordinatesToParameterArea(Mesh& m, TextureObjectHandle textureObject)
+{
+    for (auto& f : m.face) {
+        int ti = f.WT(0).N();
+        for (int i = 0; i < f.VN(); ++i) {
+            f.WT(i).P().X() /= textureObject->TextureWidth(ti);
+            f.WT(i).P().Y() /= textureObject->TextureHeight(ti);
         }
     }
 }

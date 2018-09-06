@@ -59,10 +59,14 @@ bool SaveMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject,
     int mask = tri::io::Mask::IOM_WEDGTEXCOORD;
 
     // Quick and dirty, make sure the texture extension is consistent
-    for (std::string& textureName : m.textures) {
-        textureName = std::string("out_") + textureName.substr(0, textureName.find_last_of('.')).append(".png");
+    for (std::size_t i = 0; i < m.textures.size(); ++i) {
+        std::stringstream suffix;
+        suffix << "_texture_" << i << ".png";
+        std::string s(fileName);
+        m.textures[i] = s.substr(0, s.find_last_of('.')).append(suffix.str());
     }
 
+    std::cout << "Saving mesh file... ";
     if (color) mask = mask | tri::io::Mask::IOM_FACEQUALITY | tri::io::Mask::IOM_FACECOLOR;
     int err;
     if ((err = tri::io::Exporter<Mesh>::Save(m, fileName, mask))) {
@@ -70,6 +74,7 @@ bool SaveMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject,
         std::cout << tri::io::Exporter<Mesh>::ErrorMsg(err) << std::endl;
         return false;
     }
+    std::cout << " done." << std::endl;
 
     QFileInfo fi(fileName);
     assert (fi.exists());
@@ -77,14 +82,16 @@ bool SaveMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject,
     QString wd = QDir::currentPath();
     QDir::setCurrent(fi.absoluteDir().absolutePath());
 
+    std::cout << "Saving texture files... ";
+    Timer t;
     for (std::size_t i = 0; i < textureObject->imgVec.size(); ++i) {
-        Timer t;
-        if(textureObject->imgVec[i]->save(m.textures[i].c_str(), "png", 66) == false) {
-            std::cout << "Error saving texture file " << m.textures[0] << std::endl;
+        if (textureObject->imgVec[i]->save(m.textures[i].c_str(), "png", 66) == false) {
+            std::cout << "Error saving texture file " << m.textures[i] << std::endl;
             return false;
         }
-        std::cout << "Texture file write took " << t.TimeElapsed() << " seconds" << std::endl;
     }
+    std::cout << " done." << std::endl;
+    std::cout << "Writing textures took " << t.TimeElapsed() << " seconds" << std::endl;
 
     QDir::setCurrent(wd);
     return true;

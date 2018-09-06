@@ -4,12 +4,28 @@
 #include <vcg/space/box2.h>
 
 #include "mesh_graph.h"
+#include "gl_utils.h"
 
 class Mesh;
 
+/*
+ * Note on the management of texture coordinates.
+ * To simplify things, texture coordinates are scaled relative to the texture
+ * image size. This has two advantages: first, it naturally models the difference
+ * in resolution of charts that have comparable areas but belong texture files
+ * of different resolution. Second, we do not have to scale according to the ratio
+ * of the texture dimensions when dealing with coordinates for rectangular textures,
+ * which was necessary when computing for example the angle distortion of the
+ * uv-to-3d mapping
+ */
+
+void ScaleTextureCoordinatesToImage(Mesh& m, TextureObjectHandle textureObject);
+
+void ScaleTextureCoordinatesToParameterArea(Mesh& m, TextureObjectHandle textureObject);
+
 /* Save a copy of the original texture coordinates (this will be used to render
  * the new texture) */
-void StoreWedgeTexCoordAsAttribute(Mesh &m, GraphHandle graph);
+void StoreWedgeTexCoordAsAttribute(Mesh& m);
 
 vcg::Box2d UVBox(const Mesh& m);
 vcg::Box2d UVBoxVertex(const Mesh& m);

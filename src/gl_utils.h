@@ -23,11 +23,15 @@ void CheckGLError();
 /* Compiles a vertex shader source and a fragment shader source into a program */
 GLuint CompileShaders(const GLchar **vs_text, const GLchar **fs_text);
 
-/* wrapper to an (eventually) array texture */
+/* Vertically mirrors a QImage in-place, useful to match the OpenGL convention
+ * for texture data storage */
+void Mirror(QImage& img);
+
+/* wrapper to an (eventually) array of textures */
 struct TextureObject {
 
     std::vector<std::shared_ptr<QImage>> imgVec;
-    GLuint _texture;
+    std::vector<GLuint> texNameVec;
 
     TextureObject();
     ~TextureObject();
@@ -38,14 +42,16 @@ struct TextureObject {
     /* Add QImage ref to the texture object */
     void AddImage(std::shared_ptr<QImage> img);
 
-    /* Binds the texture object, creating a new opengl texture from the imgVec array */
-    void Bind();
+    /* Binds the texture at index i */
+    void Bind(int i);
 
-    /* Deletes the current opengl texture, without unbinding it if it is bound */
-    void Release();
+    /* Releases the texture i, without unbinding it if it is bound */
+    void Release(int i);
 
     int TextureWidth(std::size_t i);
     int TextureHeight(std::size_t i);
+
+    int64_t TextureArea(std::size_t i);
 
     std::size_t ArraySize();
 };
