@@ -1,3 +1,23 @@
+/*
+ * ATTRIBUTION
+ * ===========
+ *
+ *
+ * The code for Scalable locally injective mappings has been adapted from the
+ * reference implementation that appears in libigl, available at
+ *
+ *   https://github.com/libigl/libigl
+ *
+ *
+ *
+ * The code for Composite majorization has been adapted from the implementation
+ * publicly available at
+ *
+ *   https://github.com/Roipo/CompMajor
+ *
+ * */
+
+
 #include <iostream>
 #include <vector>
 
@@ -12,8 +32,10 @@
 
 #include "timer.h"
 
+
 using Eigen::MatrixXd;
 using Eigen::Vector2d;
+
 
 // Quadratic equation solver
 static double QuadraticRoots(double a, double b, double c, double *x1, double *x2)
@@ -249,7 +271,13 @@ void DescentMethod::SetX(const MatrixXd& x)
         v.T().U() = uv(0);
         v.T().V() = uv(1);
     }
+    for (auto& f : m.face) {
+        Point2d u10 = f.V(1)->T().P() - f.V(0)->T().P();
+        Point2d u20 = f.V(2)->T().P() - f.V(0)->T().P();
+        assert((u10 ^ u20) > 0);
+    }
 }
+
 
 // Gradient Descent
 // ================
@@ -264,6 +292,7 @@ MatrixXd GradientDescent::ComputeDescentDirection()
 {
     return - energy->Grad();
 }
+
 
 // L-BFGS
 // ======
@@ -343,20 +372,9 @@ void LBFGS::UpdateCache()
     rho.clear();
 }
 
+
 // Scalable locally injective mappings
 // ===================================
-
-/*
- * CREDITS
- *
- * The code for the least squares solver is based on the reference implemenation
- * from libigl available at
- *
- *   https://github.com/libigl/libigl
- *
- * The code can be found in the file slim.cpp
- *
- * */
 
 SLIM::SLIM(std::shared_ptr<SymmetricDirichletEnergy> sd)
     : DescentMethod(sd),
@@ -411,20 +429,6 @@ void SLIM::UpdateCache()
     for (auto& f : m.face) {
         Point3d p10 = energy->P1(&f) - energy->P0(&f);
         Point3d p20 = energy->P2(&f) - energy->P0(&f);
-        if (f.IsScaffold()) {
-            double targetArea = (p10 ^ p20).Norm();
-            double q = QualityRadii(Point3d::Zero(), Point3d::Zero() + p10, Point3d::Zero() + p20);
-            if (q < 0.1) {
-                std::cout << "Correcting triangle coefficients" << std::endl;
-                // if the triangle is too small, consider an equilateral triangle of the same area as the target
-                // this apparently helps avoiding degeneracies in the coefficients computation
-                p10 = Point3d(1, 0, 0);
-                p20 = Point3d(std::cos(M_PI / 3.0), std::sin(M_PI / 3.0), 0);
-                p10 *= std::sqrt(targetArea);
-                p20 *= std::sqrt(targetArea);
-
-            }
-        }
         Eigen::Matrix2d fm;
         Eigen::Vector2d x1, x2;
         LocalIsometry(p10, p20, x1, x2);
@@ -439,7 +443,11 @@ void SLIM::UpdateCache()
     PrecomputeD12(m, D1, D2);
     diagAreaVector.resize(4 * m.FN());
     for (auto const& f : m.face) {
-        double area = (!f.IsScaffold()) ? sd_energy->FaceArea(&f) : sd_energy->GetScaffoldArea(f);
+        double area;
+        if (!f.IsScaffold())
+            area = sd_energy->FaceArea(&f);
+        else
+            area = sd_energy->GetScaffoldFaceArea();
         int j = tri::Index(m, f);
         diagAreaVector(0 * m.FN() + j) = area;
         diagAreaVector(1 * m.FN() + j) = area;
@@ -546,7 +554,6 @@ void SLIM::PrecomputeD12(const Mesh& m, Eigen::SparseMatrix<double>& D1, Eigen::
 
 void SLIM::UpdateJRW()
 {
-    double meshEnergyValue = energy->E_IgnoreMarkedFaces();
     for (auto& f : m.face) {
         // Compute jacobian matrix by combining the inverse of the map from T_e to 3D and the map from T_e to uv
         Point2d u10 = (f.V(1)->T().P() - f.V(0)->T().P());
@@ -570,10 +577,9 @@ void SLIM::UpdateJRW()
             U.col(U.cols() - 1) *= -1;
         }
 
-        double attenuation = 1.0;
+        double weight = 1.0;
         if (f.IsScaffold())
-            attenuation = sd_energy->GetScaffoldWeight(f, meshEnergyValue);
-        //if (f.holeFilling) attenuation = 0.0001;
+            weight = sd_energy->GetScaffoldWeight();
 
         // Update weights (eq 28 in the paper)
         Eigen::Vector2d Sw;
@@ -581,10 +587,10 @@ void SLIM::UpdateJRW()
             double den = sigma[i] - 1;
             if (std::abs(den) < 1e-8) {
                 //Sw[i] = 1;
-                Sw[i] = attenuation * 1;
+                Sw[i] = weight * 1;
             } else {
                 //Sw[i] = std::sqrt((sigma[i] - std::pow(sigma[i], -3)) / den);
-                Sw[i] = std::sqrt((attenuation * (sigma[i] - std::pow(sigma[i], -3))) / den);
+                Sw[i] = std::sqrt((weight * (sigma[i] - std::pow(sigma[i], -3))) / den);
             }
         }
         W[f] = U * Sw.asDiagonal() * U.transpose();
@@ -664,8 +670,79 @@ void SLIM::BuildRhs(const Eigen::SparseMatrix<double>& At, Eigen::VectorXd& rhs)
     rhs = (At * diagAreaVector.asDiagonal() * f_rhs + lambda * uv_flat);
 }
 
+#define U_IND(v) (tri::Index(m, v))
+#define V_IND(v) (m.VN() + tri::Index(m, v))
+
+#define MY_SET_U(v, val) \
+        tripletVec.push_back(Td(U_IND(v), U_IND(v0), val*(-abac))); \
+        tripletVec.push_back(Td(U_IND(v), U_IND(v1), val*(ab))); \
+        tripletVec.push_back(Td(U_IND(v), U_IND(v2), val*(ac))); \
+        tripletVec.push_back(Td(U_IND(v), V_IND(v0), val*(-ebec))); \
+        tripletVec.push_back(Td(U_IND(v), V_IND(v1), val*(eb))); \
+        tripletVec.push_back(Td(U_IND(v), V_IND(v2), val*(ec))); \
+        rhs[U_IND(v)] += - (-ad-ef) * val;
+
+#define MY_SET_V(v, val) \
+        tripletVec.push_back(Td(V_IND(v), U_IND(v0), val*(-abac))); \
+        tripletVec.push_back(Td(V_IND(v), U_IND(v1), val*(ab))); \
+        tripletVec.push_back(Td(V_IND(v), U_IND(v2), val*(ac))); \
+        tripletVec.push_back(Td(V_IND(v), V_IND(v0), val*(-ebec))); \
+        tripletVec.push_back(Td(V_IND(v), V_IND(v1), val*(eb))); \
+        tripletVec.push_back(Td(V_IND(v), V_IND(v2), val*(ec))); \
+        rhs[V_IND(v)] += - (-ad-ef) * val;
+
+inline void SetFromElementVertices(double a, double b, double c, double d, double e, double f, double area,
+                                   const Mesh& m, Mesh::VertexPointer v0, Mesh::VertexPointer v1, Mesh::VertexPointer v2,
+                                   std::vector<Eigen::Triplet<double>>& tripletVec, Eigen::VectorXd& rhs)
+{
+    using Td = Eigen::Triplet<double>;
+
+    double ab = a*b;
+    double ac = a*c;
+    double ad = a*d;
+    double eb = e*b;
+    double ec = e*c;
+    double ef = e*f;
+    double abac = (ab + ac);
+    double ebec = (eb + ec);
+
+    MY_SET_U(v0, area*(-abac))
+    MY_SET_U(v1, area*(ab))
+    MY_SET_U(v2, area*(ac))
+    MY_SET_V(v0, area*(-ebec))
+    MY_SET_V(v1, area*(eb))
+    MY_SET_V(v2, area*(ec))
+}
+
+void SLIM::BuildSystem(Eigen::SparseMatrix<double>& A, Eigen::VectorXd &rhs)
+{
+    std::vector<Eigen::Triplet<double>> tripletVec(24 * m.FN());
+
+    for (auto& f : m.face) {
+        double area;
+        if (!f.IsScaffold())
+            area = sd_energy->FaceArea(&f);
+        else
+            area = sd_energy->GetScaffoldFaceArea();
+        const Eigen::Matrix2d& Wf = W[f];
+        const Eigen::Matrix2d& Qf = fm_inv[f];
+        const Eigen::Matrix2d& Rf = R[f];
+        SetFromElementVertices(Wf(0, 0), Qf(0, 0), Qf(1, 0), Rf(0, 0), Wf(0, 1), Rf(1, 0), area, m, f.V(0), f.V(1), f.V(2), tripletVec, rhs);
+        SetFromElementVertices(Wf(0, 0), Qf(0, 1), Qf(1, 1), Rf(0, 1), Wf(0, 1), Rf(1, 1), area, m, f.V(0), f.V(1), f.V(2), tripletVec, rhs);
+        SetFromElementVertices(Wf(1, 0), Qf(0, 0), Qf(1, 0), Rf(0, 0), Wf(1, 1), Rf(1, 0), area, m, f.V(0), f.V(1), f.V(2), tripletVec, rhs);
+        SetFromElementVertices(Wf(1, 0), Qf(0, 1), Qf(1, 1), Rf(0, 1), Wf(1, 1), Rf(1, 1), area, m, f.V(0), f.V(1), f.V(2), tripletVec, rhs);
+    }
+
+    A.setZero();
+
+    // TODO this is useless, I already know where the nonzero coefficients are in the matrix, so I can simply preallocate
+    // space for those and set them directly
+    A.setFromTriplets(tripletVec.begin(), tripletVec.end());
+}
+
 void SLIM::MinimizeProxyEnergy(Eigen::MatrixXd& p_k)
 {
+    Timer t;
     // solves using least squares (so build the normal equations system)
     Eigen::SparseMatrix<double> A(4 * m.FN(), 2 * m.VN());
     BuildA(A);
@@ -687,11 +764,397 @@ void SLIM::MinimizeProxyEnergy(Eigen::MatrixXd& p_k)
     }
 
     solver.factorize(L);
-    sol = solver.solve(rhs);
+    assert((solver.info() == Eigen::Success) && "SLIM::MinimizeProxyEnergy factorization failed");
 
+    sol = solver.solve(rhs);
     assert((solver.info() == Eigen::Success) && "SLIM::MinimizeProxyEnergy solve failed");
 
-    p_k.resize(m.VN(), 2);
-    p_k.col(0) = sol.block(0, 0, m.VN(), 1);
-    p_k.col(1) = sol.block(m.VN(), 0, m.VN(), 1);
+    p_k = Eigen::Map<MatrixXd>(sol.data(), m.VN(), 2);
 }
+
+
+// Composite majorization
+// ======================
+
+CompMaj::CompMaj(std::shared_ptr<SymmetricDirichletEnergy> sd)
+    : DescentMethod(sd),
+      sd_energy(sd)
+{
+    UpdateCache();
+}
+
+void CompMaj::ComputeSurfaceGradientPerFace(Eigen::MatrixX3d& D1, Eigen::MatrixX3d& D2)
+{
+    //D1.resize(fn, 3);
+    //D2.resize(fn, 3);
+
+    Eigen::MatrixX3d F1(fn, 3);
+    Eigen::MatrixX3d F2(fn, 3);
+
+    Eigen::MatrixXd Dx(fn, 3), Dy(fn, 3), Dz(fn, 3);
+    Eigen::Vector3i Pi;
+    Pi << 1, 2, 0;
+    Eigen::PermutationMatrix<3> P = Eigen::PermutationMatrix<3>(Pi);
+
+    for (auto const& f : m.face)
+    {
+        int i = tri::Index(m, f);
+        Eigen::Vector3d v32; (energy->P(&f, 2) - energy->P(&f, 1)).ToEigenVector(v32);
+        Eigen::Vector3d v13; (energy->P(&f, 0) - energy->P(&f, 2)).ToEigenVector(v13);
+        Eigen::Vector3d v21; (energy->P(&f, 1) - energy->P(&f, 0)).ToEigenVector(v21);
+        Eigen::Vector3d v31; (energy->P(&f, 2) - energy->P(&f, 0)).ToEigenVector(v31);
+
+        //Eigen::Vector3d n = v32.cross(-v13);
+        Eigen::Vector3d n = v21.cross(v31);
+        double dblA = std::sqrt(n.dot(n));
+        Eigen::Vector3d u = n / dblA;
+
+        F1.row(i) = v21.normalized();
+        F2.row(i) = u.cross(v21).normalized();
+
+        // #F x 3 matrices of triangle edge vectors, named after opposite vertices
+        Eigen::Matrix3d e;
+        e.col(0) = v21;
+        e.col(1) = v32;
+        e.col(2) = v13;
+
+        Eigen::Matrix3d n_M;
+        //n_M << 0, -n(2), n(1), n(2), 0, -n(0), -n(1), n(0), 0;
+        n_M << 0, -u(2), u(1), u(2), 0, -u(0), -u(1), u(0), 0;
+        Eigen::Matrix3d res = ((1. / dblA)*(n_M*e))*P;
+
+        /* Dx, Dy and Dz are the components of the gradient vectors of each face at each vertex.
+         * for face i, the gradient vector of vertex 0 is the triplet
+         *   (Dx.row(i)(0), Dy.row(i)(0), Dz.row(i)(0))
+         * and likewise for vertex 1 and vertex 2. For a geometric intuition of the
+         * triangle gradients of the piecewise linear approximation of a scalar function
+         * defined over a mesh cfr. Alec Jacobson's phd thesis
+         *
+         *   ``Algorithms and Interfaces for Real-Time Deformation of 2D and 3D Shapes''
+         *
+         * chapter 2.1 */
+        Dx.row(i) = res.row(0);
+        Dy.row(i) = res.row(1);
+        Dz.row(i) = res.row(2);
+    }
+    /* The gradients are then transformed to the reference frame local to the triangle
+     * (note that the gradient at each face is the linear combination of the gradient at
+     * the three vertices */
+    D1 = F1.col(0).asDiagonal()*Dx + F1.col(1).asDiagonal()*Dy + F1.col(2).asDiagonal()*Dz;
+    D2 = F2.col(0).asDiagonal()*Dx + F2.col(1).asDiagonal()*Dy + F2.col(2).asDiagonal()*Dz;
+}
+
+void CompMaj::UpdateCache()
+{
+    DescentMethod::UpdateCache();
+
+    vn = m.VN();
+    fn = m.FN();
+
+    a.resize(fn);
+    b.resize(fn);
+    c.resize(fn);
+    d.resize(fn);
+    s.resize(fn, 2);
+    v.resize(fn, 4);
+    u.resize(fn, 4);
+
+    Dsd[0].resize(6, fn);
+    Dsd[1].resize(6, fn);
+
+    Eigen::MatrixX3d D1, D2;
+    ComputeSurfaceGradientPerFace(D1, D2);
+    D1d = D1.transpose();
+    D2d = D2.transpose();
+
+    a1d.resize(6, fn);
+    a2d.resize(6, fn);
+    b1d.resize(6, fn);
+    b2d.resize(6, fn);
+
+    a1d.topRows(3) = 0.5 * D1d;
+    a1d.bottomRows(3) = 0.5 * D2d;
+
+    a2d.topRows(3) = -0.5 * D2d;
+    a2d.bottomRows(3) = 0.5 * D1d;
+
+    b1d.topRows(3) = 0.5 * D1d;
+    b1d.bottomRows(3) = -0.5 * D2d;
+
+    b2d.topRows(3) = 0.5 * D2d;
+    b2d.bottomRows(3) = 0.5 * D1d;
+
+    Hi.resize(fn);
+
+    // prepare_hessian()
+
+    II.clear();
+    JJ.clear();
+    auto PushPair = [&](int i, int j) {
+        if (i > j)
+            swap(i, j);
+        II.push_back(i);
+        JJ.push_back(j);
+    };
+    for (const auto& f : m.face) {
+        // for every face there is a 6x6 local hessian
+        // we only need the 21 values contained in the upper
+        // triangle. they are access and also put into the
+        // big hessian in column order.
+
+        Eigen::Vector3i Fi;
+        Fi << tri::Index(m, f.cV(0)), tri::Index(m, f.cV(1)), tri::Index(m, f.cV(2));
+        // first column
+        PushPair(Fi(0), Fi(0));
+
+        // second column
+        PushPair(Fi(0), Fi(1));
+        PushPair(Fi(1), Fi(1));
+
+        // third column
+        PushPair(Fi(0), Fi(2));
+        PushPair(Fi(1), Fi(2));
+        PushPair(Fi(2), Fi(2));
+
+        // fourth column
+        PushPair(Fi(0), Fi(0) + vn);
+        PushPair(Fi(1), Fi(0) + vn);
+        PushPair(Fi(2), Fi(0) + vn);
+        PushPair(Fi(0) + vn, Fi(0) + vn);
+
+        // fifth column
+        PushPair(Fi(0), Fi(1) + vn);
+        PushPair(Fi(1), Fi(1) + vn);
+        PushPair(Fi(2), Fi(1) + vn);
+        PushPair(Fi(0) + vn, Fi(1) + vn);
+        PushPair(Fi(1) + vn, Fi(1) + vn);
+
+        // sixth column
+        PushPair(Fi(0), Fi(2) + vn);
+        PushPair(Fi(1), Fi(2) + vn);
+        PushPair(Fi(2), Fi(2) + vn);
+        PushPair(Fi(0) + vn, Fi(2) + vn);
+        PushPair(Fi(1) + vn, Fi(2) + vn);
+        PushPair(Fi(2) + vn, Fi(2) + vn);
+    }
+    SS = vector<double>(II.size(), 0.0);
+}
+
+void CompMaj::UpdateJ()
+{
+    for (auto& f : m.face) {
+        int i = tri::Index(m, f);
+        Eigen::Vector3d f_u, f_v;
+        f_u << f.cV(0)->T().U(), f.cV(1)->T().U(), f.cV(2)->T().U();
+        f_v << f.cV(0)->T().V(), f.cV(1)->T().V(), f.cV(2)->T().V();
+        a(i) = D1d.col(i).transpose() * f_u;
+        b(i) = D2d.col(i).transpose() * f_u;
+        c(i) = D1d.col(i).transpose() * f_v;
+        d(i) = D2d.col(i).transpose() * f_v;
+    }
+    detJuv = a.cwiseProduct(d) - b.cwiseProduct(c);
+    assert(!(detJuv.array() < 0).any());
+}
+
+static inline void SSVD2x2(const Eigen::Matrix2d& A, Eigen::Matrix2d& U, Eigen::Matrix2d& S, Eigen::Matrix2d& V)
+{
+    double e = (A(0) + A(3))*0.5;
+    double f = (A(0) - A(3))*0.5;
+    double g = (A(1) + A(2))*0.5;
+    double h = (A(1) - A(2))*0.5;
+    double q = std::sqrt((e*e) + (h*h));
+    double r = std::sqrt((f*f) + (g*g));
+    double a1 = std::atan2(g, f);
+    double a2 = std::atan2(h, e);
+    double rho = (a2 - a1)*0.5;
+    double phi = (a2 + a1)*0.5;
+
+    S(0) = q + r;
+    S(1) = 0;
+    S(2) = 0;
+    S(3) = q - r;
+
+    double c = std::cos(phi);
+    double s = std::sin(phi);
+    U(0) = c;
+    U(1) = s;
+    U(2) = -s;
+    U(3) = c;
+
+    c = std::cos(rho);
+    s = std::sin(rho);
+    V(0) = c;
+    V(1) = -s;
+    V(2) = s;
+    V(3) = c;
+}
+
+void CompMaj::UpdateSSVDFunction()
+{
+    for (int i = 0; i < a.size(); ++i) {
+        Eigen::Matrix2d J;
+        J << a[i], b[i], c[i], d[i];
+        Eigen::Matrix2d U, S, V;
+        SSVD2x2(J, U, S, V);
+        u.row(i) << U(0), U(1), U(2), U(3);
+        v.row(i) << V(0), V(1), V(2), V(3);
+        s.row(i) << S(0), S(3);
+    }
+}
+
+void CompMaj::ComputeDenseSSVDDerivatives()
+{
+    //different columns belong to different faces
+    Eigen::MatrixXd B(D1d * v.col(0).asDiagonal() + D2d * v.col(1).asDiagonal());
+    Eigen::MatrixXd C(D1d * v.col(2).asDiagonal() + D2d * v.col(3).asDiagonal());
+
+    Eigen::MatrixXd t1 = B * u.col(0).asDiagonal();
+    Eigen::MatrixXd t2 = B * u.col(1).asDiagonal();
+    Dsd[0].topRows(t1.rows()) = t1;
+    Dsd[0].bottomRows(t1.rows()) = t2;
+    t1 = C * u.col(2).asDiagonal();
+    t2 = C * u.col(3).asDiagonal();
+    Dsd[1].topRows(t1.rows()) = t1;
+    Dsd[1].bottomRows(t1.rows()) = t2;
+}
+
+void CompMaj::ComputeHessian()
+{
+    // gradient of the sv energy formulation
+    auto lambda1 = [](double val) { return 2.0 * val - 2.0 / (val*val*val); };
+    // hessian of the sv energy formulation (it is a diagonal matrix)
+    auto lambda2 = [](double val) { return 2.0 + 6.0 / (val*val*val*val); };
+
+    Eigen::VectorXd areas(fn);
+    for (int i = 0; i < areas.rows(); ++i) {
+        MeshFace& f = m.face[i];
+        if (!f.IsScaffold())
+            areas(i) = sd_energy->FaceArea(&m.face[i]);
+        else
+            // I multiply here by the scaffold weight to simplify things
+            areas(i) = sd_energy->GetScaffoldFaceArea() * sd_energy->GetScaffoldWeight();
+    }
+
+    Eigen::VectorXd gradS0 = areas.cwiseProduct(s.col(0).unaryExpr(lambda1));
+    Eigen::VectorXd gradS1 = areas.cwiseProduct(s.col(1).unaryExpr(lambda1));
+    Eigen::VectorXd HS0 = areas.cwiseProduct(s.col(0).unaryExpr(lambda2));
+    Eigen::VectorXd HS1 = areas.cwiseProduct(s.col(1).unaryExpr(lambda2));
+
+    Eigen::VectorXd alpha0 = 0.5 * (a + d);
+    Eigen::VectorXd alpha1 = 0.5 * (c - b);
+    Eigen::VectorXd beta0 = 0.5 * (a - d);
+    Eigen::VectorXd beta1 = 0.5 * (c + b);
+
+    for (const auto& f : m.face) {
+        int i = tri::Index(m, f);
+        Vector6d dS0i = Dsd[0].col(i);
+        Vector6d dS1i = Dsd[1].col(i);
+        Vector6d a1i = a1d.col(i);
+        Vector6d a2i = a2d.col(i);
+        Vector6d b1i = b1d.col(i);
+        Vector6d b2i = b2d.col(i);
+        /*
+        Hi[i] = sd_energy->FaceArea(&f) * ComputeConvexConcaveFaceHessian(
+                    a1i, a2i, b1i, b2i,
+                    alpha0(i), alpha1(i), beta0(i), beta1(i),
+                    dS0i, dS1i,
+                    gradS0(i), gradS1(i),
+                    HS0(i), HS1(i));
+                    */
+        Hi[i] = ComputeConvexConcaveFaceHessian(
+                    a1i, a2i, b1i, b2i,
+                    alpha0(i), alpha1(i), beta0(i), beta1(i),
+                    dS0i, dS1i,
+                    gradS0(i), gradS1(i),
+                    HS0(i), HS1(i));
+
+        // only use the values of the upper triangular portion of Hi
+        int index = i * 21;
+        for (int p = 0; p < 6; ++p) {
+            for (int q = 0; q <= p; ++q) {
+                SS[index++] = Hi[i](p, q);
+            }
+        }
+    }
+
+    for (int i = 0; i < fn; i++) {
+        int base = 21 * i;
+        SS[base] += 1e-6;
+        SS[base + 2] += 1e-6;
+        SS[base + 5] += 1e-6;
+        SS[base + 9] += 1e-6;
+        SS[base + 14] += 1e-6;
+        SS[base + 20] += 1e-6;
+    }
+}
+
+inline Matrix66d CompMaj::ComputeFaceConeHessian(const Vector6d& A1, const Vector6d& A2, double a1x, double a2x)
+{
+    double f2 = a1x * a1x + a2x * a2x;
+    double invf =  1.0 / std::sqrt(f2);
+    double invf3 = invf * invf * invf;
+
+    Matrix66d A1A1t = A1 * A1.transpose();
+    Matrix66d A2A2t = A2 * A2.transpose();
+    Matrix66d A1A2t = A1 * A2.transpose();
+    //Matrix66d A2A1t = A2 * A1.transpose();
+    Matrix66d A2A1t = A1A2t.transpose();
+
+    double a2 = a1x * a1x;
+    double b2 = a2x * a2x;
+    double ab = a1x * a2x;
+
+    return (invf - invf3 * a2) * A1A1t + (invf - invf3 * b2) * A2A2t - invf3 * ab * (A1A2t + A2A1t);
+}
+
+inline Matrix66d CompMaj::ComputeConvexConcaveFaceHessian(
+        const Vector6d& a1, const Vector6d& a2, const Vector6d& b1, const Vector6d& b2,
+        double alpha0, double alpha1, double beta0, double beta1,
+        const Vector6d& dS0i, const Vector6d& dS1i,
+        double gradS0, double gradS1, double HS0, double HS1)
+{
+    Matrix66d H = HS0 * dS0i * dS0i.transpose() + HS1 * dS1i * dS1i.transpose();
+
+    double walpha = gradS0 + gradS1;
+    if (walpha > 0)
+        H += walpha * ComputeFaceConeHessian(a1, a2, alpha0, alpha1);
+
+    double wbeta = gradS0 - gradS1;
+    if (wbeta > 1e-7)
+        H += wbeta * ComputeFaceConeHessian(b1, b2, beta0, beta1);
+
+    return H;
+}
+
+Eigen::MatrixXd CompMaj::ComputeDescentDirection()
+{
+    UpdateJ();
+    UpdateSSVDFunction();
+    ComputeDenseSSVDDerivatives();
+    ComputeHessian();
+
+    {
+        std::vector<Eigen::Triplet<double>> triplets;
+        for (std::size_t i = 0; i < II.size(); ++i) {
+            triplets.push_back(Eigen::Triplet<double>(II[i], JJ[i], SS[i]));
+        }
+        A.resize(2 * vn, 2 * vn);
+        A.setFromTriplets(triplets.begin(), triplets.end());
+    }
+
+    Eigen::MatrixXd grad = energy->Grad();
+
+    Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>, Eigen::Upper> solver;
+
+    solver.analyzePattern(A);
+
+    solver.factorize(A);
+    assert((solver.info() == Eigen::Success) && "CompMaj factorization failed");
+
+    Eigen::VectorXd sol;
+    sol = solver.solve(- Eigen::Map<Eigen::VectorXd>(grad.data(), 2 * vn));
+    assert((solver.info() == Eigen::Success) && "CompMaj solve failed");
+
+    return Eigen::Map<MatrixXd>(sol.data(), vn, 2);
+}
+

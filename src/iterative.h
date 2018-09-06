@@ -9,8 +9,11 @@
 
 #include <memory>
 
+using Matrix66d = Eigen::Matrix<double, 6, 6>;
+using Vector6d  = Eigen::Matrix<double, 6, 1>;
+
 enum DescentType {
-    Gradient, LimitedMemoryBFGS, ScalableLocallyInjectiveMappings
+    Gradient, LimitedMemoryBFGS, ScalableLocallyInjectiveMappings, CompositeMajorization
 };
 
 class DescentMethod {
@@ -82,7 +85,7 @@ public:
 
 
 /*
- * Implementation of Rabinovich et al. (2017) 'Scalable Locally Injective Mappings'
+ * Rabinovich et al. (2017) 'Scalable Locally Injective Mappings'
  */
 class SLIM : public DescentMethod {
 
@@ -116,7 +119,71 @@ private:
     void BuildA(Eigen::SparseMatrix<double>& A);
     void BuildRhs(const Eigen::SparseMatrix<double>& At, Eigen::VectorXd &rhs);
     void MinimizeProxyEnergy(Eigen::MatrixXd &p_k);
+    void BuildSystem(Eigen::SparseMatrix<double>& A, Eigen::VectorXd &rhs);
+};
+
+
+/*
+ * Shtengel et al. (2017) 'Geometric optimization via Composite Majorization'
+ */
+class CompMaj : public DescentMethod {
+
+public:
+
+    CompMaj(std::shared_ptr<SymmetricDirichletEnergy> sd);
+
+    virtual Eigen::MatrixXd ComputeDescentDirection();
+    virtual void UpdateCache();
+
+private:
+
+    std::shared_ptr<SymmetricDirichletEnergy> sd_energy;
+
+    int vn;
+    int fn;
+
+    Eigen::VectorXd a;
+    Eigen::VectorXd b;
+    Eigen::VectorXd c;
+    Eigen::VectorXd d;
+
+    Eigen::VectorXd detJuv;
+
+    Eigen::MatrixX2d s;
+    Eigen::MatrixX4d v;
+    Eigen::MatrixX4d u;
+    Eigen::MatrixXd Dsd[2];
+
+    Eigen::Matrix3Xd D1d;
+    Eigen::Matrix3Xd D2d;
+
+    Eigen::MatrixXd a1d;
+    Eigen::MatrixXd a2d;
+    Eigen::MatrixXd b1d;
+    Eigen::MatrixXd b2d;
+
+    std::vector<Matrix66d> Hi; // vector of hessian matrices per face
+
+    std::vector<int> II;
+    std::vector<int> JJ;
+    std::vector<double> SS;
+
+    Eigen::SparseMatrix<double> A;
+
+    void ComputeSurfaceGradientPerFace(Eigen::MatrixX3d& D1, Eigen::MatrixX3d& D2);
+
+    void UpdateJ();
+    void ComputeHessian();
+    void UpdateSSVDFunction();
+    void ComputeDenseSSVDDerivatives();
+
+    Matrix66d ComputeFaceConeHessian(const Vector6d& A1, const Vector6d& A2, double a1x, double a2x);
+
+    Matrix66d ComputeConvexConcaveFaceHessian(const Vector6d& a1, const Vector6d& a2, const Vector6d& b1, const Vector6d& b2,
+            double alpha0, double alpha1, double beta0, double beta1,
+            const Vector6d& dS0i, const Vector6d& dS1i,
+            double gradS0, double gradS1, double HS0, double HS1);
+
 };
 
 #endif // ITERATIVE_H
-
