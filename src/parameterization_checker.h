@@ -62,6 +62,13 @@ static bool CheckUVConnectivity(Mesh& m)
 
 static RasterizedParameterizationStats GetRasterizationStats(const std::vector<Mesh::FacePointer>& faces, int width, int height, const vcg::Box2d& resizeBox);
 
+static RasterizedParameterizationStats GetRasterizationStats(const std::vector<Mesh::FacePointer>& faces, int width, int height)
+{
+    vcg::Box2d nullbox;
+    nullbox.SetNull();
+    return GetRasterizationStats(faces, width, height, nullbox);
+}
+
 static RasterizedParameterizationStats GetRasterizationStats(Mesh& m, int width, int height)
 {
     vcg::Box2d nullbox;
