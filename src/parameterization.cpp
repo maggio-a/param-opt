@@ -65,6 +65,15 @@ void ParameterizerObject::Reset()
     SyncShellWithUV(shell);
     MarkInitialSeamsAsFaux(shell, baseMesh);
 
+    auto tsa = GetTargetShapeAttribute(shell);
+    targetArea = 0;
+    for (auto& sf : shell.face) {
+        CoordStorage target = tsa[sf];
+        Point2d u10 = Point2d(target.P[1].X() - target.P[0].X(), target.P[1].Y() - target.P[0].Y());
+        Point2d u20 = Point2d(target.P[2].X() - target.P[0].X(), target.P[2].Y() - target.P[0].Y());
+        targetArea += std::abs(u10 ^ u20) / 2.0;
+    }
+
 //    std::cout << "ENERGY WHEN CONSTRUCTED == " << energy->E() << std::endl;
 
     //tri::io::Exporter<Mesh>::Save(shell, "shell_init.obj", tri::io::Mask::IOM_ALL);
@@ -237,7 +246,15 @@ bool ParameterizerObject::InitializeSolution()
 {
     UniformSolver<Mesh> u{shell};
     bool solved = u.Solve();
-    if (solved) SyncShellWithUV(shell);
+    if (solved) {
+        // scale the parameterization
+        double uvArea = M_PI * 0.5 * 0.5;
+        double scale = std::sqrt(targetArea / uvArea);
+        for (auto& sv : shell.vert) {
+            sv.T().P() *= scale;
+        }
+        SyncShellWithUV(shell);
+    }
     return solved;
 }
 

@@ -83,6 +83,8 @@ class ParameterizerObject {
     double gradientNormTolerance;
     double energyDiffTolerance;
 
+    double targetArea;
+
 public:
 
     ParameterizerObject(ChartHandle c, ParameterizationStrategy strat);
