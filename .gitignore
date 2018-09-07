@@ -9,15 +9,17 @@ mesh/vcg/problematic/nabu/*
 
 papers/
 
-pinfo/**
-!pinfo/*.cpp
-!pinfo/*.h
-!pinfo/*.pro
+meshinfo/**
+!meshinfo/*.cpp
+!meshinfo/*.h
+!meshinfo/*.pro
 
-texdefrag/**
-!texdefrag/*.cpp
-!texdefrag/*.h
-!texdefrag/*.pro
+repack/**
+!repack/*.cpp
+!repack/*.h
+!repack/*.pro
+
+triangle/**
 
 viewer/**
 !viewer/*.cpp
@@ -25,12 +27,10 @@ viewer/**
 !viewer/*.pro
 !viewer/readme.txt
 
-solver/**
-!solver/*.cpp
-!solver/*.h
-!solver/*.pro
-
-thesis/**
+transfer/**
+!transfer/*.cpp
+!transfer/*.h
+!transfer/*.pro
 
 *.user
 build-*
