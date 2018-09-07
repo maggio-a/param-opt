@@ -1,7 +1,7 @@
 VCGPATH = ../vcglib
 
 triangle.target = triangle
-triangle.commands = cd ../triangle; make trilibrary && cd $$OUT_PWD; cp ../triangle/triangle.o .
+triangle.commands = cd $$PWD/../triangle; make trilibrary && cd $$OUT_PWD; cp $$PWD/../triangle/triangle.o .
 
 QMAKE_EXTRA_TARGETS += triangle
 

@@ -91,7 +91,6 @@ private:
 
     std::string fileName;
 
-    double uvRatio;
 
     ParameterizationStrategy strategy;
 

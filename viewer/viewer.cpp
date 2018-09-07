@@ -1,7 +1,15 @@
-#include <vcg/complex/complex.h>
-#include <wrap/io_trimesh/io_mask.h>
+#include "mesh.h"
+#include "mesh_graph.h"
+#include "uv.h"
+#include "texture_optimization.h"
+#include "texture_rendering.h"
+#include "parameterization_checker.h"
+#include "timer.h"
+#include "gl_utils.h"
+#include "texture.h"
+#include "mesh_viewer.h"
 
-#include <wrap/io_trimesh/export.h>
+#include <wrap/io_trimesh/io_mask.h>
 
 #include <string>
 #include <vector>
@@ -12,20 +20,8 @@
 #include <QFileInfo>
 #include <QString>
 
-#include "mesh.h"
-#include "mesh_graph.h"
-#include "uv.h"
-#include "texture_optimization.h"
-#include "texture_rendering.h"
-#include "parameterization_checker.h"
-#include "timer.h"
-#include "gl_utils.h"
-#include "texture.h"
 
-#include "mesh_viewer.h"
-
-
-#define FIX_TOPOLOGY false
+//#define CLEAN_TROUBLESOME_REGIONS_CONTEXTCAPTURE
 
 
 using namespace vcg;
@@ -342,7 +338,7 @@ int main(int argc, char *argv[])
     auto dummyGraph = ComputeParameterizationGraph(m, textureObject);
     PrintParameterizationInfo(dummyGraph);
 
-#if FIX_TOPOLOGY
+#ifdef CLEAN_TROUBLESOME_REGIONS_CONTEXTCAPTURE
     CleanSmallComponents(m, dummyGraph, textureObject, 1e-4);
 #endif
 

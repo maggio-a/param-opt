@@ -335,9 +335,9 @@ MeshViewer::MeshViewer(GraphHandle gh, const std::string& fileName_)
       minRegionSize{0},
       _textureCamera{},
       _detailCamera{},
-      uvRatio{_currentTexture->TextureWidth(0) / (double) _currentTexture->TextureHeight(0)},
       strategy(DefaultStrategy())
 {
+    assert(_currentTexture->ArraySize() == 1 && "Only single texture meshes are supported by the viewer");
     Mesh& m = graph->mesh;
     if (m.FN() < 100000)
         minRegionSize = 1000;
@@ -493,6 +493,9 @@ void MeshViewer::UpdateDetailBuffers()
                     assert(ia[sf] != -1);
                 }
                 auto& f = m.face[ia[sf]];
+                *buffptr++ = wtcs[f].tc[i].U() / (double) _currentTexture->TextureWidth(0);
+                *buffptr++ = wtcs[f].tc[i].V() / (double) _currentTexture->TextureHeight(0);
+                /*
                 if (uvRatio > 1) {
                     *buffptr++ = wtcs[f].tc[i].U() / uvRatio;
                     *buffptr++ = wtcs[f].tc[i].V();
@@ -500,6 +503,7 @@ void MeshViewer::UpdateDetailBuffers()
                     *buffptr++ = wtcs[f].tc[i].U();
                     *buffptr++ = wtcs[f].tc[i].V() * uvRatio;
                 }
+                */
             } else {
                 *buffptr++ = 0.0;
                 *buffptr++ = 0.0;
@@ -627,8 +631,8 @@ void MeshViewer::UpdateSelection(const RegionID id)
                     *buffptr++ = fptr->cV(i)->P().X();
                     *buffptr++ = fptr->cV(i)->P().Y();
                     *buffptr++ = fptr->cV(i)->P().Z();
-                    *buffptr++ = fptr->cWT(i).U();
-                    *buffptr++ = fptr->cWT(i).V();
+                    *buffptr++ = fptr->cWT(i).U() / (double) _currentTexture->TextureWidth(0);
+                    *buffptr++ = fptr->cWT(i).V() / (double) _currentTexture->TextureHeight(0);
                 }
             }
             first += chart->FN() * 3;
@@ -924,8 +928,8 @@ void MeshViewer::InitBuffers()
                 *buffptr++ = 0.0;
                 *buffptr++ = 0.0;
             } else { */
-                *buffptr++ = f.cWT(i).U();
-                *buffptr++ = f.cWT(i).V();
+                *buffptr++ = f.cWT(i).U() / (double) _currentTexture->TextureWidth(0);
+                *buffptr++ = f.cWT(i).V() / (double) _currentTexture->TextureHeight(0);
             //}
             unsigned char *colorptr = (unsigned char *) buffptr;
             *colorptr++ = f.cC()[0];
@@ -942,7 +946,7 @@ void MeshViewer::InitBuffers()
 
     // Load texture data
     glActiveTexture(GL_TEXTURE0);
-    _currentTexture->Bind();
+    _currentTexture->Bind(0);
 
     CheckGLError();
 
@@ -1118,7 +1122,7 @@ void MeshViewer::Draw3DView()
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 
     glActiveTexture(GL_TEXTURE0);
-    _currentTexture->Bind();
+    _currentTexture->Bind(0);
 
     glEnable(GL_DEPTH_TEST);
 
@@ -1199,7 +1203,7 @@ void MeshViewer::DrawTextureView()
     glUseProgram(_textureView.program);
 
     glActiveTexture(GL_TEXTURE0);
-    _currentTexture->Bind();
+    _currentTexture->Bind(0);
 
     mat4x4 projection;
     float l = _textureCamera.x - (_textureCamera.viewSize / 2.0f);
@@ -1259,7 +1263,7 @@ void MeshViewer::DrawDetailView()
     glUseProgram(_detailView.program);
 
     glActiveTexture(GL_TEXTURE0);
-    _currentTexture->Bind();
+    _currentTexture->Bind(0);
 
     // mixing model and projection together...
     mat4x4 transform, projection;
@@ -1447,7 +1451,7 @@ void MeshViewer::ManageImGuiState()
     // parameterization strategy
     static DirectParameterizer dirparameterizer[] = { DCP, FixedBorderBijective };
     static EnergyType optimizer[] = { SymmetricDirichlet};
-    static DescentType descent[] = { Gradient, LimitedMemoryBFGS, ScalableLocallyInjectiveMappings };
+    static DescentType descent[] = { Gradient, LimitedMemoryBFGS, ScalableLocallyInjectiveMappings, CompositeMajorization };
     static ParameterizationGeometry geometry[] = { Model, Texture };
 
     static int parameterizerInUse = 0;
@@ -1541,14 +1545,9 @@ void MeshViewer::ManageImGuiState()
             if (graph->MergeCount() > 0) {
                 int c = ParameterizeGraph(*gm, strategy, retry ? tau : -1);
                 if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
-                Pack(gm->Graph());
-                updateTexcoord = true;
-                if (activeDistIndex != -1) {
-                    ParameterizationGeometry distGeom = distortionFromTexture ? Texture : Model;
-                    graph->MapDistortion(distortion[activeDistIndex], distGeom);
-                    updateColor = true;
-                }
-                _currentTexture->Release();
+                PackingOptions opts = { RasterizationBasedPacker::Parameters::CostFuncEnum::MinWastedSpace, true, true, true };
+                Pack(gm->Graph(), opts);
+                _currentTexture->Release(0);
                 _currentTexture = RenderTexture(graph->mesh, graph->textureObject, true, InterpolationMode::Linear, _window);
                 for (auto& f : graph->mesh.face) {
                     for (int i = 0; i < 3; ++i) {
@@ -1556,6 +1555,14 @@ void MeshViewer::ManageImGuiState()
                         f.WT(i).P()[1] *= _currentTexture->TextureHeight(0);
                     }
                 }
+                ScaleTextureCoordinatesToImage(graph->mesh, _currentTexture);
+                updateTexcoord = true;
+                if (activeDistIndex != -1) {
+                    ParameterizationGeometry distGeom = distortionFromTexture ? Texture : Model;
+                    graph->MapDistortion(distortion[activeDistIndex], distGeom);
+                    updateColor = true;
+                }
+
            } else {
                std::cout << "No merges, nothing to do" << std::endl;
            }
@@ -1644,6 +1651,7 @@ void MeshViewer::ManageImGuiState()
         ImGui::RadioButton("Gradient descent", &descentTypeInUse, 0);
         ImGui::RadioButton("LBFGS", &descentTypeInUse, 1);
         ImGui::RadioButton("SLIM", &descentTypeInUse, 2);
+        ImGui::RadioButton("CM", &descentTypeInUse, 3);
 
         strategy.directParameterizer = dirparameterizer[parameterizerInUse];
         strategy.energy = optimizer[optimizerInUse];
@@ -1885,8 +1893,8 @@ void MeshViewer::ManageImGuiState()
             for (int i = 0; i < 3; ++i) {
                 buffptr += 3;
                 if (updateTexcoord) {
-                    *buffptr++ = f.cWT(i).U();
-                    *buffptr++ = f.cWT(i).V();
+                    *buffptr++ = f.cWT(i).U() / (double) _currentTexture->TextureWidth(0);
+                    *buffptr++ = f.cWT(i).V() / (double) _currentTexture->TextureHeight(0);
                 }
                 else buffptr += 2;
                 if (updateColor) {
