@@ -590,7 +590,7 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
 void Stabilize(CoordStorage& cs)
 {
     Point3d p10 = cs.P[1] - cs.P[0];
-    Point3d p20 = cs.P[1] - cs.P[0];
+    Point3d p20 = cs.P[2] - cs.P[0];
     double targetArea = (p10 ^ p20).Norm() / 2.0;
     double q = QualityRadii(Point3d::Zero(), Point3d::Zero() + p10, Point3d::Zero() + p20);
     if (q < 0.1) {
@@ -602,8 +602,6 @@ void Stabilize(CoordStorage& cs)
     cs.P[1] = cs.P[0] + p10;
     cs.P[2] = cs.P[0] + p20;
 }
-
-
 
 void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2f>> &outline2Vec)
 {
