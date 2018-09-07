@@ -331,7 +331,6 @@ int main(int argc, char *argv[])
 
     tri::Allocator<Mesh>::CompactEveryVector(m);
 
-    // FIXME this seems to slow down the parameterization process... conditioning issues?
     ScaleTextureCoordinatesToImage(m, textureObject);
 
     // Print original info
