@@ -1085,7 +1085,7 @@ double MeshGraph::AreaUV() const
     return areaUV;
 }
 
-double MeshGraph::BorderUV(float *meshBorderLengthUV, float *seamLengthUV)
+double MeshGraph::BorderUV() const
 {
     double borderUV = 0.0;
     for (const auto& c : charts) borderUV += c.second->BorderUV();

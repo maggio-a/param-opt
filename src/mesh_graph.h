@@ -190,8 +190,7 @@ struct MeshGraph {
     double Area3D() const;
     double AreaUV() const;
 
-    /// TODO remove useless parameters
-    double BorderUV(float *meshBorderLengthUV = nullptr, float *seamLengthUV = nullptr);
+    double BorderUV() const;
 };
 
 
