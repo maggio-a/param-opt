@@ -8,6 +8,7 @@
 #include "gl_utils.h"
 #include "texture.h"
 #include "mesh_viewer.h"
+#include "logging.h"
 
 #include <wrap/io_trimesh/io_mask.h>
 
@@ -21,7 +22,7 @@
 #include <QString>
 
 
-//#define CLEAN_TROUBLESOME_REGIONS_CONTEXTCAPTURE
+#define CLEAN_TROUBLESOME_REGIONS_CONTEXTCAPTURE
 
 
 using namespace vcg;
@@ -54,155 +55,6 @@ Args parse_args(int argc, char *argv[])
     return args;
 }
 
-
-void LogStrategy(ParameterizationStrategy strategy, double tol)
-{
-    std::string geometry = (strategy.geometry == ParameterizationGeometry::Model) ? std::string("Model") : std::string("Texture");
-    std::cout << "[LOG] Parameterization strategy: ";
-    std::cout << "Geometry=" << geometry << " , "
-              << "iterations=" << strategy.optimizerIterations << " , "
-              << "padded inner boundaries=" << strategy.padBoundaries << " , "
-              << "cuts=" << strategy.applyCut << " , "
-              << "scaffold=" << strategy.scaffold << " , "
-              << "tolerance=" << tol
-              << std::endl;
-}
-
-void PercentilePlot(vcg::Distribution<double>& d)
-{
-    constexpr int PERC_COUNT = 20;
-    for (int i = 0; i < PERC_COUNT; ++i) {
-        std::cout << "[LOG], ";
-        std::cout << (1.0 / 20) * i << " , ";
-        std::cout << d.Percentile((1.0 / 20) * i) << std::endl;
-    }
-    std::cout << "[LOG], ";
-    std::cout << 1.0 << " , ";
-    std::cout << d.Percentile(1.0) << std::endl;
-}
-
-void LogDistortionStats(std::shared_ptr<MeshGraph> graph, double uvRatio)
-{
-    assert(0 && "multitexture not fixed");
-    //  Correct ratio --------------------------------------------------
-    if (uvRatio != 1.0) {
-        auto wtcsattr = GetWedgeTexCoordStorageAttribute(graph->mesh);
-        for (auto& f : graph->mesh.face) {
-            for (int i = 0; i < 3; ++i) {
-                wtcsattr[f].tc[i].U() /= (uvRatio > 1.0) ? uvRatio : 1.0;
-                wtcsattr[f].tc[i].V() *= (uvRatio < 1.0) ? uvRatio : 1.0;
-            }
-        }
-    }
-
-    vcg::Distribution<double> d;
-
-    std::cout << "[LOG] Distortion" << std::endl;
-    std::cout << "[LOG] Type Source Min PCT1 PCT5 Max PCT99 PCT95 Avg Variance" << std::endl;
-
-    d.Clear();
-    graph->MapDistortion(DistortionMetric::Type::Area, ParameterizationGeometry::Texture);
-    for (auto& f : graph->mesh.face) {
-        d.Add(f.Q());
-    }
-    std::cout << "[LOG] Area Texture "
-              << d.Min() << " " << d.Percentile(0.01) << " " << d.Percentile(0.05) << " "
-              << d.Max() << " " << d.Percentile(0.99) << " " << d.Percentile(0.95) << " "
-              << d.Avg() << " " << d.Variance() << std::endl;
-
-    std::cout << "[LOG]  Percentile plot: " << std::endl;
-    PercentilePlot(d);
-
-    d.Clear();
-
-    graph->MapDistortion(DistortionMetric::Type::Angle, ParameterizationGeometry::Texture);
-    for (auto& f : graph->mesh.face) {
-        d.Add(f.Q());
-    }
-    std::cout << "[LOG] Angle Texture "
-              << d.Min() << " " << d.Percentile(0.01) << " " << d.Percentile(0.05) << " "
-              << d.Max() << " " << d.Percentile(0.99) << " " << d.Percentile(0.95) << " "
-              << d.Avg() << " " << d.Variance() << std::endl;
-    std::cout << "[LOG]  Percentile plot: " << std::endl;
-    PercentilePlot(d);
-
-    //  Correct ratio --------------------------------------------------
-    if (uvRatio != 1.0) {
-        auto wtcsattr = GetWedgeTexCoordStorageAttribute(graph->mesh);
-        for (auto& f : graph->mesh.face) {
-            for (int i = 0; i < 3; ++i) {
-                wtcsattr[f].tc[i].U() *= (uvRatio > 1.0) ? uvRatio : 1.0;
-                wtcsattr[f].tc[i].V() /= (uvRatio < 1.0) ? uvRatio : 1.0;
-            }
-        }
-    }
-
-    d.Clear();
-    graph->MapDistortion(DistortionMetric::Type::Area, ParameterizationGeometry::Model);
-    for (auto& f : graph->mesh.face) {
-        d.Add(f.Q());
-    }
-    std::cout << "[LOG] Area Model "
-              << d.Min() << " " << d.Percentile(0.01) << " " << d.Percentile(0.05) << " "
-              << d.Max() << " " << d.Percentile(0.99) << " " << d.Percentile(0.95) << " "
-              << d.Avg() << " " << d.Variance() << std::endl;
-    std::cout << "[LOG]  Percentile plot: " << std::endl;
-    PercentilePlot(d);
-
-    d.Clear();
-
-    if (uvRatio != 1.0) {
-        for (auto& f : graph->mesh.face) {
-            for (int i = 0; i < 3; ++i) {
-                f.cWT(i).U() *= (uvRatio > 1.0) ? uvRatio : 1.0;
-                f.cWT(i).V() /= (uvRatio < 1.0) ? uvRatio : 1.0;
-            }
-        }
-    }
-
-    graph->MapDistortion(DistortionMetric::Type::Angle, ParameterizationGeometry::Model);
-    for (auto& f : graph->mesh.face) {
-        d.Add(f.Q());
-    }
-    std::cout << "[LOG] Angle Model "
-              << d.Min() << " " << d.Percentile(0.01) << " " << d.Percentile(0.05) << " "
-              << d.Max() << " " << d.Percentile(0.99) << " " << d.Percentile(0.95) << " "
-              << d.Avg() << " " << d.Variance() << std::endl;
-    std::cout << "[LOG]  Percentile plot: " << std::endl;
-    PercentilePlot(d);
-
-    if (uvRatio != 1.0) {
-        for (auto& f : graph->mesh.face) {
-            for (int i = 0; i < 3; ++i) {
-                f.cWT(i).U() /= (uvRatio > 1.0) ? uvRatio : 1.0;
-                f.cWT(i).V() *= (uvRatio < 1.0) ? uvRatio : 1.0;
-            }
-        }
-    }
-}
-
-void LogParameterizationStats(std::shared_ptr<MeshGraph> graph, RasterizedParameterizationStats stats, const std::string& header)
-{
-    int boundaries;
-    tri::UpdateTopology<Mesh>::FaceFaceFromTexCoord(graph->mesh);
-    boundaries = tri::Clean<Mesh>::CountHoles(graph->mesh);
-    tri::UpdateTopology<Mesh>::FaceFace(graph->mesh);
-
-    std::cout << header << std::endl;
-    std::cout << "[LOG] Texture Size , Charts , Boundaries , Occupancy , BorderUV(px), AreaUV(px), BilinearAreaUV(px), Overwritten fragments, Lost Fragments" << std::endl;
-    std::cout << "[LOG] "
-              << stats.rw << "x" << stats.rh << " , "
-              << graph->charts.size() << " , "
-              << boundaries << " , "
-              << (stats.totalFragments - stats.lostFragments) / double(stats.rw*stats.rh) << " , "
-              << stats.boundaryFragments << " , "
-              << stats.totalFragments  << " , "
-              << stats.totalFragments_bilinear  << " , "
-              << stats.overwrittenFragments  << " , "
-              << stats.lostFragments << "" << std::endl;
-
-}
-
 int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
              Args args)
 {
@@ -222,7 +74,8 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
             DirectParameterizer::FixedBorderBijective,
             EnergyType::SymmetricDirichlet,
             ParameterizationGeometry::Texture,
-            DescentType::ScalableLocallyInjectiveMappings,
+            //DescentType::ScalableLocallyInjectiveMappings,
+            DescentType::CompositeMajorization,
             500,            // Number of iterations
             true,           // Fill holes ?
             true,           // Use cuts ?
@@ -239,11 +92,6 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
     for (auto p : cc) if (p.first < 100) smallcomponents++;
 
     std::cout << "[LOG] " << cc.size() << " connected components (" << smallcomponents << " have less than 100 faces)" << std::endl;
-
-    GLInit();
-
-    RasterizedParameterizationStats before = GetRasterizationStats(m, textureObject->imgVec[0]->width(), textureObject->imgVec[0]->height());
-    LogParameterizationStats(graph, before, std::string("[LOG] Raster stats before parameterizing"));
 
     Timer t;
 
@@ -262,11 +110,18 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
     PackingOptions opts = { RasterizationBasedPacker::Parameters::CostFuncEnum::MinWastedSpace, true, true, true, false };
     Pack(gm.Graph(), opts);
 
-    RasterizedParameterizationStats after = GetRasterizationStats(m, textureObject->imgVec[0]->width(), textureObject->imgVec[0]->height());
-    LogParameterizationStats(graph, after, std::string("[LOG] Raster stats after parameterizing"));
-
     std::cout << "Rendering texture..." << std::endl;
     TextureObjectHandle newTexture = RenderTexture(m, textureObject, args.filter, InterpolationMode::Linear, nullptr);
+
+    std::vector<RasterizedParameterizationStats> after = GetRasterizationStats(m, newTexture);
+    std::cout << "[LOG] Raster stats after processing" << std::endl;
+    LogParameterizationStats(graph, after);
+
+
+    ScaleTextureCoordinatesToImage(m, newTexture);
+    LogDistortionStats(graph);
+
+    ScaleTextureCoordinatesToParameterArea(m, newTexture);
 
     //GenerateDistortionTextures(m, textureObject);
 
@@ -279,7 +134,6 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
 
     PrintParameterizationInfo(graph);
 
-    //LogDistortionStats(graph, newTexture->TextureWidth(0) / (double) newTexture->TextureHeight(0));
 
     GLTerminate();
 
@@ -316,6 +170,17 @@ int main(int argc, char *argv[])
     assert(textureObject->ArraySize() == 1 && "Currently only single texture is supported");
     assert(loadMask & tri::io::Mask::IOM_WEDGTEXCOORD);
 
+
+    // Print original info
+    auto dummyGraph = ComputeParameterizationGraph(m, textureObject);
+    PrintParameterizationInfo(dummyGraph);
+
+    GLInit();
+    std::vector<RasterizedParameterizationStats> before = GetRasterizationStats(m, textureObject);
+    std::cout << "[LOG] Raster stats before processing" << std::endl;
+    LogParameterizationStats(dummyGraph, before);
+
+
     tri::UpdateTopology<Mesh>::FaceFace(m);
     int numVertexSplit = tri::Clean<Mesh>::SplitNonManifoldVertex(m, 0);
     if (numVertexSplit > 0)
@@ -331,15 +196,12 @@ int main(int argc, char *argv[])
 
     tri::Allocator<Mesh>::CompactEveryVector(m);
 
-    ScaleTextureCoordinatesToImage(m, textureObject);
-
-    // Print original info
-    auto dummyGraph = ComputeParameterizationGraph(m, textureObject);
-    PrintParameterizationInfo(dummyGraph);
 
 #ifdef CLEAN_TROUBLESOME_REGIONS_CONTEXTCAPTURE
     CleanSmallComponents(m, dummyGraph, textureObject, 1e-4);
 #endif
+
+    ScaleTextureCoordinatesToImage(m, textureObject);
 
     dummyGraph = nullptr;
 

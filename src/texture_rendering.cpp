@@ -1,4 +1,15 @@
+/*
+ * References for the bicubic interpolated texture lookup:
+ *  - GPU gems 2 ch 20 (Sigg and Hadwiger 2005)
+ *  - Efficient GPU-Based Texture Interpolation using Uniform B-Splines  (Ruijters et al. 2009)
+ * */
+
 #include "texture_rendering.h"
+#include "parameterization_checker.h"
+#include "mesh.h"
+#include "pushpull.h"
+#include "uv.h"
+#include "mesh_attribute.h"
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -7,10 +18,8 @@
 
 #include <QImage>
 
-#include "mesh.h"
-#include "pushpull.h"
-#include "uv.h"
 
+/* === Shaders ============================================================== */
 
 static const char *vs_text[] = {
     "#version 410 core                                           \n"
@@ -73,6 +82,303 @@ static const char *fs_text[] = {
     "}                                                                     \n"
 };
 
+
+static const char *vs_text_checker[] = {
+    "#version 430 core                                           \n"
+    "                                                            \n"
+    "in vec2 position;                                           \n"
+    "                                                            \n"
+    "void main(void)                                             \n"
+    "{                                                           \n"
+    "    vec2 p = 2.0 * position - vec2(1.0, 1.0);               \n"
+    "    gl_Position = vec4(p, 0.5, 1.0);                        \n"
+    "}                                                           \n"
+};
+
+static const char *fs_text_checker[] = {
+    "#version 430 core                                                \n"
+    "                                                                 \n"
+    "layout (r32ui) uniform uimage2D imgbuf;                          \n"
+    "out vec4 color;                                                  \n"
+    "                                                                 \n"
+    "void main(void)                                                  \n"
+    "{                                                                \n"
+    "    color = vec4(1.0, 1.0, 1.0, 1.0);                            \n"
+    "    imageAtomicAdd(imgbuf, ivec2(gl_FragCoord.xy), 1);           \n"
+    "}                                                                \n"
+};
+
+
+/* === Functions ============================================================ */
+
+static RasterizedParameterizationStats GetRasterizationStats(const std::vector<Mesh::FacePointer>& faces, int width, int height);
+
+static int FacesByTextureIndex(Mesh& m, std::vector<std::vector<Mesh::FacePointer>>& fv);
+
+static std::shared_ptr<QImage> RenderTexture(std::vector<Mesh::FacePointer>& fvec,
+                                             Mesh &m, TextureObjectHandle textureObject,
+                                             bool filter, InterpolationMode imode,
+                                             int textureWidth, int textureHeight, GLFWwindow *parentWindow);
+
+
+
+static int FacesByTextureIndex(Mesh& m, std::vector<std::vector<Mesh::FacePointer>>& fv)
+{
+    fv.clear();
+
+    // Detect the number of required textures
+    int nTex = 1;
+    for (auto&f : m.face) {
+        nTex = std::max(nTex, f.cWT(0).N() + 1);
+    }
+
+    fv.resize(nTex);
+    for (auto& vec : fv)
+        vec.reserve(256);
+
+    for (auto& f : m.face) {
+        int ti = f.cWT(0).N();
+        assert(ti < nTex);
+        fv[ti].push_back(&f);
+    }
+
+    return fv.size();
+}
+
+
+RasterizedParameterizationStats GetRasterizationStats(ChartHandle chart, int width, int height)
+{
+    Box2d uvBox = chart->UVBox();
+    std::vector<TexCoordStorage> tcVec(chart->FN());
+    for (int k = 0; k < chart->FN(); ++k) {
+        for (int i = 0; i < 3; ++i) {
+            tcVec[k].tc[i] = chart->fpVec[k]->WT(i);
+            chart->fpVec[k]->WT(i).U() = (chart->fpVec[k]->WT(i).U() - uvBox.min.X()) / uvBox.DimX();
+            chart->fpVec[k]->WT(i).V() = (chart->fpVec[k]->WT(i).V() - uvBox.min.Y()) / uvBox.DimY();
+        }
+    }
+
+    RasterizedParameterizationStats stats = GetRasterizationStats(chart->fpVec, width, height);
+
+    for (int k = 0; k < chart->FN(); ++k)
+        for (int i = 0; i < 3; ++i)
+            chart->fpVec[k]->WT(i) = tcVec[k].tc[i];
+
+    return stats;
+}
+
+std::vector<RasterizedParameterizationStats> GetRasterizationStats(Mesh& m, TextureObjectHandle textureObject)
+{
+    std::vector<std::vector<Mesh::FacePointer>> facesByTexture;
+    int ntex = FacesByTextureIndex(m, facesByTexture);
+
+    std::vector<RasterizedParameterizationStats> statsVec;
+    for (int i = 0; i < ntex; ++i) {
+        RasterizedParameterizationStats stats = GetRasterizationStats(facesByTexture[i], textureObject->TextureWidth(i), textureObject->TextureHeight(i));
+        statsVec.push_back(stats);
+    }
+
+    return statsVec;
+}
+
+enum KernelBit {
+    Unset = 1,
+    Set = 2
+};
+
+inline int Inspect3x3Kernel(unsigned *buffer, int row, int col, int width, int height)
+{
+    int mask = 0;
+    if (row == 0 || row == height - 1)
+        mask |= Unset;
+    if (col == 0 || col == width - 1)
+        mask |= Unset;
+    for (int i = std::max(row-1, 0); i < std::min(row+2, height); ++i) {
+        for (int j = std::max(col-1, 0); j < std::min(col+2, width); ++j) {
+            if (buffer[row * width + i] == 0)
+                mask |= Unset;
+            else
+                mask |= Set;
+        }
+    }
+    return mask;
+}
+
+static RasterizedParameterizationStats GetRasterizationStats(const std::vector<Mesh::FacePointer>& faces, int width, int height)
+{
+    // Create a hidden window
+    GLFWwindow *parentWindow = glfwGetCurrentContext();
+    bool sharedContext = (parentWindow != nullptr);
+
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    //glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE);
+
+    //GLFWwindow *window = glfwCreateWindow(width, height, "Window", nullptr, parentWindow);
+    GLFWwindow *window = glfwCreateWindow(512, 512, "Window", nullptr, parentWindow);
+    if (!window)
+    {
+        cout << "Failed to create window or context" << endl;
+    }
+    glfwMakeContextCurrent(window);
+
+    glewExperimental = GL_TRUE;
+    GLenum err = glewInit();
+    if (err)
+    {
+        cout << "glew init error " << glewGetErrorString(err) << endl;
+    }
+    glGetError();
+
+    int fbw, fbh;
+    glfwGetFramebufferSize(window, &fbw, &fbh);
+    //assert(fbw == width && fbh == height);
+
+    // OpenGL setup
+
+    GLuint vao;
+    glGenVertexArrays(1, &vao);
+    glBindVertexArray(vao);
+
+    GLint program = CompileShaders(vs_text_checker, fs_text_checker);
+    glUseProgram(program);
+
+    // Allocate vertex data
+
+    GLuint vertexbuf;
+    glGenBuffers(1, &vertexbuf);
+
+    //vcg::Box2d box = chart->UVBox();
+
+    glBindBuffer(GL_ARRAY_BUFFER, vertexbuf);
+    glBufferData(GL_ARRAY_BUFFER, faces.size()*6*sizeof(float), NULL, GL_STATIC_DRAW);
+    float *p = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+    for (auto fptr : faces) {
+        for (int i = 0; i < 3; ++i) {
+            *p++ = fptr->cWT(i).U();
+            *p++ = fptr->cWT(i).V();
+        }
+    }
+    glUnmapBuffer(GL_ARRAY_BUFFER);
+
+    GLint pos_location = glGetAttribLocation(program, "position");
+    glVertexAttribPointer(pos_location, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    glEnableVertexAttribArray(pos_location);
+
+    p = nullptr;
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+    // Create texture to store fragment writes
+    constexpr int imgbuf_unit = 0;
+    GLint loc_imgbuf = glGetUniformLocation(program, "imgbuf");
+    glUniform1i(loc_imgbuf, imgbuf_unit);
+
+    assert(sizeof(unsigned) == 4);
+    GLuint tex;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_R32UI, width, height);
+
+    // clear the texure
+    unsigned *sb = new unsigned[width*height];
+    memset(sb, 0x00, width*height*sizeof(unsigned));
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RED_INTEGER, GL_UNSIGNED_INT, sb);
+
+    glBindImageTexture(imgbuf_unit, tex, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
+
+    // bugfix (?) setup an offscreen context of the appropriate size to make sure
+    // the data is fully rendered
+    GLuint fbo;
+    glGenFramebuffers(1, &fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+    GLuint renderTarget;
+    glGenTextures(1, &renderTarget);
+    glBindTexture(GL_TEXTURE_2D, renderTarget);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, width, height);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, renderTarget, 0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+
+    glViewport(0, 0, width, height);
+    glScissor(0, 0, width, height);
+
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_STENCIL_TEST);
+
+    glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
+
+    glDrawBuffer(GL_COLOR_ATTACHMENT0);
+
+    glClear(GL_COLOR_BUFFER_BIT);
+    glfwPollEvents();
+
+    glDrawArrays(GL_TRIANGLES, 0, faces.size()*3);
+
+    glMemoryBarrier(GL_ALL_BARRIER_BITS);
+
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, sb);
+
+    CheckGLError();
+
+    //glReadBuffer(GL_BACK);
+    //glReadPixels(0, 0, width, height, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, sb);
+
+    RasterizedParameterizationStats stats{0, 0, 0, 0, 0, 0, 0};
+    stats.rw = width;
+    stats.rh = height;
+    for (int i = 0; i < height; ++i) {
+        for (int j = 0; j < width; ++j) {
+            int k = i * width + j;
+            int n = sb[k]; // stencil value
+            int kernelMask = Inspect3x3Kernel(sb, i, j, width, height);
+            if (n > 0) {
+                stats.totalFragments += n;
+                stats.totalFragments_bilinear += 1;
+                if (n > 1) {
+                    stats.overwrittenFragments++;
+                    stats.lostFragments += n - 1;
+                }
+                if (kernelMask &= KernelBit::Unset)
+                    stats.boundaryFragments++;
+            } else {
+                if (kernelMask &= KernelBit::Set)
+                    stats.totalFragments_bilinear++;
+            }
+        }
+    }
+
+    delete sb;
+    sb = nullptr;
+
+    glfwPollEvents();
+
+    // clean up
+    glUseProgram(0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindVertexArray(0);
+
+    glDeleteBuffers(1, &vertexbuf);
+    glDeleteTextures(1, &tex);
+    glDeleteTextures(1, &renderTarget);
+    glDeleteProgram(program);
+    glDeleteVertexArrays(1, &vao);
+
+    glfwDestroyWindow(window);
+
+    if (sharedContext) {
+        glfwMakeContextCurrent(parentWindow);
+    }
+
+    return stats;
+}
+
 /* There are two possibilities here. If we packed into the same number of containers
  * as the source containers the container sizes should match (note that this case
  * includes the one from a single source texture to a single destination texture).
@@ -80,19 +386,19 @@ static const char *fs_text[] = {
  * one, then we should ensure that the size is smallest power of two that is
  * equal or larger than the input texture storage. */
 
-std::vector<TextureSize> ComputeSizes(int nTex, TextureObjectHandle inputTexture)
+std::vector<TextureSize> ComputeSizes(int ntex, TextureObjectHandle inputTexture)
 {
     std::vector<TextureSize> textureSizes;
-    int nTexInput = inputTexture->ArraySize();
-    if (nTex == nTexInput) {
-        for (int i = 0; i < nTexInput; ++i) {
+    int ntex_in = inputTexture->ArraySize();
+    if (ntex == ntex_in) {
+        for (int i = 0; i < ntex_in; ++i) {
             textureSizes.push_back({inputTexture->TextureWidth(i), inputTexture->TextureHeight(i)});
         }
         return textureSizes;
     } else {
-        assert(nTex == 1);
+        assert(ntex == 1);
         int64_t textureArea = 0;
-        for (int i = 0; i < nTexInput; ++i) {
+        for (int i = 0; i < ntex_in; ++i) {
             textureArea += inputTexture->TextureArea(i);
         }
         if (textureArea <= 4096 * 4096)
@@ -104,33 +410,17 @@ std::vector<TextureSize> ComputeSizes(int nTex, TextureObjectHandle inputTexture
         else
             assert(0 && "Unable to find a texture large enough to store all the data");
     }
-
 }
-
-static std::shared_ptr<QImage> RenderTexture(std::vector<Mesh::FacePointer>& fvec,
-                                             Mesh &m, TextureObjectHandle textureObject,
-                                             bool filter, InterpolationMode imode,
-                                             int textureWidth, int textureHeight, GLFWwindow *parentWindow);
 
 TextureObjectHandle RenderTexture(Mesh &m, TextureObjectHandle textureObject, bool filter, InterpolationMode imode, GLFWwindow *parentWindow)
 {
-    // Detect the number of required textures
-    int nTex = 1;
-    for (auto&f : m.face) {
-        nTex = std::max(nTex, f.cWT(0).N() + 1);
-    }
-
-    std::vector<std::vector<Mesh::FacePointer>> facesByTextureFile(nTex);
-    for (auto& f : m.face) {
-        int newTexIndex = f.cWT(0).N();
-        assert(newTexIndex < nTex);
-        facesByTextureFile[newTexIndex].push_back(&f);
-    }
+    std::vector<std::vector<Mesh::FacePointer>> facesByTexture;
+    int nTex = FacesByTextureIndex(m, facesByTexture);
 
     std::vector<TextureSize> texSizes = ComputeSizes(nTex, textureObject);
     TextureObjectHandle newTexture = std::make_shared<TextureObject>();
     for (int i = 0; i < nTex; ++i) {
-        std::shared_ptr<QImage> teximg = RenderTexture(facesByTextureFile[i], m, textureObject, filter, imode, texSizes[i].w, texSizes[i].h, parentWindow);
+        std::shared_ptr<QImage> teximg = RenderTexture(facesByTexture[i], m, textureObject, filter, imode, texSizes[i].w, texSizes[i].h, parentWindow);
         newTexture->AddImage(teximg);
     }
 

@@ -42,4 +42,17 @@ std::size_t ComputePerFaceConnectedComponentIdAttribute(Mesh &m);
  * topology as faux edges */
 void MarkSeamsAsFaux(Mesh& m);
 
+static bool CheckLocalInjectivity(Mesh& m)
+{
+    std::cout << "TODO" << std::endl;
+    return true;
+}
+
+static bool CheckUVConnectivity(Mesh& m)
+{
+    std::cout << "TODO" << std::endl;
+    return true;
+}
+
+
 #endif // UV_H
