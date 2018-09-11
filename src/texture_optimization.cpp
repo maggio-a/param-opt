@@ -8,7 +8,6 @@
 #include "uniform_solver.h"
 #include "iterative.h"
 #include "metric.h"
-#include "parameterization_checker.h"
 #include "mesh_utils.h"
 #include "packing_utils.h"
 #include "texture_rendering.h"
@@ -408,6 +407,15 @@ void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, std::size_
 
     } while (mergeCount > 0);
 
+    // Make sure the texcoords of each chart refer to the same texture unit, otherwise
+    // it causes trouble when computing FaceFaceFromTexCoord adjancency
+    for (auto entry : gm.Graph()->charts) {
+        ChartHandle chart = entry.second;
+        for (auto fptr : chart->fpVec)
+            for (int i = 0; i < 3; ++i)
+                fptr->WT(i).N() = 0;
+    }
+
     std::cout << "Stopping after " << numIter << " passes and " << timer.TimeElapsed() << " seconds" << std::endl;
 }
 
@@ -531,6 +539,7 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
         std::cout << "Iteration " << iter++ << " took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
     }
 
+
     std::cout << "Parameterization took " << timer.TimeElapsed() << " seconds" << std::endl;
 
     return numFailed;
@@ -550,6 +559,7 @@ static std::vector<double> ComputeContainerRatios(TextureObjectHandle textureObj
 RasterizationBasedPacker::PackingStats Pack(GraphHandle graph, const PackingOptions& options)
 {
     // Pack the atlas
+
     tri::UpdateTopology<Mesh>::FaceFaceFromTexCoord(graph->mesh);
 
     std::vector<Outline2f> texOutlines;
@@ -572,6 +582,7 @@ RasterizationBasedPacker::PackingStats Pack(GraphHandle graph, const PackingOpti
         texOutlines.push_back(uvOutlines[i]);
     }
 
+    //tri::UpdateTopology<Mesh>::FaceFace(graph->mesh);
 
     std::cout << "Packing the atlas..." << std::endl;
 
@@ -609,8 +620,6 @@ RasterizationBasedPacker::PackingStats Pack(GraphHandle graph, const PackingOpti
 
     std::vector<Similarity2f> packingTransforms;
     std::vector<int> containerIndices;
-
-    tri::UpdateTopology<Mesh>::FaceFaceFromTexCoord(graph->mesh);
 
     RasterizationBasedPacker::PackingStats stats;
     RasterizationBasedPacker::Pack(texOutlines, containerVec, packingTransforms, containerIndices, packingParam, stats);
@@ -666,8 +675,6 @@ RasterizationBasedPacker::PackingStats Pack(GraphHandle graph, const PackingOpti
             }
         }
 
-        //PixelShiftingOptimizer<float, QtOutline2Rasterizer>::Parameters par = {1024, 1024, 1};
-        //float scale = PixelShiftingOptimizer<float, QtOutline2Rasterizer>::Apply(texOutlines, shiftingTransforms, par);
         // apply the transforms
         for (auto entry : outlineMap) {
             for (auto fptr : graph->charts[entry.first]->fpVec) {
@@ -681,7 +688,6 @@ RasterizationBasedPacker::PackingStats Pack(GraphHandle graph, const PackingOpti
             }
         }
 
-        std::cout << "FIXME" << std::endl;
         stats.efficiency = graph->AreaUV();
         return stats;
     } else {
