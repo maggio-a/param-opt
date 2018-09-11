@@ -34,6 +34,7 @@ SOURCES += meshinfo.cpp \
     ../src/gl_utils.cpp \
     ../src/mesh_utils.cpp \
     ../src/texture.cpp \
+    ../src/texture_rendering.cpp \
     ../src/mesh.cpp
 
 SOURCES += \
@@ -56,7 +57,6 @@ HEADERS += \
     ../src/metric.h \
     ../src/texture.h \
     ../src/pushpull.h \
-    ../src/parameterization_checker.h \
     ../src/gl_utils.h \
     ../src/uniform_solver.h \
     ../src/dcp_solver.h \
