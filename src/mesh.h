@@ -92,10 +92,6 @@ bool SaveMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject,
  * is guaranteed to be preserved in the face container of the mesh. */
 void MeshFromFacePointers(const std::vector<Mesh::FacePointer>& vfp, Mesh& out);
 
-// Builds a PMesh with face face topology and bounding box initialized, so that it can be
-// passed to the poisson solver
-void BuildMeshFromFacePointers(Mesh &m, const std::vector<std::vector<Mesh::FacePointer>* >& vFpVecp);
-
 // Returns true if the mesh can be parameterized by the poisson solver
 bool Parameterizable(Mesh &m);
 

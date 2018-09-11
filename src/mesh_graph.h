@@ -308,12 +308,17 @@ public:
         }
 
         // build the test mesh, and merge the charts if the test mesh is feasible
+        int fn = 0;
+        for (auto& chart : chartSet)
+            fn += chart->FN();
+        std::vector<Mesh::FacePointer> fpv;
+        fpv.reserve(fn);
+        for (auto& chart : chartSet)
+            fpv.insert(fpv.end(), chart->fpVec.begin(), chart->fpVec.end());
+
         Mesh probe;
-        std::vector<std::vector<Mesh::FacePointer>* > fpVecp;
-        for (auto& chart : chartSet) {
-            fpVecp.push_back(&(chart->fpVec));
-        }
-        BuildMeshFromFacePointers(probe, fpVecp);
+        MeshFromFacePointers(fpv, probe);
+
         if (Parameterizable(probe)) {
             return std::make_pair(Collapse_OK, mergeQueue);
         } else {

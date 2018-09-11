@@ -129,25 +129,10 @@ void MeshFromFacePointers(const std::vector<Mesh::FacePointer>& vfp, Mesh& out)
     }
 }
 
-void BuildMeshFromFacePointers(Mesh &m, const std::vector<std::vector<Mesh::FacePointer>* >& vFpVecp)
-{
-    m.Clear();
-
-    auto f = [&m](typename Mesh::FacePointer fptr) {
-        tri::Allocator<Mesh>::AddFace(m, fptr->P(0), fptr->P(1), fptr->P(2));
-    };
-
-    for (auto fpVecp : vFpVecp) std::for_each(fpVecp->begin(), fpVecp->end(), f);
-
-    tri::Clean<Mesh>::RemoveDuplicateVertex(m);
-    tri::Allocator<Mesh>::CompactEveryVector(m);
-
-    tri::UpdateTopology<Mesh>::FaceFace(m);
-    tri::UpdateBounding<Mesh>::Box(m);
-}
-
 bool Parameterizable(Mesh &m)
 {
+    tri::UpdateTopology<Mesh>::FaceFace(m);
+
     if (tri::Clean<Mesh>::CountNonManifoldEdgeFF(m) > 0) {
         return false;
     }

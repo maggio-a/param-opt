@@ -1147,9 +1147,13 @@ bool GraphManager::HasNextEdge()
                 return false;
             }
             else {
-                Mesh test;
                 GraphManager::Edge e = we.first;
-                BuildMeshFromFacePointers(test, {&(e.a->fpVec), &(e.b->fpVec)});
+                std::vector<Mesh::FacePointer> fpv;
+                fpv.reserve(e.a->FN() + e.b->FN());
+                fpv.insert(fpv.end(), e.a->fpVec.begin(), e.a->fpVec.end());
+                fpv.insert(fpv.end(), e.b->fpVec.begin(), e.b->fpVec.end());
+                Mesh test;
+                MeshFromFacePointers(fpv, test);
                 if (Parameterizable(test)) {
                     return true;
                 }
@@ -1319,14 +1323,17 @@ int GraphManager::CloseMacroRegions(std::size_t minRegionSize)
     }
 
     for (auto& entry : mergeLists) {
+        int fn = 0;
+        for (auto id : entry.second)
+            fn += regions[id]->FN();
+        std::vector<Mesh::FacePointer> fpv;
+        fpv.reserve(fn);
+        for (auto id : entry.second)
+            fpv.insert(fpv.end(), regions[id]->fpVec.begin(), regions[id]->fpVec.end());
+
         Mesh probe;
-        std::vector<std::vector<Mesh::FacePointer>* > fpVecp;
-        fpVecp.reserve(entry.second.size()+1);
-        fpVecp.push_back(&(regions[entry.first]->fpVec));
-        for (auto id : entry.second) {
-            fpVecp.push_back(&(regions[id]->fpVec));
-        }
-        BuildMeshFromFacePointers(probe, fpVecp);
+        MeshFromFacePointers(fpv, probe);
+
         if (Parameterizable(probe)) {
             std::cout << "Merging " << entry.second.size() << " islands from macro region " << entry.first << std::endl;
             for (auto id : entry.second) {
