@@ -3,11 +3,11 @@
 #include "uv.h"
 #include "texture_optimization.h"
 #include "texture_rendering.h"
-#include "parameterization_checker.h"
 #include "timer.h"
 #include "gl_utils.h"
 #include "texture.h"
 #include "packing_utils.h"
+#include "logging.h"
 
 #include <wrap/io_trimesh/io_mask.h>
 
@@ -22,49 +22,6 @@
 
 
 using namespace vcg;
-
-
-void LogParameterizationStats(std::shared_ptr<MeshGraph> graph, RasterizedParameterizationStats stats, const std::string& header)
-{
-    int boundaries;
-    tri::UpdateTopology<Mesh>::FaceFaceFromTexCoord(graph->mesh);
-    boundaries = tri::Clean<Mesh>::CountHoles(graph->mesh);
-    tri::UpdateTopology<Mesh>::FaceFace(graph->mesh);
-
-    std::cout << header << std::endl;
-    std::cout << "[LOG] Texture Size , Charts , Boundaries , Occupancy , BorderUV(px), AreaUV(px), BilinearAreaUV(px), Overwritten fragments, Lost Fragments" << std::endl;
-    std::cout << "[LOG] "
-              << stats.rw << "x" << stats.rh << " , "
-              << graph->charts.size() << " , "
-              << boundaries << " , "
-              << (stats.totalFragments - stats.lostFragments) / double(stats.rw*stats.rh) << " , "
-              << stats.boundaryFragments << " , "
-              << stats.totalFragments  << " , "
-              << stats.totalFragments_bilinear  << " , "
-              << stats.overwrittenFragments  << " , "
-              << stats.lostFragments << "" << std::endl;
-
-}
-
-void CorrectAspectRatio(Mesh& m, TextureObjectHandle textureObject)
-{
-    std::vector<double> ratios;
-    for (std::size_t i = 0; i < textureObject->ArraySize(); ++i) {
-        double uvRatio = textureObject->TextureWidth(i) / (double) textureObject->TextureHeight(i);
-        ratios.push_back(uvRatio);
-    }
-
-    for (auto &f : m.face) {
-        int textureIndex = f.WT(0).N();
-        double uvRatio = ratios[textureIndex];
-        for (int i = 0; i < 3; ++i) {
-            if (uvRatio > 1)
-                f.WT(i).P().X() *= uvRatio;
-            else if (uvRatio < 1)
-                f.WT(i).P().Y() /= uvRatio;
-        }
-    }
-}
 
 int main(int argc, char *argv[])
 {
@@ -85,13 +42,25 @@ int main(int argc, char *argv[])
 
     auto graph = ComputeParameterizationGraph(m, textureObject);
 
-    StoreWedgeTexCoordAsAttribute(m);
 
-    PrintParameterizationInfo(graph);
+    ScaleTextureCoordinatesToImage(m, textureObject);
+    StoreWedgeTexCoordAsAttribute(m);
+    ScaleTextureCoordinatesToImage(m, textureObject);
+
+
+    std::vector<RegionID> nullRegions;
+    for (auto entry : graph->charts) {
+        ChartHandle chart = entry.second;
+        if (chart->AreaUV() == 0) {
+            nullRegions.push_back(chart->id);
+        }
+    }
+    for (auto id : nullRegions) {
+        graph->charts.erase(id);
+    }
+
 
     GLInit();
-
-    CorrectAspectRatio(m, textureObject);
 
     /*
     std::unordered_map<RegionID,float> qualityMap;
@@ -130,45 +99,48 @@ int main(int argc, char *argv[])
     std::vector<RasterizationBasedPacker::PackingStats> stats;
 
     {
+        ScaleTextureCoordinatesToImage(m, textureObject);
+
         PackingOptions opt = { cost[idx], false, false, false, false };
         stats.push_back(Pack(graph, opt));
-        RasterizedParameterizationStats after = GetRasterizationStats(m, textureObject->imgVec[0]->width(), textureObject->imgVec[0]->height());
-        LogParameterizationStats(graph, after, std::string("[LOG] Raster stats after parameterizing"));
+        std::vector<RasterizedParameterizationStats> after = GetRasterizationStats(m, textureObject);
+        std::cout << "[LOG] Raster stats after parameterizing" << std::endl;
+        LogParameterizationStats(graph, after);
         TextureObjectHandle newTexture = RenderTexture(m, textureObject, false, InterpolationMode::Linear, nullptr);
         std::string savename = "out_" + costName[idx] + std::string("_hi") + m.name;
         if (SaveMesh(m, savename.c_str(), newTexture, true) == false) {
             std::cout << "Model not saved correctly" << std::endl;
         }
-
-        CorrectAspectRatio(m, newTexture);
     }
 
     {
+        ScaleTextureCoordinatesToImage(m, textureObject);
+
         PackingOptions opt = { cost[idx], false, false, true, false };
         stats.push_back(Pack(graph, opt));
-        RasterizedParameterizationStats after = GetRasterizationStats(m, textureObject->imgVec[0]->width(), textureObject->imgVec[0]->height());
-        LogParameterizationStats(graph, after, std::string("[LOG] Raster stats after parameterizing"));
+        std::vector<RasterizedParameterizationStats> after = GetRasterizationStats(m, textureObject);
+        std::cout << "[LOG] Raster stats after parameterizing" << std::endl;
+        LogParameterizationStats(graph, after);
         TextureObjectHandle newTexture = RenderTexture(m, textureObject, false, InterpolationMode::Linear, nullptr);
         std::string savename = "out_" + costName[idx] + std::string("_hi_inner") + m.name;
         if (SaveMesh(m, savename.c_str(), newTexture, true) == false) {
             std::cout << "Model not saved correctly" << std::endl;
         }
-
-        CorrectAspectRatio(m, newTexture);
     }
 
     {
+        ScaleTextureCoordinatesToImage(m, textureObject);
+
         PackingOptions opt = { cost[idx], true, true, true, false };
         stats.push_back(Pack(graph, opt));
-        RasterizedParameterizationStats after = GetRasterizationStats(m, textureObject->imgVec[0]->width(), textureObject->imgVec[0]->height());
-        LogParameterizationStats(graph, after, std::string("[LOG] Raster stats after parameterizing"));
+        std::vector<RasterizedParameterizationStats> after = GetRasterizationStats(m, textureObject);
+        std::cout << "[LOG] Raster stats after parameterizing" << std::endl;
+        LogParameterizationStats(graph, after);
         TextureObjectHandle newTexture = RenderTexture(m, textureObject, false, InterpolationMode::Linear, nullptr);
         std::string savename = "out_" + costName[idx] + std::string("_low_perm_inner") + m.name;
         if (SaveMesh(m, savename.c_str(), newTexture, true) == false) {
             std::cout << "Model not saved correctly" << std::endl;
         }
-
-        CorrectAspectRatio(m, newTexture);
     }
 
     std::cout << "[PACKING_TABLE_HEADER], Mesh, CostFunc, HiRes2Hor, HiRes4Hor, LowResPerm4Hor, PermIdx" << std::endl;

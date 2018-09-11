@@ -40,7 +40,8 @@ SOURCES += repack.cpp \
     ../src/packing_utils.cpp \
     ../src/texture_rendering.cpp \
     ../src/mesh.cpp \
-    ../src/iterative.cpp
+    ../src/iterative.cpp \
+    ../src/logging.cpp
 
 SOURCES += \
     $${VCGPATH}/wrap/ply/plylib.cpp \
@@ -62,7 +63,6 @@ HEADERS += \
     ../src/metric.h \
     ../src/texture.h \
     ../src/pushpull.h \
-    ../src/parameterization_checker.h \
     ../src/gl_utils.h \
     ../src/uniform_solver.h \
     ../src/dcp_solver.h \
@@ -71,6 +71,7 @@ HEADERS += \
     ../src/polygon2_triangulator.h \
     ../src/parameterization.h \
     ../src/mean_value_param.h \
-    ../src/packing_utils.h
+    ../src/packing_utils.h \
+    ../src/logging.h
 
 
