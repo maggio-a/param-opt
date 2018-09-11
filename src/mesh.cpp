@@ -20,13 +20,15 @@ bool LoadMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject,
     loadMask = 0;
 
     QFileInfo fi(fileName);
+    fi.makeAbsolute();
 
     if (!fi.exists() || !fi.isReadable()) {
         std::cout << "Unable to read " << fileName << std::endl;
         return false;
     }
 
-    m.name = fi.fileName().toStdString();
+    std::string dirname = fi.dir().dirName().toStdString();
+    m.name = dirname + "_" + fi.fileName().toStdString();
 
     QString wd = QDir::currentPath();
     QDir::setCurrent(fi.absoluteDir().absolutePath());
