@@ -5,7 +5,6 @@
  * */
 
 #include "texture_rendering.h"
-#include "parameterization_checker.h"
 #include "mesh.h"
 #include "pushpull.h"
 #include "uv.h"
@@ -133,8 +132,6 @@ static int FacesByTextureIndex(Mesh& m, std::vector<std::vector<Mesh::FacePointe
     }
 
     fv.resize(nTex);
-    for (auto& vec : fv)
-        vec.reserve(256);
 
     for (auto& f : m.face) {
         int ti = f.cWT(0).N();

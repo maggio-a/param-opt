@@ -3,7 +3,6 @@
 #include "uv.h"
 #include "texture_optimization.h"
 #include "texture_rendering.h"
-#include "parameterization_checker.h"
 #include "timer.h"
 #include "gl_utils.h"
 #include "texture.h"
@@ -22,7 +21,7 @@
 #include <QString>
 
 
-#define CLEAN_TROUBLESOME_REGIONS_CONTEXTCAPTURE
+//#define CLEAN_TROUBLESOME_REGIONS_CONTEXTCAPTURE
 
 
 using namespace vcg;
@@ -107,7 +106,8 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
     int c = ParameterizeGraph(gm, strategy, tolerance);
     if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
 
-    PackingOptions opts = { RasterizationBasedPacker::Parameters::CostFuncEnum::MinWastedSpace, true, true, true, false };
+    //PackingOptions opts = { RasterizationBasedPacker::Parameters::CostFuncEnum::MinWastedSpace, true, true, true, false };
+    PackingOptions opts = { RasterizationBasedPacker::Parameters::CostFuncEnum::MinWastedSpace, false, false, false, false };
     Pack(gm.Graph(), opts);
 
     std::cout << "Rendering texture..." << std::endl;
@@ -118,10 +118,10 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
     LogParameterizationStats(graph, after);
 
 
-    ScaleTextureCoordinatesToImage(m, newTexture);
-    LogDistortionStats(graph);
+    //ScaleTextureCoordinatesToImage(m, newTexture);
+    //LogDistortionStats(graph);
 
-    ScaleTextureCoordinatesToParameterArea(m, newTexture);
+    //ScaleTextureCoordinatesToParameterArea(m, newTexture);
 
     //GenerateDistortionTextures(m, textureObject);
 
@@ -167,7 +167,6 @@ int main(int argc, char *argv[])
         std::exit(-1);
     }
 
-    assert(textureObject->ArraySize() == 1 && "Currently only single texture is supported");
     assert(loadMask & tri::io::Mask::IOM_WEDGTEXCOORD);
 
 

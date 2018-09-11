@@ -27,7 +27,6 @@
 #include "gl_utils.h"
 #include "texture_optimization.h"
 #include "texture_rendering.h"
-#include "parameterization_checker.h"
 #include "timer.h"
 #include "mesh_attribute.h"
 #include "mesh_utils.h"

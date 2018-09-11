@@ -2,7 +2,6 @@
 #include "mesh_graph.h"
 #include "energy.h"
 #include "iterative.h"
-#include "parameterization_checker.h"
 #include "mesh_utils.h"
 #include "timer.h"
 #include "uniform_solver.h"
