@@ -37,7 +37,7 @@ struct PackingOptions {
     bool oneContainer; // only meaningful if the input model has multiple textures
 };
 
-void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph);
+void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph);
 void PreprocessMesh(Mesh& m, GraphHandle graph);
 
 bool ChartParameterizationHasOverlaps(Mesh& m, GraphManager::ChartHandle chart);

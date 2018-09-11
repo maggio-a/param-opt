@@ -106,8 +106,7 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
     int c = ParameterizeGraph(gm, strategy, tolerance);
     if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
 
-    //PackingOptions opts = { RasterizationBasedPacker::Parameters::CostFuncEnum::MinWastedSpace, true, true, true, false };
-    PackingOptions opts = { RasterizationBasedPacker::Parameters::CostFuncEnum::MinWastedSpace, false, false, false, false };
+    PackingOptions opts = { RasterizationBasedPacker::Parameters::CostFuncEnum::MinWastedSpace, true, true, true, false };
     Pack(gm.Graph(), opts);
 
     std::cout << "Rendering texture..." << std::endl;

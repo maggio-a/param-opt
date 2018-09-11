@@ -313,10 +313,10 @@ void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, std::ve
 void PreprocessMesh(Mesh& m, GraphHandle graph)
 {
     // Parameterize regions that are not parameterized
-    ReparameterizeZeroAreaRegions(m, graph);
+    ParameterizeZeroAreaRegions(m, graph);
 }
 
-void ReparameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
+void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
 {
     assert(HasParameterizationScaleInfoAttribute(m));
     auto info = GetParameterizationScaleInfoAttribute(m);
@@ -536,11 +536,11 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
             }
         }
 
-        std::cout << "Iteration " << iter++ << " took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
+        std::cout << "Chart " << chart->id << " parameterization took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
     }
 
 
-    std::cout << "Parameterization took " << timer.TimeElapsed() << " seconds" << std::endl;
+    std::cout << "Graph parameterization took " << timer.TimeElapsed() << " seconds" << std::endl;
 
     return numFailed;
 }
@@ -559,7 +559,6 @@ static std::vector<double> ComputeContainerRatios(TextureObjectHandle textureObj
 RasterizationBasedPacker::PackingStats Pack(GraphHandle graph, const PackingOptions& options)
 {
     // Pack the atlas
-
     tri::UpdateTopology<Mesh>::FaceFaceFromTexCoord(graph->mesh);
 
     std::vector<Outline2f> texOutlines;
