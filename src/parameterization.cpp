@@ -368,11 +368,12 @@ bool ParameterizerObject::Parameterize()
         InitializeOptimizer();
 
     if (strategy.applyCut) {
-        while (PlaceCutWithConesUntilThreshold(CONFORMAL_SCALING_THRESHOLD) > 0) {
-            std::cout << "Placed cut" << std::endl;
+        int c = 0;
+        while (int nc = PlaceCutWithConesUntilThreshold(CONFORMAL_SCALING_THRESHOLD) > 0) {
+            c += nc;
         }
+        std::cout << "Placed " << c << " cuts";
     }
-
 
     // check if remeshing is required during iterations
     needsRemeshing = false;
@@ -597,6 +598,7 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
 
 int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScalingThreshold)
 {
+    /*
     // sanity check
     if (strategy.scaffold) {
         ClearHoleFillingFaces(shell, false, true);
@@ -618,6 +620,7 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScaling
         }
         return 0;
     }
+    */
 
     // Put the shell in a configuration suitable to compute the conformal scaling factors
     ClearHoleFillingFaces(shell, true, true);
@@ -662,7 +665,6 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScaling
             }
         }
         // Repeatedly cut starting from each pos
-        // TODO cut along the approximated steiner tree yielded by the cones
         for (auto p : pv) {
             std::cout << "Selected face " << tri::Index(shell, p.F()) << " edge " << p.E() << std::endl;
             tri::UpdateFlags<Mesh>::FaceClearFaceEdgeS(shell);
@@ -673,21 +675,25 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScaling
             CleanupShell(shell);
             tri::UpdateTopology<Mesh>::FaceFace(shell);
         }
-    } else {
-        std::cout << "No cones" << std::endl;
     }
+
     // Cleanup (and restore hole-filling and scaffold faces if needed)
     ClearHoleFillingFaces(shell, true, true);
     ComputeBoundaryInfo(shell); // boundary changed after the cut
     SyncShellWithUV(shell);
+
     if (strategy.padBoundaries)
         CloseShellHoles(shell, strategy.geometry, baseMesh);
+
     // Initialize solution if cones were placed
     if (coneIndices.size() > 0)
         InitializeSolution();
+
     if (strategy.scaffold)
         BuildScaffold(shell, strategy.geometry, baseMesh);
+
     MarkInitialSeamsAsFaux(shell, baseMesh);
+
     if (OptimizerIsInitialized())
         opt->UpdateCache();
 
@@ -735,17 +741,34 @@ void ParameterizerObject::FindCones(int ncones, std::vector<int>& coneIndices)
     }
 }
 
+/* This function is a bit messed up, in theory one could choose an arbitrary number
+ * of cone vertices, but it makes little sense to me to treat a 'designated' cone
+ * as boundary vertex without actually cutting the surface. So I restrict the number
+ * of cones to 1, forcing to cut the surface repeatedly. */
 void ParameterizerObject::FindConesWithThreshold(double conformalScalingThreshold, std::vector<int>& coneIndices)
 {
     constexpr int MAX_NUM_CONES = 1;
-    ComputeDistanceFromBorderOnSeams(shell);
+
     coneIndices.clear();
+
+    ComputeDistanceFromBorderOnSeams(shell);
+    bool seamsToBoundary = false;
+    for (auto& sv : shell.vert) {
+        if (!sv.IsB() && sv.Q() < INFINITY) {
+            seamsToBoundary = true;
+            break;
+        }
+    }
+
+    // bail out if no seams reach the mesh boundary
+    if (!seamsToBoundary)
+        return;
 
     for (int i = 0; i < MAX_NUM_CONES; ++i) {
         Eigen::VectorXd csf;
         assert(ComputeConformalScalingFactors(csf, coneIndices));
 
-        // Select seam vertices
+        // Select seam vertices that reach the boundary
         tri::UpdateFlags<Mesh>::VertexClearS(shell);
         for (auto& sv : shell.vert)
             if (sv.Q() < INFINITY)

@@ -205,6 +205,7 @@ void SyncShellWithUV(Mesh& shell)
     }
 }
 
+// TODO this method should CALL ClearHoleFillingFaces(shell, true, true) otherwise it's unsafe
 void SyncShellWithModel(Mesh& shell, Mesh& baseMesh)
 {
     auto ia = GetFaceIndexAttribute(shell);
