@@ -1544,7 +1544,7 @@ void MeshViewer::ManageImGuiState()
             if (graph->MergeCount() > 0) {
                 int c = ParameterizeGraph(*gm, strategy, retry ? tau : -1);
                 if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
-                PackingOptions opts = { RasterizationBasedPacker::Parameters::CostFuncEnum::MinWastedSpace, true, true, true };
+                PackingOptions opts = { RasterizationBasedPacker::Parameters::CostFuncEnum::MinWastedSpace, true, true, true, true };
                 Pack(gm->Graph(), opts);
                 _currentTexture->Release(0);
                 _currentTexture = RenderTexture(graph->mesh, graph->textureObject, true, InterpolationMode::Linear, _window);
