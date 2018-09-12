@@ -372,7 +372,7 @@ bool ParameterizerObject::Parameterize()
         while (int nc = PlaceCutWithConesUntilThreshold(CONFORMAL_SCALING_THRESHOLD) > 0) {
             c += nc;
         }
-        std::cout << "Placed " << c << " cuts";
+        std::cout << "Placed " << c << " cuts" << std::endl;
     }
 
     // check if remeshing is required during iterations

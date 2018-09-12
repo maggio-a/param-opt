@@ -328,7 +328,7 @@ void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
     ParameterizationStrategy strategy = MakeStrategy(
             DirectParameterizer::FixedBorderBijective,
             EnergyType::SymmetricDirichlet,
-            ParameterizationGeometry::Texture,
+            ParameterizationGeometry::Model,
             DescentType::CompositeMajorization,
             200,            // Number of iterations
             true,           // Fill holes
