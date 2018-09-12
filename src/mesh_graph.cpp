@@ -589,6 +589,7 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
  * the optimization process */
 void Stabilize(CoordStorage& cs)
 {
+    /*
     Point3d p10 = cs.P[1] - cs.P[0];
     Point3d p20 = cs.P[2] - cs.P[0];
     double targetArea = (p10 ^ p20).Norm() / 2.0;
@@ -601,6 +602,7 @@ void Stabilize(CoordStorage& cs)
     }
     cs.P[1] = cs.P[0] + p10;
     cs.P[2] = cs.P[0] + p20;
+    */
 }
 
 void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2f>> &outline2Vec)
@@ -1314,20 +1316,20 @@ int GraphManager::CloseMacroRegions(std::size_t minRegionSize)
     for (const auto& entry : regions) {
         auto chart = entry.second;
         if (invertedIndex.count(chart->id) == 1) continue; // skip if this region is already going to be merged to something else
-        for (auto& adjRegion : chart->adj)
+        for (auto& adjRegion : chart->adj) {
             if (adjRegion->NumAdj() == 1 && adjRegion->FN() < minRegionSize) {
                 assert(invertedIndex.count(adjRegion->id) == 0);
                 mergeLists[chart->id].push_back(adjRegion->id);
                 invertedIndex[adjRegion->id] = chart->id;
             }
+        }
     }
 
     for (auto& entry : mergeLists) {
-        int fn = 0;
-        for (auto id : entry.second)
-            fn += regions[id]->FN();
+
         std::vector<Mesh::FacePointer> fpv;
-        fpv.reserve(fn);
+
+        fpv.insert(fpv.end(), regions[entry.first]->fpVec.begin(), regions[entry.first]->fpVec.end());
         for (auto id : entry.second)
             fpv.insert(fpv.end(), regions[id]->fpVec.begin(), regions[id]->fpVec.end());
 
