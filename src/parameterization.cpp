@@ -780,12 +780,11 @@ void ParameterizerObject::FindConesWithThreshold(double conformalScalingThreshol
 
 }
 
-
-using Td = Eigen::Triplet<double>;
-
 /* assumes that cone singularity vertices have the selected flag set */
-void ComputeMarkovMatrix(Mesh& m, Eigen::SparseMatrix<double>& L, SimpleTempData<Mesh::VertContainer, int>& Idx)
+static void ComputeMarkovMatrix(Mesh& m, Eigen::SparseMatrix<double>& L, SimpleTempData<Mesh::VertContainer, int>& Idx)
 {
+    using Td = Eigen::Triplet<double>;
+
     L.resize(m.VN(), m.VN());
     L.setZero();
     std::unordered_map<Mesh::VertexPointer, std::unordered_set<Mesh::VertexPointer>> vadj;
@@ -810,10 +809,10 @@ void ComputeMarkovMatrix(Mesh& m, Eigen::SparseMatrix<double>& L, SimpleTempData
     L.makeCompressed();
 }
 
-void ComputeCotangentWeightedLaplacian(Mesh& shell, Mesh& baseMesh, Eigen::SparseMatrix<double>& L,
-                                       SimpleTempData<Mesh::VertContainer, int>& Idx,
-                                       Mesh::PerFaceAttributeHandle<int>& ia)
+void ComputeCotangentWeightedLaplacian(Mesh& shell, Eigen::SparseMatrix<double>& L, SimpleTempData<Mesh::VertContainer,int>& Idx)
 {
+    using Td = Eigen::Triplet<double>;
+
     L.resize(shell.VN(), shell.VN());
     L.setZero();
     std::vector<Td> tri;
@@ -845,20 +844,7 @@ void ComputeCotangentWeightedLaplacian(Mesh& shell, Mesh& baseMesh, Eigen::Spars
 /* Reference: BenChen 2009 curvature prescription metric scaling */
 bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf, const std::vector<int>& coneIndices)
 {
-    //ClearHoleFillingFaces(shell);
-
-    /*
-    Mesh m;
-    CopyToMesh(*chart, m);
-    tri::UpdateTopology<Mesh>::FaceFace(m);
-    ComputeBoundaryInfo(m);
-    CloseMeshHoles(m);
-
-    tri::Clean<Mesh>::SplitNonManifoldVertex(m, 0.0);
-    */
     Mesh& m = shell;
-
-    //vcg::tri::io::Exporter<Mesh>::Save(m, "shell_model.ply");
 
     Timer timer;
 
@@ -891,30 +877,6 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf, c
     // Compute Laplacian and Markov system
     Eigen::SparseMatrix<double> M;
 
-
-    /*
-    ComputeMarkovMatrix(m, M, index);
-
-    Eigen::SparseMatrix<double> Q{n_internal, n_internal};
-    Q.setIdentity();
-    Q -= M.block(0, 0, n_internal, n_internal);
-
-    Eigen::SparseMatrix<double> T = M.block(0, n_internal, n_internal, n_boundary);
-
-    Eigen::SparseLU<Eigen::SparseMatrix<double,Eigen::ColMajor>, Eigen::COLAMDOrdering<Eigen::SparseMatrix<double>::StorageIndex>> solver;
-    solver.compute(Q);
-    if (solver.info() != Eigen::Success) {
-        std::cout << "Factorization of the Markov sub-matrix failed" << std::endl;
-        return false;
-    }
-
-    std::cout << "Factorization of the Markov matrix took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
-    */
-
-    // Compute the new curvature vector Knew
-    // Note that this is computed in the original model space
-    auto ia = GetFaceIndexAttribute(m);
-
     Eigen::VectorXd Korig{m.VN()};
     Korig.setZero();
     for (auto& sf : m.face) {
@@ -926,80 +888,44 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf, c
     Korig.segment(0, n_internal) += Eigen::VectorXd::Constant(n_internal, 2.0 * M_PI);
     Korig.segment(n_internal, n_boundary) += Eigen::VectorXd::Constant(n_boundary, M_PI);
 
-    std::cout << "Sum Korig = " << Korig.sum() << std::endl;
-
-    Eigen::VectorXd Knew{m.VN()};
-    Knew.setZero();
-    Eigen::VectorXd G{n_internal};
-
-
-
-
-
-    /*
-    for (int i = 0; i < n_boundary; ++i) {
-        G = solver.solve(T.col(i));
-        if (solver.info() != Eigen::Success) {
-            std::cout << "Backward substitution to compute G(" << i << ") failed" << std::endl;
-            return false;
-        }
-        Knew[n_internal+i] = Korig[n_internal+i] + G.dot(Korig.head(n_internal));
-    }
-    std::cout << "Sum Knew = " << Knew.sum() << std::endl;
-    std::cout << "Computation of the target curvatures took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
-    */
-
-
-
-
-
+    //std::cout << "Sum Korig = " << Korig.sum() << std::endl;
 
     // Compute the metric scaling of the new target curvature
-    ComputeCotangentWeightedLaplacian(m, baseMesh, M, index, ia);
+    ComputeCotangentWeightedLaplacian(m, M, index);
     M += Eigen::VectorXd::Constant(M.rows(), 1e-12).asDiagonal();
 
-
-
-
-    Eigen::SparseMatrix<double> L = M.block(0, 0, n_internal, n_internal);
-    Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> CHOL;
-    CHOL.compute(L);
-    if (CHOL.info() != Eigen::Success) {
-        assert(0);
-    }
-
-    // FIXME delta size  n_internal/n_boundary ?
-
-    //Eigen::VectorXd delta{n_internal};
-    //delta.setZero();
-    for (int i = 0; i < n_boundary; ++i) {
-        //delta[i] = 1.0;
-        //G = CHOL.solve(T.col(i));
-        G = CHOL.solve(-M.block(0, n_internal+i, n_internal, 1));
-        //G = CHOL.solve(delta);
-        if (CHOL.info() != Eigen::Success) {
-            std::cout << "Backward substitution to compute G(" << i << ") failed" << std::endl;
-            return false;
-        }
-        //delta[i] = 0.0;
-        Knew[n_internal+i] = Korig[n_internal+i] + G.dot(Korig.head(n_internal));
-    }
-    std::cout << "Sum Knew = " << Knew.sum() << std::endl;
-    std::cout << "Computation of the target curvatures took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
-
-
-
-    Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> cholesky;
-    cholesky.compute(M);
-    if (cholesky.info() != Eigen::Success) {
-        std::cout << "Factorization of the cotangent-weighted Laplacian failed" << std::endl;
-        std::cout << M << std::endl;
+    Eigen::SparseMatrix<double> M_internal = M.block(0, 0, n_internal, n_internal);
+    Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> solverLDLT;
+    solverLDLT.compute(M_internal);
+    if (solverLDLT.info() != Eigen::Success) {
+        std::cout << "WARNING ComputeConformalScalingFactors(): preliminary factorization failed" << std::endl;
         return false;
     }
 
-    std::cout << "Factorization of the cotangent-weighted Laplacian took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
+    // Compute the new curvature vector Knew
+    Eigen::VectorXd Knew = Eigen::VectorXd::Zero(m.VN());
+    Eigen::VectorXd G(n_internal);
 
-    Eigen::VectorXd scalingFactors = cholesky.solve(Knew - Korig);
+    // This loops takes a lot of time (a backward solve for each boundary vertex...)
+    for (int i = 0; i < n_boundary; ++i) {
+        G = solverLDLT.solve(-M.block(0, n_internal+i, n_internal, 1));
+        if (solverLDLT.info() != Eigen::Success) {
+            std::cout << "WARNING ComputeConformalScalingFactors(): backward substitution to compute G(" << i << ") failed" << std::endl;
+            return false;
+        }
+        Knew[n_internal+i] = Korig[n_internal+i] + G.dot(Korig.head(n_internal));
+    }
+
+    //std::cout << "Sum Knew = " << Knew.sum() << std::endl;
+    std::cout << "Computation of the target curvatures took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
+
+    solverLDLT.compute(M);
+    if (solverLDLT.info() != Eigen::Success) {
+        std::cout << "WARNING ComputeConformalScalingFactors(): factorization of the cotangent-weighted Laplacian failed" << std::endl;
+        return false;
+    }
+
+    Eigen::VectorXd scalingFactors = solverLDLT.solve(Knew - Korig);
     csf.resize(scalingFactors.size());
     for (int i = 0; i < m.VN(); ++i) {
         csf[i] = scalingFactors[index[m.vert[i]]];
@@ -1007,35 +933,21 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf, c
 
     double maxscale = 0.0;
     double minscale = std::numeric_limits<double>::infinity();
-    int max_i = -1;
-    int min_i = -1;
     for (int i = 0; i < m.VN(); ++i) {
         double s = std::abs(csf[i]);
         //assert(scalingFactors[i] > 0.0);
         if (s > maxscale) {
             maxscale = s;
-            max_i = i;
         }
         if (s < minscale) {
             minscale = s;
-            min_i = i;
         }
     }
-
-    std::cout << " max scale at vertex " << max_i << std::endl;
-    std::cout << " min scale at vertex " << min_i << std::endl;
-
-    //coneIdx.push_back(max_i);
 
     std::cout << "Solution of the scaling factors system took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
     std::cout << "Overall time: " << timer.TimeElapsed() << " seconds" << std::endl;
 
     return true;
 }
-
-
-
-
-
 
 
