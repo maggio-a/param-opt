@@ -73,13 +73,12 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
             DirectParameterizer::FixedBorderBijective,
             EnergyType::SymmetricDirichlet,
             ParameterizationGeometry::Texture,
-            //DescentType::ScalableLocallyInjectiveMappings,
             DescentType::CompositeMajorization,
             500,            // Number of iterations
-            true,           // Fill holes ?
-            true,           // Use cuts ?
-            false,          // Use warm start ?
-            true            // Use scaffolding ?
+            true,           // Fill holes
+            true,           // Use cuts
+            false,          // No warm start
+            true            // Enable scaffold
     );
     double tolerance = 0.0002;
 

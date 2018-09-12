@@ -325,15 +325,17 @@ void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
     int numNoParam = 0;
     int numParameterized = 0;
 
-    ParameterizationStrategy strategy = DefaultStrategy();
-    strategy.directParameterizer = FixedBorderBijective;
-    strategy.energy = EnergyType::SymmetricDirichlet;
-    strategy.geometry = Model;
-    strategy.descent = ScalableLocallyInjectiveMappings;
-    strategy.optimizerIterations = 200;
-    strategy.padBoundaries = true;
-    strategy.applyCut = false;
-    strategy.warmStart = false;
+    ParameterizationStrategy strategy = MakeStrategy(
+            DirectParameterizer::FixedBorderBijective,
+            EnergyType::SymmetricDirichlet,
+            ParameterizationGeometry::Texture,
+            DescentType::CompositeMajorization,
+            200,            // Number of iterations
+            true,           // Fill holes
+            true,           // Use cuts
+            false,          // No warm start
+            true            // Enable scaffold
+    );
 
     for (auto& entry : graph->charts) {
         auto chart = entry.second;
