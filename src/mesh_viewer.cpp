@@ -1548,12 +1548,6 @@ void MeshViewer::ManageImGuiState()
                 Pack(gm->Graph(), opts);
                 _currentTexture->Release(0);
                 _currentTexture = RenderTexture(graph->mesh, graph->textureObject, true, InterpolationMode::Linear, _window);
-                for (auto& f : graph->mesh.face) {
-                    for (int i = 0; i < 3; ++i) {
-                        f.WT(i).P()[0] *= _currentTexture->TextureWidth(0);
-                        f.WT(i).P()[1] *= _currentTexture->TextureHeight(0);
-                    }
-                }
                 ScaleTextureCoordinatesToImage(graph->mesh, _currentTexture);
                 updateTexcoord = true;
                 if (activeDistIndex != -1) {
@@ -1611,9 +1605,11 @@ void MeshViewer::ManageImGuiState()
             ImGui::InputText("file name", exportFileName, 256);
             if (ImGui::Button("Export", ImVec2(120,0))) {
                 Mesh& m = graph->mesh;
+                ScaleTextureCoordinatesToParameterArea(m, _currentTexture);
                 if (SaveMesh(m, exportFileName, _currentTexture, true) == false) {
                     std::cout << "Model not saved correctly" << std::endl;
                 }
+                ScaleTextureCoordinatesToImage(m, _currentTexture);
                 ImGui::CloseCurrentPopup();
             }
             ImGui::SameLine();
