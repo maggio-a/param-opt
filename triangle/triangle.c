@@ -269,6 +269,8 @@
 /* #define CPU86 */
 /* #define LINUX */
 
+#define NO_TIMER
+
 #define INEXACT /* Nothing */
 /* #define INEXACT volatile */
 
