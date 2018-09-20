@@ -1,13 +1,12 @@
 #include <iostream>
 #include <cstdio>
+#include <algorithm>
 
 #include <QImage>
 
 #include <vcg/space/ray3.h>
 #include <vcg/space/intersection3.h>
 #include <vcg/space/intersection2.h>
-
-
 
 #include <vcg/complex/complex.h>
 #include <vcg/complex/algorithms/update/texture.h>
@@ -1110,7 +1109,7 @@ void MeshViewer::Draw3DView()
     mat4x4_mul(modelView, _meshTransform.viewMatrix, _meshTransform.trackballMatrix);
 
     mat4x4_perspective(_meshTransform.projectionMatrix, 60.0f * M_PI / 180.0f, info.perspectiveViewAspect,
-                       _perspectiveCamera.near, _perspectiveCamera.far);
+                       _perspectiveCamera.nearClip, _perspectiveCamera.farClip);
 
     int *vp = info.perspectiveViewport;
     glViewport(vp[0], vp[1], vp[2], vp[3]);

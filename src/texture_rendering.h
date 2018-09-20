@@ -8,7 +8,7 @@
 
 class Mesh;
 class MeshFace;
-class GLFWwindow;
+struct GLFWwindow;
 
 enum InterpolationMode {
     Nearest, Linear, Cubic

@@ -1,0 +1,1 @@
+cl /TC /c /O2 /DTRILIBRARY /DNO_TIMER /DCPU86 triangle.c

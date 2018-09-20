@@ -4,6 +4,7 @@
 #include <memory>
 #include <vector>
 #include <string>
+#include <algorithm>
 
 #include <GL/glew.h>
 
@@ -13,7 +14,7 @@
 #include "linmath.h"
 #include "parameterization.h"
 
-class GLFWwindow;
+struct GLFWwindow;
 
 class MeshViewer {
 
@@ -216,8 +217,8 @@ private:
         vec3 eye = {0.0f, 0.0f, 3.0f};
         vec3 target = { 0.0f, 0.0f, 0.0f};
         vec3 up = {0.0f, 1.0f, 0.0f};
-        float near = 0.1f;
-        float far = 2000.0f;
+        float nearClip = 0.1f;
+        float farClip = 2000.0f;
     } _perspectiveCamera;
 
     Camera2D _textureCamera;

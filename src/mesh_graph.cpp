@@ -532,6 +532,10 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
                     //double areaModel = std::abs(x10 ^ x20) / 2.0;
                     //x10 *= std::sqrt(area / areaModel);
                     //x20 *= std::sqrt(area / areaModel);
+
+                    // scale using the average scaling factor rather than the one of
+                    // the triangle, since heavily distorted triangle are likely to
+                    // have areas that are too small
                     x10 *= psi().scale;
                     x20 *= psi().scale;
 
@@ -542,10 +546,10 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
                     double bcminus = std::pow(phi(0, 1) - phi(1, 0), 2.0);
                     double adplus  = std::pow(phi(0, 0) + phi(1, 1), 2.0);
                     double adminus = std::pow(phi(0, 0) - phi(1, 1), 2.0);
-                    double s1 = 0.5 * std::abs(std::sqrt(bcplus + adminus) - std::sqrt(bcminus + adplus));
-                    double s2 = 0.5 * (std::sqrt(bcplus + adminus) + std::sqrt(bcminus + adplus));
+                    double s_min = 0.5 * std::abs(std::sqrt(bcplus + adminus) - std::sqrt(bcminus + adplus));
+                    double s_max = 0.5 * (std::sqrt(bcplus + adminus) + std::sqrt(bcminus + adplus));
 
-                    double interpolationFactor = 1.0 - (s1 / s2);
+                    double interpolationFactor = 1.0 - (s_min / s_max);
                     assert(interpolationFactor > 0);
                     assert(interpolationFactor <= 1);
 

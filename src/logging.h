@@ -6,9 +6,9 @@
 
 #include <memory>
 
-class ParameterizationStrategy;
-class MeshGraph;
-class RasterizedParameterizationStats;
+struct ParameterizationStrategy;
+struct MeshGraph;
+struct RasterizedParameterizationStats;
 
 void LogStrategy(const ParameterizationStrategy& strategy, double tol);
 void PercentilePlot(vcg::Distribution<double>& d);

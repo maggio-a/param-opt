@@ -7,7 +7,7 @@
 #include <GL/glew.h>
 
 class QImage;
-class TextureObject;
+struct TextureObject;
 
 using TextureObjectHandle = std::shared_ptr<TextureObject>;
 

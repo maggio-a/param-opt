@@ -5,6 +5,7 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <memory>
+#include <algorithm>
 
 #include <QImage>
 
@@ -16,6 +17,8 @@
 
 class MeshGraph;
 class FaceGroup;
+class EdgeWeightFunction;
+
 
 using ChartHandle = std::shared_ptr<FaceGroup>;
 using GraphHandle = std::shared_ptr<MeshGraph>;
@@ -192,9 +195,6 @@ struct MeshGraph {
 
     double BorderUV() const;
 };
-
-
-class EdgeWeightFunction;
 
 class GraphManager {
 

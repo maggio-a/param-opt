@@ -3,6 +3,7 @@
 #include "energy.h"
 #include "iterative.h"
 #include "mesh_utils.h"
+#include "math_utils.h"
 #include "timer.h"
 #include "uniform_solver.h"
 
@@ -180,7 +181,7 @@ void ParameterizerObject::MapConformalScalingFactorsToShellVertexColor()
 {
     Eigen::VectorXd csf;
     std::vector<int> coneIndices = {};
-    assert(ComputeConformalScalingFactors(csf, coneIndices));
+    ComputeConformalScalingFactors(csf, coneIndices);
     for (int i = 0; i < shell.VN(); ++i) {
         shell.vert[i].Q() = csf[i];
     }
@@ -708,7 +709,10 @@ void ParameterizerObject::FindCones(int ncones, std::vector<int>& coneIndices)
 
     for (int i = 0; i < ncones; ++i) {
         Eigen::VectorXd csf;
-        assert(ComputeConformalScalingFactors(csf, coneIndices));
+        if (!ComputeConformalScalingFactors(csf, coneIndices)) {
+            std::cout << "Warning: scaling factors computation failed" << std::endl;
+            return;
+        }
 
         // Select seam vertices
         tri::UpdateFlags<Mesh>::VertexClearS(shell);
@@ -766,7 +770,10 @@ void ParameterizerObject::FindConesWithThreshold(double conformalScalingThreshol
 
     for (int i = 0; i < MAX_NUM_CONES; ++i) {
         Eigen::VectorXd csf;
-        assert(ComputeConformalScalingFactors(csf, coneIndices));
+        if(!ComputeConformalScalingFactors(csf, coneIndices)) {
+            std::cout << "Warning: scaling factors computation failed" << std::endl;
+            return;
+        }
 
         // Select seam vertices that reach the boundary
         tri::UpdateFlags<Mesh>::VertexClearS(shell);

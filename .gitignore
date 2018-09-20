@@ -19,8 +19,6 @@ repack/**
 !repack/*.h
 !repack/*.pro
 
-triangle/**
-
 viewer/**
 !viewer/*.cpp
 !viewer/*.h
