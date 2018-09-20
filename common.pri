@@ -34,15 +34,17 @@ unix {
 }
 
 win32 {
-  WIN_GLFW_PATH = "." # set to glfw dir
-  WIN_GLEW_PATH = "." # set to glew dir
+  WIN_GLFW_PATH = $$PWD/glfw # set to glfw dir
+  WIN_GLEW_PATH = $$PWD/glew # set to glew dir
 
   DEFINES += GLFW_DLL
   INCLUDEPATH += $$WIN_GLFW_PATH/include
-  LIBS += -L$$WIN_GLFW_PATH/lib -lglfw3
+  LIBS += -L$$WIN_GLFW_PATH/lib-vc2015 -lglfw3dll
 
   INCLUDEPATH += $$WIN_GLEW_PATH/include
   LIBS += -L$$WIN_GLEW_PATH/lib/Release/x64 -lglew32
+
+  LIBS += -lopengl32
 
   !exists($$PWD/triangle/triangle.obj) {
     error("Object file for triangle not found")
