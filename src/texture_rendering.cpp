@@ -327,7 +327,7 @@ static RasterizedParameterizationStats GetRasterizationStats(const std::vector<M
     //glReadBuffer(GL_BACK);
     //glReadPixels(0, 0, width, height, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, sb);
 
-    RasterizedParameterizationStats stats{0, 0, 0, 0, 0, 0, 0};
+    RasterizedParameterizationStats stats = {};
     stats.rw = width;
     stats.rh = height;
     for (int i = 0; i < height; ++i) {
@@ -340,7 +340,7 @@ static RasterizedParameterizationStats GetRasterizationStats(const std::vector<M
                 stats.totalFragments_bilinear += 1;
                 if (n > 1) {
                     stats.overwrittenFragments++;
-                    stats.lostFragments += n - 1;
+                    stats.lostFragments += (n - 1);
                 }
                 if (kernelMask &= KernelBit::Unset)
                     stats.boundaryFragments++;
