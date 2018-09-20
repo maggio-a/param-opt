@@ -1,33 +1,5 @@
-VCGPATH = ../vcglib
 
-triangle.target = triangle
-triangle.commands = cd $$PWD/../triangle; make trilibrary && cd $$OUT_PWD; cp $$PWD/../triangle/triangle.o .
-
-QMAKE_EXTRA_TARGETS += triangle
-
-TARGET = viewer
-PRE_TARGETDEPS += triangle
-
-CONFIG += console
-CONFIG += c++11
-CONFIG -= app_bundle
-
-QT = core gui svg
-
-TEMPLATE = app
-
-INCLUDEPATH += ../imgui ../src ../triangle $$VCGPATH $$VCGPATH/eigenlib
-
-QMAKE_CXXFLAGS += -g
-
-#unix {
-    CONFIG += link_pkgconfig
-     PKGCONFIG += glfw3 glew
-#}
-
-#LIBS += -lGL -lGLEW
-OBJECTS += triangle.o
-
+include(../common.pri)
 
 SOURCES += viewer.cpp \
     ../src/energy.cpp \
