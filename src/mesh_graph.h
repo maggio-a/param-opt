@@ -15,9 +15,9 @@
 #include "metric.h"
 
 
-class MeshGraph;
-class FaceGroup;
-class EdgeWeightFunction;
+struct MeshGraph;
+struct FaceGroup;
+struct EdgeWeightFunction;
 
 
 using ChartHandle = std::shared_ptr<FaceGroup>;
