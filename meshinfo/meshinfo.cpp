@@ -19,8 +19,8 @@
 #include <QString>
 
 
-
 using namespace vcg;
+
 
 int main(int argc, char *argv[])
 {
@@ -33,7 +33,7 @@ int main(int argc, char *argv[])
     assert(argc > 1);
 
     if (LoadMesh(m, argv[1], textureObject, loadMask) == false) {
-        std::cout << "Failed to open mesh" << std::endl;
+        std::cout << "Failed to open mesh " << argv[1] << std::endl;
         std::exit(-1);
     }
 
@@ -60,7 +60,7 @@ int main(int argc, char *argv[])
             emptyRegionCount++;
 
     std::vector<RasterizedParameterizationStats> textureStats = GetRasterizationStats(m, textureObject);
-    while (textureStats.size() < 8) {
+    while (textureStats.size() < 16) {
         textureStats.push_back({});
     }
 
@@ -70,7 +70,7 @@ int main(int argc, char *argv[])
                   << " , " << "TEX" << i << "_INJ"
                   << " , " << "TEX" << i << "_OCCUPANCY";
     }
-    std::cout << " , # TABLE_INFO_HEADER" << std::endl;
+    std::cout << " , # INFO_TABLE_HEADER" << std::endl;
 
     std::cout << name << " , "
               << vn << " , " << fn << " , " << nonManifoldEdgeCount << " , " << nonManifoldVertexCount << " , "
@@ -78,15 +78,15 @@ int main(int argc, char *argv[])
 
     for (int i = 0; i < textureNum; ++i) {
         std::cout << " , " << textureStats[i].rw << "x" << textureStats[i].rh
-                  << " , " << ((textureStats[i].overwrittenFragments > 0) ? "true" : "FALSE")
-                  << " , " << (textureStats[i].totalFragments - textureStats[i].overwrittenFragments) / ((double) textureStats[i].rw * textureStats[i].rh);
+                  << " , " << ((textureStats[i].overwrittenFragments == 0) ? "true" : "FALSE")
+                  << " , " << (textureStats[i].totalFragments - textureStats[i].lostFragments) / ((double) textureStats[i].rw * textureStats[i].rh);
     }
 
     for (unsigned i = textureNum; i < textureStats.size(); ++i) {
         std::cout << " , , , ";
     }
 
-    std::cout << " , # TABLE_INFO_ENTRY" << std::endl;
+    std::cout << " , # INFO_TABLE_ROW" << std::endl;
 
     std::cout << std::endl;
 

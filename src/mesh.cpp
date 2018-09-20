@@ -44,9 +44,14 @@ bool LoadMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject,
     for (const string& textureName : m.textures) {
         QFileInfo textureFile(textureName.c_str());
         textureFile.makeAbsolute();
+        if (!textureFile.exists() || !textureFile.isReadable()) {
+            std::cout << "Error: texture file " << textureName.c_str() << " does not exist or is not readable." << std::endl;
+            return false;
+        }
+
         auto imgptr = std::make_shared<QImage>(textureFile.absoluteFilePath());
-        if (!textureFile.exists() || !textureFile.isReadable() || imgptr->isNull()) {
-            std::cout << "Unable to load texture file " << textureName.c_str() << std::endl;
+        if (imgptr->isNull()) {
+            std::cout << "Error: failed to load texture file " << textureName.c_str() << std::endl;
             return false;
         }
         textureObject->AddImage(imgptr);
