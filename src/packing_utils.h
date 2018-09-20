@@ -58,7 +58,12 @@ class PixelShiftingOptimizer
             int row = ypos + p.Y();
             int col = xpos + p.X();
             //assert(!COLLIDE(buffer, row, col, k));
-            COLLIDE(buffer, row, col, k);
+            bool collision = COLLIDE(buffer, row, col, k);
+            if (collision) {
+                std::cout << "collision at " << col << " " << row << std::endl;
+                //assert(!collision);
+            }
+
             buffer[row][col] = k;
         }
     }
@@ -115,8 +120,8 @@ class PixelShiftingOptimizer
 public:
 
     struct Parameters {
-        unsigned w;
-        unsigned h;
+        int w;
+        int h;
         int gutter;
     };
 
@@ -164,10 +169,10 @@ public:
 
         std::cout << "Initializing buffer..." << std::endl;
         for (unsigned k = 0; k < polyVec.size(); ++k) {
-            //xpos[k] = std::max(int(std::round(polyBoxes[k].min.X() * scale)), 0);
-            //ypos[k] = std::max(int(std::round(polyBoxes[k].min.Y() * scale)), 0);
-            xpos[k] = std::max(int(std::round(polyBoxes[k].min.X() * scale)) - param.gutter, 0);
-            ypos[k] = std::max(int(std::round(polyBoxes[k].min.Y() * scale)) - param.gutter, 0);
+            xpos[k] = std::max(int(std::round(polyBoxes[k].min.X() * scale)), 0);
+            ypos[k] = std::max(int(std::round(polyBoxes[k].min.Y() * scale)), 0);
+            //xpos[k] = std::max(int(std::round(polyBoxes[k].min.X() * scale)) - param.gutter, 0);
+            //ypos[k] = std::max(int(std::round(polyBoxes[k].min.Y() * scale)) - param.gutter, 0);
 
             vcg::Box2i extent;
             for (auto& p : boundaries[k])
@@ -234,11 +239,13 @@ public:
         trVec.clear();
         for (unsigned k = 0; k < polyVec.size(); ++k) {
             Similarity2x sim;
-            //ScalarType offsetX = (extents[k].X() - ceil(scale * polyBoxes[k].DimX())) / 2.0;
-            //ScalarType offsetY = (extents[k].Y() - ceil(scale * polyBoxes[k].DimY())) / 2.0;
 
-            ScalarType offsetX = 1;
-            ScalarType offsetY = 1;
+            ScalarType offsetX = (extents[k].X() - ceil(scale * polyBoxes[k].DimX())) / 2.0;
+            ScalarType offsetY = (extents[k].Y() - ceil(scale * polyBoxes[k].DimY())) / 2.0;
+
+            //ScalarType offsetX = 1;
+            //ScalarType offsetY = 1;
+
             sim.rotRad = 0;
             sim.sca = scale;
             //Point2x finalOffset(ScalarType(xpos[k]), ScalarType(ypos[k]));
