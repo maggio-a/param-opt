@@ -46,10 +46,20 @@ win32 {
 
   LIBS += -lopengl32
 
-  !exists($$PWD/triangle/triangle.obj) {
-    error("Object file for triangle not found")
+
+  CONFIG(debug, debug|release) {
+    !exists($$PWD/triangle/triangled.obj) {
+      error("Object file for triangle not found")
+    }
+    LIBS += $$PWD/triangle/triangled.obj
   }
-  LIBS += $$PWD/triangle/triangle.obj
+
+  CONFIG(release, debug|release) {
+    !exists($$PWD/triangle/triangle.obj) {
+      error("Object file for triangle not found")
+    }
+    LIBS += $$PWD/triangle/triangle.obj
+  }
 }
 
 
