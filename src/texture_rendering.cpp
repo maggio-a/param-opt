@@ -14,6 +14,7 @@
 #include <GLFW/glfw3.h>
 
 #include <iostream>
+#include <algorithm>
 
 #include <QImage>
 
@@ -86,31 +87,41 @@ static const char *vs_text_checker[] = {
     "#version 430 core                                           \n"
     "                                                            \n"
     "in vec2 position;                                           \n"
+    "in uint chart_id;                                           \n"
+    "out flat uint chartId;                                      \n"
     "                                                            \n"
     "void main(void)                                             \n"
     "{                                                           \n"
     "    vec2 p = 2.0 * position - vec2(1.0, 1.0);               \n"
     "    gl_Position = vec4(p, 0.5, 1.0);                        \n"
+    "    chartId = chart_id;                                     \n"
     "}                                                           \n"
 };
 
 static const char *fs_text_checker[] = {
-    "#version 430 core                                                \n"
-    "                                                                 \n"
-    "layout (r32ui) uniform uimage2D imgbuf;                          \n"
-    "out vec4 color;                                                  \n"
-    "                                                                 \n"
-    "void main(void)                                                  \n"
-    "{                                                                \n"
-    "    color = vec4(1.0, 1.0, 1.0, 1.0);                            \n"
-    "    imageAtomicAdd(imgbuf, ivec2(gl_FragCoord.xy), 1);           \n"
-    "}                                                                \n"
+    "#version 430 core                                                                \n"
+    "                                                                                 \n"
+    "layout (r32ui) uniform uimage2D imgbuf;                                          \n"
+    "layout (r32ui) uniform uimage2D idbuf;                                           \n"
+    "in flat uint chartId;                                                            \n"
+    "out vec4 color;                                                                  \n"
+    "                                                                                 \n"
+    "void main(void)                                                                  \n"
+    "{                                                                                \n"
+    "    color = vec4(1.0, 1.0, 1.0, 1.0);                                            \n"
+    "    imageAtomicAdd(imgbuf, ivec2(gl_FragCoord.xy), 1);                           \n"
+    "    uint val = imageAtomicCompSwap(idbuf, ivec2(gl_FragCoord.xy), 0, chartId);   \n"
+    "    if (val == 0 || val == 0xffffffff)                                           \n" // no one set the vat for this fragment yet
+    "        return;                                                                  \n" // or its a 'marked' pixel already
+    "    else if (val != chartId)                                                     \n"
+    "        imageAtomicExchange(idbuf, ivec2(gl_FragCoord.xy), 0xffffffff);          \n" // pixel was set to a different chart, mark it
+    "}                                                                                \n"
 };
 
 
 /* === Functions ============================================================ */
 
-static RasterizedParameterizationStats GetRasterizationStats(const std::vector<Mesh::FacePointer>& faces, int width, int height);
+static RasterizedParameterizationStats GetRasterizationStats(Mesh& m, const std::vector<Mesh::FacePointer>& faces, int width, int height);
 
 static int FacesByTextureIndex(Mesh& m, std::vector<std::vector<Mesh::FacePointer>>& fv);
 
@@ -155,7 +166,7 @@ RasterizedParameterizationStats GetRasterizationStats(ChartHandle chart, int wid
         }
     }
 
-    RasterizedParameterizationStats stats = GetRasterizationStats(chart->fpVec, width, height);
+    RasterizedParameterizationStats stats = GetRasterizationStats(chart->mesh, chart->fpVec, width, height);
 
     for (int k = 0; k < chart->FN(); ++k)
         for (int i = 0; i < 3; ++i)
@@ -171,11 +182,34 @@ std::vector<RasterizedParameterizationStats> GetRasterizationStats(Mesh& m, Text
 
     std::vector<RasterizedParameterizationStats> statsVec;
     for (int i = 0; i < ntex; ++i) {
-        RasterizedParameterizationStats stats = GetRasterizationStats(facesByTexture[i], textureObject->TextureWidth(i), textureObject->TextureHeight(i));
+        RasterizedParameterizationStats stats = GetRasterizationStats(m, facesByTexture[i], textureObject->TextureWidth(i), textureObject->TextureHeight(i));
         statsVec.push_back(stats);
     }
 
     return statsVec;
+}
+
+std::vector<std::vector<RasterizedParameterizationStats>> GetRasterizationStatsAtMipmapLevels(Mesh& m, TextureObjectHandle textureObject)
+{
+    constexpr int MIN_DIM = 4;
+    std::vector<std::vector<Mesh::FacePointer>> facesByTexture;
+    int ntex = FacesByTextureIndex(m, facesByTexture);
+
+    std::vector<std::vector<RasterizedParameterizationStats>> levelStats;
+    for (int i = 0; i < ntex; ++i) {
+        std::vector<RasterizedParameterizationStats> textureStats;
+        int tw = textureObject->TextureWidth(i);
+        int th = textureObject->TextureHeight(i);
+        while (std::max(tw, th) >= MIN_DIM) {
+            RasterizedParameterizationStats stats = GetRasterizationStats(m, facesByTexture[i], tw, th);
+            textureStats.push_back(stats);
+            tw /= 2;
+            th /= 2;
+        }
+        levelStats.push_back(textureStats);
+    }
+
+    return levelStats;
 }
 
 enum KernelBit {
@@ -201,8 +235,10 @@ inline int Inspect3x3Kernel(unsigned *buffer, int row, int col, int width, int h
     return mask;
 }
 
-static RasterizedParameterizationStats GetRasterizationStats(const std::vector<Mesh::FacePointer>& faces, int width, int height)
+static RasterizedParameterizationStats GetRasterizationStats(Mesh& m, const std::vector<Mesh::FacePointer>& faces, int width, int height)
 {
+    assert(sizeof(unsigned) == 4);
+
     // Create a hidden window
     GLFWwindow *parentWindow = glfwGetCurrentContext();
     bool sharedContext = (parentWindow != nullptr);
@@ -250,42 +286,73 @@ static RasterizedParameterizationStats GetRasterizationStats(const std::vector<M
 
     //vcg::Box2d box = chart->UVBox();
 
+    assert(HasConnectedComponentIDAttribute(m));
+    auto CCIDh = GetConnectedComponentIDAttribute(m);
+
     glBindBuffer(GL_ARRAY_BUFFER, vertexbuf);
-    glBufferData(GL_ARRAY_BUFFER, faces.size()*6*sizeof(float), NULL, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, faces.size()*9*sizeof(float), NULL, GL_STATIC_DRAW);
     float *p = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
     for (auto fptr : faces) {
         for (int i = 0; i < 3; ++i) {
             *p++ = fptr->cWT(i).U();
             *p++ = fptr->cWT(i).V();
+
+            unsigned int *up = (unsigned int *) p;
+            *up = (unsigned int) CCIDh[fptr] + 1;
+
+            p++;
         }
     }
     glUnmapBuffer(GL_ARRAY_BUFFER);
 
     GLint pos_location = glGetAttribLocation(program, "position");
-    glVertexAttribPointer(pos_location, 2, GL_FLOAT, GL_FALSE, 0, 0);
+    glVertexAttribPointer(pos_location, 2, GL_FLOAT, GL_FALSE, 3*sizeof(float), 0);
     glEnableVertexAttribArray(pos_location);
+
+    GLint pos_id = glGetAttribLocation(program, "chart_id");
+    glVertexAttribPointer(pos_id, 1, GL_UNSIGNED_INT, GL_FALSE, 3*sizeof(float), (const GLvoid *) (2*sizeof(float)));
+    glEnableVertexAttribArray(pos_id);
 
     p = nullptr;
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-    // Create texture to store fragment writes
+
+    unsigned *sb = new unsigned[width*height](); // zero initialize
+
+    // Create textures to store fragment writes
+
+    // Texture to count overdraw
     constexpr int imgbuf_unit = 0;
     GLint loc_imgbuf = glGetUniformLocation(program, "imgbuf");
     glUniform1i(loc_imgbuf, imgbuf_unit);
 
-    assert(sizeof(unsigned) == 4);
     GLuint tex;
     glGenTextures(1, &tex);
     glBindTexture(GL_TEXTURE_2D, tex);
 
     glTexStorage2D(GL_TEXTURE_2D, 1, GL_R32UI, width, height);
-
-    // clear the texure
-    unsigned *sb = new unsigned[width*height];
-    memset(sb, 0x00, width*height*sizeof(unsigned));
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RED_INTEGER, GL_UNSIGNED_INT, sb);
 
     glBindImageTexture(imgbuf_unit, tex, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
+
+    // Texture to store marks. The texture is initially zero-initialized, and each fragment
+    // write checks if the stored pixel value is either zero, an 'invalid' value (0xffffffff), or a non-zero chart id.
+    // If it reads zero, it writes its value to the pixel (with atomic compare and swap). Otherwise, if the comparison failed
+    // and the returned value is invalid, nothing happens. If the returned value is another chart id instead, then it is checked
+    // against the chart id of the fragment, and if it is different it means that two different regions overlap on the pizxel, and
+    // is therefore set to the invalid value 0xffffffff
+    // Note that since 0 is a perfectly valid id, the id of each face as a vertex attribute is incremented by one
+    constexpr int idbuf_unit = 1;
+    GLint loc_idbuf = glGetUniformLocation(program, "idbuf");
+    glUniform1i(loc_idbuf, idbuf_unit);
+    GLuint tex_id;
+    glGenTextures(1, &tex_id);
+    glBindTexture(GL_TEXTURE_2D, tex_id);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_R32UI, width, height);
+
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RED_INTEGER, GL_UNSIGNED_INT, sb);
+    glBindImageTexture(idbuf_unit, tex_id, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
+
 
     // bugfix (?) setup an offscreen context of the appropriate size to make sure
     // the data is fully rendered
@@ -322,6 +389,11 @@ static RasterizedParameterizationStats GetRasterizationStats(const std::vector<M
     glBindTexture(GL_TEXTURE_2D, tex);
     glGetTexImage(GL_TEXTURE_2D, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, sb);
 
+    unsigned *mb = new unsigned[width*height];
+
+    glBindTexture(GL_TEXTURE_2D, tex_id);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, mb);
+
     CheckGLError();
 
     //glReadBuffer(GL_BACK);
@@ -337,10 +409,14 @@ static RasterizedParameterizationStats GetRasterizationStats(const std::vector<M
             int kernelMask = Inspect3x3Kernel(sb, i, j, width, height);
             if (n > 0) {
                 stats.totalFragments += n;
-                stats.totalFragments_bilinear += 1;
-                if (n > 1) {
+                stats.totalFragments_bilinear++;
+                if ((n > 1)) {
                     stats.overwrittenFragments++;
                     stats.lostFragments += (n - 1);
+                }
+                if ((n > 1) && (mb[k] == 0xffffffff)) {
+                    stats.overwrittenFragments_differentChart++;
+                    stats.lostFragments_differentChart += (n - 1);
                 }
                 if (kernelMask &= KernelBit::Unset)
                     stats.boundaryFragments++;
@@ -351,10 +427,10 @@ static RasterizedParameterizationStats GetRasterizationStats(const std::vector<M
         }
     }
 
-    delete sb;
-    sb = nullptr;
-
     glfwPollEvents();
+
+    delete [] sb;
+    delete [] mb;
 
     // clean up
     glUseProgram(0);
@@ -363,6 +439,7 @@ static RasterizedParameterizationStats GetRasterizationStats(const std::vector<M
 
     glDeleteBuffers(1, &vertexbuf);
     glDeleteTextures(1, &tex);
+    glDeleteTextures(1, &tex_id);
     glDeleteTextures(1, &renderTarget);
     glDeleteProgram(program);
     glDeleteVertexArrays(1, &vao);
