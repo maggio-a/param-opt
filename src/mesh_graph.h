@@ -116,6 +116,19 @@ struct FaceGroup {
         }
     };
 
+    struct Cache {
+        double areaUV;
+        double area3D;
+        double borderUV;
+        double border3D;
+        vcg::Point3d weightedSumNormal;
+    };
+
+    mutable bool dirty;
+    mutable Cache cache;
+
+    void UpdateCache() const;
+
     Mesh& mesh;
     RegionID id;
     std::vector<Mesh::FacePointer> fpVec;
@@ -126,9 +139,6 @@ struct FaceGroup {
     float minMappedFaceValue;
     float maxMappedFaceValue;
 
-    mutable double borderUV;
-    mutable bool borderChanged;
-
     FaceGroup(Mesh& m, const RegionID id_);
 
     void Clear();
@@ -136,12 +146,15 @@ struct FaceGroup {
     void ParameterizationChanged();
     Mesh::FacePointer Fp();
 
+    vcg::Point3d AverageNormal() const;
+
     std::size_t FN() const;
     std::size_t NumAdj() const;
     double OriginalAreaUV() const;
     double AreaUV() const;
     double Area3D() const;
     double BorderUV() const;
+    double Border3D() const;
     vcg::Box2d UVBox() const;
 
 
@@ -193,7 +206,27 @@ struct MeshGraph {
     double Area3D() const;
     double AreaUV() const;
 
+    double MappedFraction() const;
+
     double BorderUV() const;
+
+    void ToEdgeMesh(MyMesh& em)
+    {
+        em.Clear();
+        auto CCIDh = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(mesh, "ConnectedComponentID");
+        assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CCIDh));
+
+        for (auto& f : mesh.face) {
+            for (int i = 0; i < 3; ++i) {
+                if (face::IsBorder(f, i) || (CCIDh[f] != CCIDh[f.FFp(i)])) {
+                    tri::Allocator<MyMesh>::AddEdge(em, f.P0(i), f.P1(i));
+                }
+            }
+        }
+        tri::Clean<MyMesh>::RemoveDuplicateEdge(em);
+        tri::Clean<MyMesh>::RemoveDuplicateVertex(em);
+        tri::Allocator<MyMesh>::CompactEveryVector(em);
+    }
 };
 
 class GraphManager {
@@ -259,7 +292,7 @@ public:
     // Splits the chart into its initial components, returns the handles to the created charts into splitCharts
     void Split(const RegionID id, std::vector<ChartHandle> &splitCharts);
 
-    int CloseMacroRegions(std::size_t minRegionSize);
+    int CloseMacroRegions(double areaThreshold);
 
     /*
      * Test if a range of charts can be merged together
@@ -421,6 +454,58 @@ struct W3D : EdgeWeightFunction {
         return w;
     }
 };
+
+struct W_Geometry3D : EdgeWeightFunction {
+
+    std::string Name() { return "w_geometry_3D"; }
+
+    Mesh& mesh;
+
+    W_Geometry3D(Mesh& m) : mesh{m}{}
+
+    double operator()(GraphManager::Edge& e) const
+    {
+        auto CHIDh  = tri::Allocator<Mesh>::FindPerFaceAttribute<std::size_t>(mesh, "ConnectedComponentID");
+        assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CHIDh));
+
+        double border3D_contribution_a = e.a->Border3D();
+        double border3D_contribution_b = e.b->Border3D();
+        RegionID id_a = e.a->id;
+        RegionID id_b = e.b->id;
+
+        for (auto fptr : e.a->fpVec) {
+            for (int i = 0; i < fptr->VN(); ++i) {
+                auto ffpi = fptr->FFp(i);
+                if (id_b == CHIDh[ffpi])
+                    border3D_contribution_a -= EdgeLength(*fptr, i);
+            }
+        }
+
+        for (auto fptr : e.b->fpVec) {
+            for (int i = 0; i < fptr->VN(); ++i) {
+                auto ffpi = fptr->FFp(i);
+                if (id_a == CHIDh[ffpi])
+                    border3D_contribution_b -= EdgeLength(*fptr, i);
+            }
+        }
+
+        //assert(border3D >= 0);
+
+        W3D w3d{mesh};
+        double w3dw = w3d(e);
+
+        vcg::Point3d n_a = e.a->AverageNormal();
+        vcg::Point3d n_b = e.b->AverageNormal();
+
+        //double w = (1 - (n_a.dot(n_b))) * border3D;
+        //double w = (1 - (n_a.dot(n_b))) * std::min(border3D_contribution_a, border3D_contribution_b);
+        double w = (1 - (n_a.dot(n_b))) * w3dw;
+
+        return w;
+    }
+};
+
+
 
 struct WFN : EdgeWeightFunction {
 

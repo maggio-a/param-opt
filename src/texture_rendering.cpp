@@ -110,7 +110,7 @@ static const char *fs_text_checker[] = {
     "{                                                                                \n"
     "    color = vec4(1.0, 1.0, 1.0, 1.0);                                            \n"
     "    imageAtomicAdd(imgbuf, ivec2(gl_FragCoord.xy), 1);                           \n"
-    "    imageAtomicExchange(idbuf, ivec2(gl_FragCoord.xy), chartId);                           \n"
+    "    imageAtomicExchange(idbuf, ivec2(gl_FragCoord.xy), chartId);                 \n"
     #if 0
     "    uint val = imageAtomicCompSwap(idbuf, ivec2(gl_FragCoord.xy), 0, chartId);   \n"
     "    if (val == 0 || val == 0xffffffff)                                           \n" // no one set the vat for this fragment yet
@@ -119,6 +119,51 @@ static const char *fs_text_checker[] = {
     "        imageAtomicExchange(idbuf, ivec2(gl_FragCoord.xy), 0xffffffff);          \n" // pixel was set to a different chart, mark it
     #endif
     "}                                                                                \n"
+};
+
+
+static const char *vs_text_geom_image[] = {
+    "#version 430 core                                           \n"
+    "                                                            \n"
+    "in vec2 position;                                           \n"
+    "in vec3 position_3d;                                        \n"
+    "out vec3 p3d;                                               \n"
+    "                                                            \n"
+    "void main(void)                                             \n"
+    "{                                                           \n"
+    "    vec2 p = 2.0 * position - vec2(1.0, 1.0);               \n"
+    "    gl_Position = vec4(p, 0.5, 1.0);                        \n"
+    "    p3d = position_3d;                                      \n"
+    "}                                                           \n"
+};
+
+static const char *fs_text_geom_image[] = {
+    "#version 430 core                                                       \n"
+    "                                                                        \n"
+    "layout (r32f) uniform image2D p_x;                                      \n"
+    "layout (r32f) uniform image2D p_y;                                      \n"
+    "layout (r32f) uniform image2D p_z;                                      \n"
+    "layout (r32ui) uniform uimage2D img_fault;                              \n"
+    "in vec3 p3d;                                                            \n"
+    "uniform float magic_threshold;                                          \n"
+    "uniform int pass;                                                       \n"
+    "                                                                        \n"
+    "void main(void)                                                         \n"
+    "{                                                                       \n"
+    "    if (pass == 1) {                                                    \n"
+    "        imageStore(p_x, ivec2(gl_FragCoord.xy), vec4(p3d.x, 0, 0, 0));  \n"
+    "        imageStore(p_y, ivec2(gl_FragCoord.xy), vec4(p3d.y, 0, 0, 0));  \n"
+    "        imageStore(p_z, ivec2(gl_FragCoord.xy), vec4(p3d.z, 0, 0, 0));  \n"
+    "    } else if (pass == 2) {                                             \n"
+    "        vec4 x = imageLoad(p_x, ivec2(gl_FragCoord.xy));                \n"
+    "        vec4 y = imageLoad(p_y, ivec2(gl_FragCoord.xy));                \n"
+    "        vec4 z = imageLoad(p_z, ivec2(gl_FragCoord.xy));                \n"
+    "        vec3 gimage_pos = vec3(x.x, y.x, z.x);                          \n"
+    "        if (distance(p3d, gimage_pos) > magic_threshold) {              \n"
+    "            imageAtomicAdd(img_fault, ivec2(gl_FragCoord.xy), 1);       \n"
+    "        }                                                               \n"
+    "    }                                                                   \n"
+    "}                                                                       \n"
 };
 
 
@@ -134,6 +179,266 @@ static std::shared_ptr<QImage> RenderTexture(std::vector<Mesh::FacePointer>& fve
                                              int textureWidth, int textureHeight, GLFWwindow *parentWindow);
 
 
+
+#include <wrap/io_trimesh/export.h>
+static GeometryImageStats GetGeometryImageStats(Mesh& m, const std::vector<Mesh::FacePointer>& faces, int width, int height)
+{
+    assert(sizeof(unsigned) == 4);
+
+    // Create a hidden window
+    GLFWwindow *parentWindow = glfwGetCurrentContext();
+    bool sharedContext = (parentWindow != nullptr);
+
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
+    glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
+    glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
+    glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
+    //glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE);
+
+    //GLFWwindow *window = glfwCreateWindow(width, height, "Window", nullptr, parentWindow);
+    GLFWwindow *window = glfwCreateWindow(512, 512, "Window", nullptr, parentWindow);
+    if (!window)
+    {
+        cout << "Failed to create window or context" << endl;
+    }
+    glfwMakeContextCurrent(window);
+
+    glewExperimental = GL_TRUE;
+    GLenum err = glewInit();
+    if (err)
+    {
+        cout << "glew init error " << glewGetErrorString(err) << endl;
+    }
+    glGetError();
+
+    // OpenGL setup
+
+    GLuint vao;
+    glGenVertexArrays(1, &vao);
+    glBindVertexArray(vao);
+
+    GLint program = CompileShaders(vs_text_geom_image, fs_text_geom_image);
+    glUseProgram(program);
+
+    // Allocate vertex data
+
+    GLuint vertexbuf;
+    glGenBuffers(1, &vertexbuf);
+
+
+    // TODO scale
+
+    //vcg::Box2d box = chart->UVBox();
+
+    glBindBuffer(GL_ARRAY_BUFFER, vertexbuf);
+    glBufferData(GL_ARRAY_BUFFER, faces.size()*15*sizeof(float), NULL, GL_STATIC_DRAW);
+    float *p = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
+    for (auto fptr : faces) {
+        for (int i = 0; i < 3; ++i) {
+            *p++ = (float) fptr->cWT(i).U();
+            *p++ = (float) fptr->cWT(i).V();
+            *p++ = (float) fptr->P(i).X();
+            *p++ = (float) fptr->P(i).Y();
+            *p++ = (float) fptr->P(i).Z();
+        }
+    }
+    glUnmapBuffer(GL_ARRAY_BUFFER);
+
+    GLint pos_location = glGetAttribLocation(program, "position");
+    glVertexAttribPointer(pos_location, 2, GL_FLOAT, GL_FALSE, 5*sizeof(float), 0);
+    glEnableVertexAttribArray(pos_location);
+
+    GLint pos_id = glGetAttribLocation(program, "position_3d");
+    glVertexAttribPointer(pos_id, 3, GL_FLOAT, GL_FALSE, 5*sizeof(float), (const GLvoid *) (2*sizeof(float)));
+    glEnableVertexAttribArray(pos_id);
+
+    p = nullptr;
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+
+
+    vcg::Box3d bb;
+    for (auto fptr : faces) {
+        bb.Add(fptr->P(0));
+        bb.Add(fptr->P(1));
+        bb.Add(fptr->P(2));
+    }
+
+    GLint loc_inj_threshold = glGetUniformLocation(program, "magic_threshold");
+    glUniform1f(loc_inj_threshold, bb.Diag()*0.001);
+
+    unsigned *sb = new unsigned[width*height](); // zero initialize
+
+
+    // textures for position components
+
+    const int imgunit_p[] = {0, 1, 2};
+
+    GLint loc_imgunit_p;
+    loc_imgunit_p = glGetUniformLocation(program, "p_x");
+    glUniform1i(loc_imgunit_p, imgunit_p[0]);
+
+    loc_imgunit_p = glGetUniformLocation(program, "p_y");
+    glUniform1i(loc_imgunit_p, imgunit_p[1]);
+
+    loc_imgunit_p = glGetUniformLocation(program, "p_z");
+    glUniform1i(loc_imgunit_p, imgunit_p[2]);
+
+    GLuint tex_p[3];
+    glGenTextures(3, tex_p);
+
+    for (int i = 0; i < 3; ++i) {
+        glBindTexture(GL_TEXTURE_2D, tex_p[i]);
+        glTexStorage2D(GL_TEXTURE_2D, 1, GL_R32F, width, height);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RED, GL_FLOAT, sb);
+        glBindImageTexture(imgunit_p[i], tex_p[i], 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32F);
+    }
+
+    // texture to store interpolation faults
+    constexpr int faultbuf_unit = 3;
+    GLint loc_faultbuf = glGetUniformLocation(program, "img_fault");
+    glUniform1i(loc_faultbuf, faultbuf_unit);
+    GLuint tex_fault;
+    glGenTextures(1, &tex_fault);
+    glBindTexture(GL_TEXTURE_2D, tex_fault);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_R32UI, width, height);
+
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_RED_INTEGER, GL_UNSIGNED_INT, sb);
+    glBindImageTexture(faultbuf_unit, tex_fault, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
+
+
+    // bugfix (?) setup an offscreen context of the appropriate size to make sure
+    // the data is fully rendered
+    GLuint fbo;
+    glGenFramebuffers(1, &fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+
+    glFramebufferParameteri(GL_FRAMEBUFFER, GL_FRAMEBUFFER_DEFAULT_WIDTH, width);
+    glFramebufferParameteri(GL_FRAMEBUFFER, GL_FRAMEBUFFER_DEFAULT_HEIGHT, height);
+
+    glViewport(0, 0, width, height);
+    glScissor(0, 0, width, height);
+
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_STENCIL_TEST);
+
+    glfwPollEvents();
+
+    GLint loc_pass = glGetUniformLocation(program, "pass");
+
+    // First pass
+    glUniform1i(loc_pass, 1);
+    glDrawArrays(GL_TRIANGLES, 0, faces.size()*3);
+    glMemoryBarrier(GL_ALL_BARRIER_BITS);
+
+    // Second pass
+    glUniform1i(loc_pass, 2);
+    glDrawArrays(GL_TRIANGLES, 0, faces.size()*3);
+    glMemoryBarrier(GL_ALL_BARRIER_BITS);
+
+    glBindTexture(GL_TEXTURE_2D, tex_fault);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, sb);
+
+#if 0
+
+    float * x = new float[width * height]();
+    float * y = new float[width * height]();
+    float * z = new float[width * height]();
+    glBindTexture(GL_TEXTURE_2D, tex_p[0]);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RED, GL_FLOAT, x);
+
+    glBindTexture(GL_TEXTURE_2D, tex_p[1]);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RED, GL_FLOAT, y);
+
+    glBindTexture(GL_TEXTURE_2D, tex_p[2]);
+    glGetTexImage(GL_TEXTURE_2D, 0, GL_RED, GL_FLOAT, z);
+
+
+    std::cout << "REMOVE MEEEEEEEEEEEEEEEEEEEE" << std::endl;
+    Mesh pc;
+    Box3f bb2;
+    int u = 0;
+    for (int i = 0; i < height; ++i) {
+        for (int j =  0; j < width; ++j) {
+            int k = i * width + j;
+            if (x[k] != 0) {
+                u++;
+                Point3f pf(x[k], y[k], z[k]);
+                if(k%2) tri::Allocator<Mesh>::AddVertex(pc, Point3d(pf.X(), pf.Y(), pf.Z()));
+                bb2.Add(pf);
+            }
+        }
+    }
+    tri::io::Exporter<Mesh>::Save(pc, "pc.obj", tri::io::Mask::IOM_VERTCOORD);
+    std::cout << "############################### " << bb2.Diag() << "           " << u <<std::endl;
+    delete[] x;
+    delete[] y;
+    delete[] z;
+#endif
+
+    CheckGLError();
+
+    //glReadBuffer(GL_BACK);
+    //glReadPixels(0, 0, width, height, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, sb);
+
+    GeometryImageStats stats = {};
+
+    stats.rw = width;
+    stats.rh = height;
+    for (int i = 0; i < height; ++i) {
+        for (int j = 0; j < width; ++j) {
+            int k = i * width + j;
+            int n = sb[k]; // fault value
+            if (n > 0) {
+                stats.uniqueFaults++;
+                stats.totalFaults += (n + 1);
+            }
+        }
+    }
+
+    glfwPollEvents();
+
+    delete [] sb;
+
+    // clean up
+    glUseProgram(0);
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glBindVertexArray(0);
+
+    glDeleteBuffers(1, &vertexbuf);
+    glDeleteTextures(1, &tex_fault);
+    glDeleteTextures(3, tex_p);
+    glDeleteProgram(program);
+    glDeleteVertexArrays(1, &vao);
+
+    glfwDestroyWindow(window);
+
+    if (sharedContext) {
+        glfwMakeContextCurrent(parentWindow);
+    }
+
+    return stats;
+}
+
+std::vector<GeometryImageStats> GetGeometryImageStats(Mesh& m, TextureObjectHandle textureObject)
+{
+    std::vector<std::vector<Mesh::FacePointer>> facesByTexture;
+    int ntex = FacesByTextureIndex(m, facesByTexture);
+
+    std::vector<GeometryImageStats> statsVec;
+    for (int i = 0; i < ntex; ++i) {
+        int tw = textureObject->TextureWidth(i);
+        int th = textureObject->TextureHeight(i);
+        while (std::min(tw, th) > 4096) {
+            tw /= 2;
+            th /= 2;
+        }
+        GeometryImageStats stats = GetGeometryImageStats(m, facesByTexture[i], tw, th);
+        statsVec.push_back(stats);
+    }
+
+    return statsVec;
+}
 
 static int FacesByTextureIndex(Mesh& m, std::vector<std::vector<Mesh::FacePointer>>& fv)
 {
@@ -161,7 +466,7 @@ RasterizedParameterizationStats GetRasterizationStats(ChartHandle chart, int wid
 {
     Box2d uvBox = chart->UVBox();
     std::vector<TexCoordStorage> tcVec(chart->FN());
-    for (int k = 0; k < chart->FN(); ++k) {
+    for (unsigned k = 0; k < chart->FN(); ++k) {
         for (int i = 0; i < 3; ++i) {
             tcVec[k].tc[i] = chart->fpVec[k]->WT(i);
             chart->fpVec[k]->WT(i).U() = (chart->fpVec[k]->WT(i).U() - uvBox.min.X()) / uvBox.DimX();
@@ -171,7 +476,7 @@ RasterizedParameterizationStats GetRasterizationStats(ChartHandle chart, int wid
 
     RasterizedParameterizationStats stats = GetRasterizationStats(chart->mesh, chart->fpVec, width, height);
 
-    for (int k = 0; k < chart->FN(); ++k)
+    for (unsigned k = 0; k < chart->FN(); ++k)
         for (int i = 0; i < 3; ++i)
             chart->fpVec[k]->WT(i) = tcVec[k].tc[i];
 
@@ -376,14 +681,8 @@ static RasterizedParameterizationStats GetRasterizationStats(Mesh& m, const std:
     glGenFramebuffers(1, &fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
 
-    GLuint renderTarget;
-    glGenTextures(1, &renderTarget);
-    glBindTexture(GL_TEXTURE_2D, renderTarget);
-    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA8, width, height);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-    glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, renderTarget, 0);
-    glBindTexture(GL_TEXTURE_2D, 0);
+    glFramebufferParameteri(GL_FRAMEBUFFER, GL_FRAMEBUFFER_DEFAULT_WIDTH, width);
+    glFramebufferParameteri(GL_FRAMEBUFFER, GL_FRAMEBUFFER_DEFAULT_HEIGHT, height);
 
     glViewport(0, 0, width, height);
     glScissor(0, 0, width, height);
@@ -431,13 +730,9 @@ static RasterizedParameterizationStats GetRasterizationStats(Mesh& m, const std:
                     stats.lostFragments += (n - 1);
                 }
 
-                if (Inspect3x3KernelClash(mb, i, j, width, height)) {
-                    stats.fragmentClash++;
-                }
-                if ((n > 1) && (mb[k] == 0xffffffff)) {
-                    stats.overwrittenFragments_differentChart++;
-                    stats.lostFragments_differentChart += (n - 1);
-                }
+                if (Inspect3x3KernelClash(mb, i, j, width, height))
+                    stats.fragmentClashes++;
+
                 if (kernelMask &= KernelBit::Unset)
                     stats.boundaryFragments++;
             } else {
@@ -460,7 +755,6 @@ static RasterizedParameterizationStats GetRasterizationStats(Mesh& m, const std:
     glDeleteBuffers(1, &vertexbuf);
     glDeleteTextures(1, &tex);
     glDeleteTextures(1, &tex_id);
-    glDeleteTextures(1, &renderTarget);
     glDeleteProgram(program);
     glDeleteVertexArrays(1, &vao);
 

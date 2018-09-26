@@ -25,11 +25,16 @@ struct RasterizedParameterizationStats {
     int totalFragments;
     int totalFragments_bilinear;
     int overwrittenFragments; // number of fragments that were written more than once
-    int overwrittenFragments_differentChart; // number of fragments that were written more than once AND from different charts
     int lostFragments; // number of fragments lost due to overwrites: if fragment f has fw>1 writes, than lostFragmens += (fw-1)
-    int lostFragments_differentChart; // number of fragments lost due to overwrites from different charts
-    int fragmentClash;
+    int fragmentClashes; // clashing fragments are fragments for which bilinear interpolation hits fragments from different patches
     int boundaryFragments;
+};
+
+struct GeometryImageStats {
+    int rw;
+    int rh;
+    int uniqueFaults;
+    int totalFaults;
 };
 
 std::vector<TextureSize> ComputeSizes(int nTex, TextureObjectHandle inputTexture);
@@ -41,6 +46,8 @@ RasterizedParameterizationStats GetRasterizationStats(ChartHandle chart, int wid
 std::vector<RasterizedParameterizationStats> GetRasterizationStats(Mesh& m, TextureObjectHandle textureObject);
 
 std::vector<std::vector<RasterizedParameterizationStats>> GetRasterizationStatsAtMipmapLevels(Mesh& m, TextureObjectHandle textureObject);
+
+std::vector<GeometryImageStats> GetGeometryImageStats(Mesh& m, TextureObjectHandle textureObject);
 
 #endif // TEXTURE_RENDERING_H
 

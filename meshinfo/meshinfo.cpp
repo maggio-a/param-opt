@@ -7,12 +7,15 @@
 #include "gl_utils.h"
 #include "texture.h"
 
+#include "logging.h"
+
 #include <wrap/io_trimesh/io_mask.h>
 
 #include <string>
 #include <vector>
 #include <iostream>
 
+#include <QCoreApplication>
 #include <QImage>
 #include <QDir>
 #include <QFileInfo>
@@ -24,6 +27,12 @@ using namespace vcg;
 
 int main(int argc, char *argv[])
 {
+    // Make sure the executable directory is added to Qt's library path
+    {
+        QFileInfo executableInfo(argv[0]);
+        QCoreApplication::addLibraryPath(executableInfo.dir().absolutePath());
+    }
+    
     GLInit();
 
     Mesh m;
@@ -90,6 +99,7 @@ int main(int argc, char *argv[])
 
     std::cout << std::endl;
 
+    LogAggregateStats(m.name, graph, textureObject);
 
     GLTerminate();
 

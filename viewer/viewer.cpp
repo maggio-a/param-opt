@@ -8,6 +8,7 @@
 #include "texture.h"
 #include "mesh_viewer.h"
 #include "logging.h"
+#include "utils.h"
 
 #include <wrap/io_trimesh/io_mask.h>
 
@@ -15,60 +16,18 @@
 #include <vector>
 #include <iostream>
 
+#include <QCoreApplication>
 #include <QImage>
 #include <QDir>
 #include <QFileInfo>
 #include <QString>
 
 
-//#define CLEAN_TROUBLESOME_REGIONS_CONTEXTCAPTURE
-
-
 using namespace vcg;
-
-struct Args {
-    std::string filename;
-    bool gui;
-    bool filter;
-
-    Args() : filename{}, gui{false}, filter{true} {}
-};
-
-Args parse_args(int argc, char *argv[])
-{
-    Args args;
-    for (int i = 1; i < argc; ++i) {
-        std::string s(argv[i]);
-        if (s.substr(0, 2) == std::string("--")) {
-            if (s == std::string("--gui"))
-                args.gui = true;
-            else if (s == std::string("--nofilter"))
-                args.filter = false;
-            else
-                assert(0 && "Invalid flag option");
-        } else {
-            assert(args.filename.empty() && "Invalid argument");
-            args.filename = s;
-        }
-    }
-    return args;
-}
 
 int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
              Args args)
 {
-    int minRegionSize;
-    if (m.FN() < 100000)
-        minRegionSize = 1000;
-    else if (m.FN() < 300000)
-        minRegionSize = 5000;
-    else
-        minRegionSize = 10000;
-
-    if (minRegionSize > m.FN()) {
-        std::cout << "WARNING: minFaceCount > m.FN()" << std::endl;
-    }
-
     ParameterizationStrategy strategy = MakeStrategy(
             DirectParameterizer::FixedBorderBijective,
             EnergyType::SymmetricDirichlet,
@@ -82,6 +41,9 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
     );
     double tolerance = 0.0002;
 
+    LogExecutionParameters(args, strategy);
+
+    /*
     LogStrategy(strategy, tolerance);
 
     std::vector<std::pair<int, Mesh::FacePointer>> cc;
@@ -90,17 +52,22 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
     for (auto p : cc) if (p.first < 100) smallcomponents++;
 
     std::cout << "[LOG] " << cc.size() << " connected components (" << smallcomponents << " have less than 100 faces)" << std::endl;
+    */
+
+    int cc = tri::Clean<Mesh>::CountConnectedComponents(m);
 
     Timer t;
 
     std::unique_ptr<EdgeWeightFunction> wfct(new W3D(m));
+    //std::unique_ptr<EdgeWeightFunction> wfct(new W_Geometry3D(m));
     //std::unique_ptr<EdgeWeightFunction> wfct(new WFN(m));
     //std::unique_ptr<EdgeWeightFunction> wfct(new WUV(m));
     std::cout << "[LOG] Weight function " << wfct->Name() << std::endl;
     GraphManager gm{graph, std::move(wfct)};
 
-    int regionCount = 20;
-    RecomputeSegmentation(gm, regionCount + smallcomponents, minRegionSize);
+    double areaThreshold = 0.02;
+
+    RecomputeSegmentation(gm, args.regionCount + (cc - 1), areaThreshold);
 
     int c = ParameterizeGraph(gm, strategy, tolerance);
     if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
@@ -111,6 +78,10 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
     std::cout << "Rendering texture..." << std::endl;
     TextureObjectHandle newTexture = RenderTexture(m, textureObject, args.filter, InterpolationMode::Linear, nullptr);
 
+    graph->textureObject = newTexture;
+
+    PrintParameterizationInfo(graph);
+    LogAggregateStats("stats_output", graph, newTexture);
     std::vector<RasterizedParameterizationStats> after = GetRasterizationStats(m, newTexture);
     std::cout << "[LOG] Raster stats after processing" << std::endl;
     LogParameterizationStats(graph, after);
@@ -130,9 +101,6 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
         std::cout << "Model not saved correctly" << std::endl;
     }
 
-    PrintParameterizationInfo(graph);
-
-
     GLTerminate();
 
     return 0;
@@ -150,9 +118,11 @@ int MainGui(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
 
 int main(int argc, char *argv[])
 {
-    std::cout << "sizeof Mesh = " << sizeof(Mesh) << std::endl;
-    std::cout << "sizeof MeshFace = " << sizeof(MeshFace) << std::endl;
-    std::cout << "sizeof MeshVertex = " << sizeof(MeshVertex) << std::endl;
+    // Make sure the executable directory is added to Qt's library path
+    {
+        QFileInfo executableInfo(argv[0]);
+        QCoreApplication::addLibraryPath(executableInfo.dir().absolutePath());
+    }
 
     Args args = parse_args(argc, argv);
 
@@ -168,50 +138,47 @@ int main(int argc, char *argv[])
     assert(loadMask & tri::io::Mask::IOM_WEDGTEXCOORD);
 
 
-    // Print original info
+    GLInit();
+
+    // Log original info
+
     auto dummyGraph = ComputeParameterizationGraph(m, textureObject);
     PrintParameterizationInfo(dummyGraph);
-
-    GLInit();
+    LogAggregateStats("stats_input", dummyGraph, textureObject);
     std::vector<RasterizedParameterizationStats> before = GetRasterizationStats(m, textureObject);
     std::cout << "[LOG] Raster stats before processing" << std::endl;
     LogParameterizationStats(dummyGraph, before);
 
+    // Preliminary cleaning
 
+    std::cout << "Cleaning mesh..." << std::endl;
     tri::UpdateTopology<Mesh>::FaceFace(m);
     int numVertexSplit = tri::Clean<Mesh>::SplitNonManifoldVertex(m, 0);
     if (numVertexSplit > 0)
-        std::cout << "[LOG] Mesh was not vertex manifold, split " << numVertexSplit << " vertices" << std::endl;
+        std::cout << "Mesh was not vertex manifold, split " << numVertexSplit << " vertices" << std::endl;
     int numRemovedFaces = tri::Clean<Mesh>::RemoveNonManifoldFace(m);
     if (numRemovedFaces > 0)
-        std::cout << "[LOG] Mesh was not edge manifold, removed " << numRemovedFaces << " faces" << std::endl;
-
-    int smallCCSizeThreshold = int(2.5e-4 * m.FN());
-    auto p = tri::Clean<Mesh>::RemoveSmallConnectedComponentsSize(m, 2.5e-4 * m.FN());
-    std::cout << "[LOG] RemoveSmallConnectedComponents (total cc, removed cc, threshold) = "
-              << p.first << " , "  << p.second << " , " << smallCCSizeThreshold << std::endl;
+        std::cout << "Mesh was not edge manifold, removed " << numRemovedFaces << " faces" << std::endl;
 
     tri::Allocator<Mesh>::CompactEveryVector(m);
 
+    // Apply topological filter if requested
 
-#ifdef CLEAN_TROUBLESOME_REGIONS_CONTEXTCAPTURE
-    CleanSmallComponents(m, dummyGraph, textureObject, 1e-4);
-#endif
-
-    ScaleTextureCoordinatesToImage(m, textureObject);
+    if (args.fixContextCapture) {
+        std::cout << "WARNING: option --fixcontextcapture detected, attempting to remove topological noise" << std::endl;
+        CleanSmallComponents(m, dummyGraph, textureObject, 1e-4);
+    }
 
     dummyGraph = nullptr;
+    // Prepare the mesh for processing
 
+    ScaleTextureCoordinatesToImage(m, textureObject);
     ComputeParameterizationScaleInfo(m);
     MarkSeamsAsFaux(m);
 
     auto graph = ComputeParameterizationGraph(m, textureObject);
-    PreprocessMesh(m, graph);
+    ParameterizeZeroAreaRegions(m, graph);
     StoreWedgeTexCoordAsAttribute(m);
-
-
-    // Print original info
-    PrintParameterizationInfo(graph);
 
     if (args.gui)
         return MainGui(m, graph, textureObject, args);

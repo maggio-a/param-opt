@@ -15,6 +15,7 @@
 #include <vector>
 #include <iostream>
 
+#include <QCoreApplication>
 #include <QImage>
 #include <QDir>
 #include <QFileInfo>
@@ -25,6 +26,12 @@ using namespace vcg;
 
 int main(int argc, char *argv[])
 {
+    // Make sure the executable directory is added to Qt's library path
+    {
+        QFileInfo executableInfo(argv[0]);
+        QCoreApplication::addLibraryPath(executableInfo.dir().absolutePath());
+    }
+
     Mesh m;
     TextureObjectHandle textureObject;
     int loadMask;

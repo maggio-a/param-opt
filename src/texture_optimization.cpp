@@ -310,12 +310,6 @@ void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, std::ve
 
 }
 
-void PreprocessMesh(Mesh& m, GraphHandle graph)
-{
-    // Parameterize regions that are not parameterized
-    ParameterizeZeroAreaRegions(m, graph);
-}
-
 void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
 {
     assert(HasParameterizationScaleInfoAttribute(m));
@@ -334,7 +328,7 @@ void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
             true,           // Fill holes
             true,           // Use cuts
             false,          // No warm start
-            true            // Enable scaffold
+            false           // Disable scaffold
     );
 
     for (auto& entry : graph->charts) {
@@ -372,7 +366,7 @@ void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
     std::cout << "[LOG] Newly parameterized regions: " << numParameterized << "/" << numNoParam << std::endl;
 }
 
-void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, std::size_t minRegionSize)
+void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, double smallRegionAreaThreshold)
 {
     Timer timer;
     int mergeCount;
@@ -380,16 +374,19 @@ void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, std::size_
 
     assert(regionCount > 0);
 
-    std::cout << "[LOG] Reduction strategy TargetRegionCount=" << regionCount << " (region threshold " << minRegionSize << ")" << std::endl;
+    std::cout << "[LOG] Reduction strategy TargetRegionCount=" << regionCount << " (region threshold " << smallRegionAreaThreshold << ")" << std::endl;
+
+    double minChartArea = smallRegionAreaThreshold * gm.Graph()->Area3D();
 
     do {
-        mergeCount = gm.CloseMacroRegions(minRegionSize);
+        mergeCount = gm.CloseMacroRegions(smallRegionAreaThreshold);
         //mergeCount = 0;
 
         while (gm.HasNextEdge()) {
             auto we = gm.PeekNextEdge();
+            double minNextArea = std::min(we.first.a->Area3D(), we.first.b->Area3D());
             bool regionReached = (regionCount <= 0) || (gm.Graph()->Count() <= regionCount);
-            bool sizeThresholdReached = (we.first.a->FN() > minRegionSize && we.first.b->FN() > minRegionSize);
+            bool sizeThresholdReached = minNextArea > minChartArea;
             if (regionReached && sizeThresholdReached)
                 break;
             else {
@@ -408,6 +405,15 @@ void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, std::size_
         numIter++;
 
     } while (mergeCount > 0);
+
+    /*
+    MyMesh edgeMesh;
+    gm.Graph()->ToEdgeMesh(edgeMesh);
+    std::stringstream ss;
+    ss << "charts_" << gm.Graph()->mesh.name;
+    tri::io::Exporter<MyMesh>::Save(edgeMesh, ss.str().c_str(), io::Mask::IOM_VERTCOORD);
+    assert(0);
+    */
 
     // Make sure the texcoords of each chart refer to the same texture unit, otherwise
     // it causes trouble when computing FaceFaceFromTexCoord adjancency
@@ -603,10 +609,10 @@ RasterizationBasedPacker::PackingStats Pack(GraphHandle graph, const PackingOpti
     int sizeUnit;
     if (options.lowResPacking) {
         sizeUnit = 256;
-        packingParam.pad = 1;
+        packingParam.pad = 2;
     } else {
         sizeUnit = 2048;
-        packingParam.pad = 4;
+        packingParam.pad = 8;
     }
 
     std::vector<Point2i> containerVec;
@@ -668,7 +674,7 @@ RasterizationBasedPacker::PackingStats Pack(GraphHandle graph, const PackingOpti
                 }
             }
             std::vector<Similarity2f> containerTransforms;
-            PixelShiftingOptimizer<float, QtOutline2Rasterizer>::Parameters par = {4096, 4096, 4};
+            PixelShiftingOptimizer<float, QtOutline2Rasterizer>::Parameters par = {4096, 4096, 16};
             float scale = PixelShiftingOptimizer<float, QtOutline2Rasterizer>::Apply(containerOutlines, containerTransforms, par);
             for (unsigned j = 0; j < containerTransforms.size(); ++j) {
                 shiftingTransforms[outlineIndex[j]] = containerTransforms[j];

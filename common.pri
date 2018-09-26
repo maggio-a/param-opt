@@ -74,4 +74,7 @@ win32 {
   DEFINES += NOMINMAX
 }
 
+HEADERS += \
+    $$PWD/src/utils.h
+
 

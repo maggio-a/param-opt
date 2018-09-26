@@ -9,6 +9,7 @@
 #include "uniform_solver.h"
 #include "mean_value_param.h"
 #include "timer.h"
+#include "utils.h"
 
 #include "polygon2_triangulator.h"
 
@@ -882,10 +883,9 @@ FaceGroup::FaceGroup(Mesh& m, const RegionID id_)
       fpVec{},
       adj{},
       numMerges{0},
+      cache{},
       minMappedFaceValue{-1},
-      maxMappedFaceValue{-1},
-      borderUV{0},
-      borderChanged{false}
+      maxMappedFaceValue{-1}
 {
 }
 
@@ -897,14 +897,64 @@ void FaceGroup::Clear()
     numMerges = 0;
     minMappedFaceValue = -1;
     maxMappedFaceValue = -1;
-    borderUV = 0.0;
-    borderChanged = false;
+    cache = {};
+    dirty = false;
+}
+
+void FaceGroup::UpdateCache() const
+{
+    double areaUV = 0;
+    double area3D = 0;
+    vcg::Point3d weightedSumNormal = vcg::Point3d::Zero();
+    for (auto fptr : fpVec) {
+        areaUV += std::abs(DistortionMetric::AreaUV(*fptr));
+        area3D += DistortionMetric::Area3D(*fptr);
+        weightedSumNormal += (fptr->P(1) - fptr->P(0)) ^ (fptr->P(2) ^ fptr->P(0));
+    }
+
+    // TODO this does not take cuts into account...
+    auto CCIDh = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(mesh, "ConnectedComponentID");
+    assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CCIDh));
+
+    double borderUV = 0.0;
+    for (auto fptr : fpVec) {
+        for (int i = 0; i < 3; ++i) {
+            if (face::IsBorder(*fptr, i) || CCIDh[fptr] != CCIDh[fptr->FFp(i)]) {
+                borderUV += EdgeLengthUV(*fptr, i);
+            }
+        }
+    }
+
+    double border3D = 0.0;
+    for (auto fptr : fpVec) {
+        for (int i = 0; i < 3; ++i) {
+            if (face::IsBorder(*fptr, i) || CCIDh[fptr] != CCIDh[fptr->FFp(i)]) {
+                border3D += EdgeLength(*fptr, i);
+            }
+        }
+    }
+
+    cache.area3D = area3D;
+    cache.areaUV = areaUV;
+    cache.borderUV = borderUV;
+    cache.border3D = border3D;
+    cache.weightedSumNormal = weightedSumNormal;
+
+    dirty = false;
+}
+
+vcg::Point3d FaceGroup::AverageNormal() const
+{
+    if (dirty)
+        UpdateCache();
+    vcg::Point3d avgN = ((cache.weightedSumNormal) / (2.0 * cache.area3D));
+    return avgN.Normalize();
 }
 
 void FaceGroup::AddFace(const Mesh::FacePointer fptr)
 {
     fpVec.push_back(fptr);
-    ParameterizationChanged();
+    dirty = true;
 }
 
 double FaceGroup::OriginalAreaUV() const
@@ -922,22 +972,30 @@ double FaceGroup::OriginalAreaUV() const
 
 double FaceGroup::AreaUV() const
 {
-    double areaUV = 0;
-    for (auto fptr : fpVec) areaUV += std::abs(DistortionMetric::AreaUV(*fptr));
-    return areaUV;
+    if (dirty)
+        UpdateCache();
+    return cache.areaUV;
 }
 
 double FaceGroup::Area3D() const
 {
-    double area3D = 0;
-    for (auto fptr : fpVec) area3D += DistortionMetric::Area3D(*fptr);
-    return area3D;
+    if (dirty)
+        UpdateCache();
+    return cache.area3D;
 }
 
 double FaceGroup::BorderUV() const
 {
-    if (borderChanged) UpdateBorder();
-    return borderUV;
+    if (dirty)
+        UpdateCache();
+    return cache.borderUV;
+}
+
+double FaceGroup::Border3D() const
+{
+    if (dirty)
+        UpdateCache();
+    return cache.border3D;
 }
 
 vcg::Box2d FaceGroup::UVBox() const
@@ -953,7 +1011,7 @@ vcg::Box2d FaceGroup::UVBox() const
 
 void FaceGroup::ParameterizationChanged()
 {
-    borderChanged = true;
+    dirty = true;
 }
 
 Mesh::FacePointer FaceGroup::Fp()
@@ -990,20 +1048,9 @@ void FaceGroup::MapDistortion(DistortionMetric::Type type, ParameterizationGeome
 
 void FaceGroup::UpdateBorder() const
 {
-    auto CCIDh = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(mesh, "ConnectedComponentID");
-    assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CCIDh));
-
-    borderUV = 0.0;
-    for (auto fptr : fpVec) {
-        for (int i = 0; i < 3; ++i) {
-            if (face::IsBorder(*fptr, i) || CCIDh[fptr] != CCIDh[fptr->FFp(i)]) {
-                borderUV += EdgeLengthUV(*fptr, i);
-            }
-        }
-    }
-    borderChanged = false;
+    if (dirty)
+        UpdateCache();
 }
-
 
 // MeshGraph class implementation
 // ==============================
@@ -1080,21 +1127,33 @@ int MeshGraph::MergeCount() const
 
 double MeshGraph::Area3D() const
 {
-    double area3D = 0.0f;
+    double area3D = 0;
     for (const auto& c : charts) area3D += c.second->Area3D();
     return area3D;
 }
 
+double MeshGraph::MappedFraction() const
+{
+    double area3D = 0;
+    double mappedArea3D = 0;
+    for (const auto& c : charts) {
+        area3D += c.second->Area3D();
+        if (c.second->AreaUV() > 0)
+            mappedArea3D += c.second->Area3D();
+    }
+    return mappedArea3D / area3D;
+}
+
 double MeshGraph::AreaUV() const
 {
-    double areaUV = 0.0f;
+    double areaUV = 0;
     for (const auto& c : charts) areaUV += c.second->AreaUV();
     return areaUV;
 }
 
 double MeshGraph::BorderUV() const
 {
-    double borderUV = 0.0;
+    double borderUV = 0;
     for (const auto& c : charts) borderUV += c.second->BorderUV();
     return borderUV;
 }
@@ -1309,11 +1368,15 @@ void GraphManager::Split(const RegionID id, std::vector<ChartHandle>& splitChart
     }
 }
 
-int GraphManager::CloseMacroRegions(std::size_t minRegionSize)
+int GraphManager::CloseMacroRegions(double areaThreshold)
 {
+    ensure_condition(areaThreshold > 0 && areaThreshold < 1);
+
     int mergeCount = 0;
 
     auto& regions = g->charts;
+
+    double thresholdValue = Graph()->Area3D() * areaThreshold;
 
     std::unordered_map<RegionID, std::vector<RegionID>> mergeLists;
     std::unordered_map<RegionID, RegionID> invertedIndex;
@@ -1322,7 +1385,7 @@ int GraphManager::CloseMacroRegions(std::size_t minRegionSize)
         auto chart = entry.second;
         if (invertedIndex.count(chart->id) == 1) continue; // skip if this region is already going to be merged to something else
         for (auto& adjRegion : chart->adj) {
-            if (adjRegion->NumAdj() == 1 && adjRegion->FN() < minRegionSize) {
+            if (adjRegion->NumAdj() == 1 && adjRegion->Area3D() < thresholdValue) {
                 assert(invertedIndex.count(adjRegion->id) == 0);
                 mergeLists[chart->id].push_back(adjRegion->id);
                 invertedIndex[adjRegion->id] = chart->id;

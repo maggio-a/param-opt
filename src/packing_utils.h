@@ -181,6 +181,7 @@ public:
             Set(buffer, boundaries, xpos[k], ypos[k], k);
         }
 
+        /*
         {
             std::ofstream ofs("shift.ppm", std::ios_base::binary | std::ios_base::out | std::ios_base::trunc);
             if (!ofs) {
@@ -199,6 +200,7 @@ public:
                 ofs.close();
             }
         }
+        */
 
         std::cout << "Shifting charts..." << std::endl;
 
@@ -234,7 +236,6 @@ public:
                 cover.Add(Point2i(xpos[k], ypos[k]) + p);
         }
 
-        std::cout << "FIXME proper offsets (see rasterized_outline2_packer.h)" << std::endl;
         // compute the vector of transforms
         trVec.clear();
         for (unsigned k = 0; k < polyVec.size(); ++k) {
@@ -256,6 +257,7 @@ public:
             trVec.push_back(sim);
         }
 
+        /*
         std::ofstream ofs("shift_final.ppm", std::ios_base::binary | std::ios_base::out | std::ios_base::trunc);
         if (!ofs) {
             assert(0);
@@ -272,6 +274,7 @@ public:
             }
             ofs.close();
         }
+        */
 
         std::cout << "=== Pixel shifting procedure finished ===" << std::endl;
 

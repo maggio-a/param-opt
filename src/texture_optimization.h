@@ -38,11 +38,10 @@ struct PackingOptions {
 };
 
 void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph);
-void PreprocessMesh(Mesh& m, GraphHandle graph);
 
 bool ChartParameterizationHasOverlaps(Mesh& m, GraphManager::ChartHandle chart);
 
-void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, std::size_t minRegionSize);
+void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, double smallRegionAreaThreshold);
 
 /* Parameterize the mesh graph. The parameterization of each region is performed
  * according to the ParameterizationStrategy passed.

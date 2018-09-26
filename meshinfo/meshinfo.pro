@@ -8,7 +8,8 @@ SOURCES += meshinfo.cpp \
     ../src/mesh_utils.cpp \
     ../src/texture.cpp \
     ../src/texture_rendering.cpp \
-    ../src/mesh.cpp
+    ../src/mesh.cpp \
+    ../src/logging.cpp
 
 SOURCES += \
     $${VCGPATH}/wrap/ply/plylib.cpp \
@@ -38,6 +39,7 @@ HEADERS += \
     ../src/polygon2_triangulator.h \
     ../src/parameterization.h \
     ../src/mean_value_param.h \
-    ../src/packing_utils.h
+    ../src/packing_utils.h \
+    ../src/logging.h
 
 
