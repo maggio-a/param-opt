@@ -28,6 +28,7 @@ struct RasterizedParameterizationStats {
     int overwrittenFragments_differentChart; // number of fragments that were written more than once AND from different charts
     int lostFragments; // number of fragments lost due to overwrites: if fragment f has fw>1 writes, than lostFragmens += (fw-1)
     int lostFragments_differentChart; // number of fragments lost due to overwrites from different charts
+    int fragmentClash;
     int boundaryFragments;
 };
 

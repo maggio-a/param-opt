@@ -110,11 +110,14 @@ static const char *fs_text_checker[] = {
     "{                                                                                \n"
     "    color = vec4(1.0, 1.0, 1.0, 1.0);                                            \n"
     "    imageAtomicAdd(imgbuf, ivec2(gl_FragCoord.xy), 1);                           \n"
+    "    imageAtomicExchange(idbuf, ivec2(gl_FragCoord.xy), chartId);                           \n"
+    #if 0
     "    uint val = imageAtomicCompSwap(idbuf, ivec2(gl_FragCoord.xy), 0, chartId);   \n"
     "    if (val == 0 || val == 0xffffffff)                                           \n" // no one set the vat for this fragment yet
     "        return;                                                                  \n" // or its a 'marked' pixel already
     "    else if (val != chartId)                                                     \n"
     "        imageAtomicExchange(idbuf, ivec2(gl_FragCoord.xy), 0xffffffff);          \n" // pixel was set to a different chart, mark it
+    #endif
     "}                                                                                \n"
 };
 
@@ -226,13 +229,26 @@ inline int Inspect3x3Kernel(unsigned *buffer, int row, int col, int width, int h
         mask |= Unset;
     for (int i = std::max(row-1, 0); i < std::min(row+2, height); ++i) {
         for (int j = std::max(col-1, 0); j < std::min(col+2, width); ++j) {
-            if (buffer[row * width + i] == 0)
+            if (buffer[i * width + j] == 0)
                 mask |= Unset;
             else
                 mask |= Set;
         }
     }
     return mask;
+}
+
+inline bool Inspect3x3KernelClash(unsigned *buffer, int row, int col, int width, int height)
+{
+    unsigned id = buffer[row*width + col];
+    for (int i = std::max(row-1, 0); i < std::min(row+2, height); ++i) {
+        for (int j = std::max(col-1, 0); j < std::min(col+2, width); ++j) {
+            unsigned buff_id = buffer[i * width + j];
+            if (i != row && j != col && (buff_id != 0 && buff_id != id))
+                return true;
+        }
+    }
+    return false;
 }
 
 static RasterizedParameterizationStats GetRasterizationStats(Mesh& m, const std::vector<Mesh::FacePointer>& faces, int width, int height)
@@ -413,6 +429,10 @@ static RasterizedParameterizationStats GetRasterizationStats(Mesh& m, const std:
                 if ((n > 1)) {
                     stats.overwrittenFragments++;
                     stats.lostFragments += (n - 1);
+                }
+
+                if (Inspect3x3KernelClash(mb, i, j, width, height)) {
+                    stats.fragmentClash++;
                 }
                 if ((n > 1) && (mb[k] == 0xffffffff)) {
                     stats.overwrittenFragments_differentChart++;
