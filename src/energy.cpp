@@ -22,7 +22,7 @@ using Eigen::MatrixXd;
 Energy::Energy(Mesh& mesh)
     : m{mesh}
 {
-    assert(HasTargetShapeAttribute(mesh));
+    ensure_condition(HasTargetShapeAttribute(mesh));
     targetShape = GetTargetShapeAttribute(mesh);
 }
 
@@ -44,9 +44,9 @@ void Energy::UpdateCache()
         else if (f.IsScaffold())
             numScaffoldFaces++;
         else
-            assert(0);
+            ensure_condition(0);
     }
-    assert(numMeshFaces + numHoleFillingFaces + numScaffoldFaces == (int) m.face.size());
+    ensure_condition(numMeshFaces + numHoleFillingFaces + numScaffoldFaces == (int) m.face.size());
 
     surfaceArea = 0;
     holeFillingArea = 0;
@@ -216,7 +216,7 @@ void SymmetricDirichletEnergy::Grad(int faceIndex, Eigen::Vector2d& g0, Eigen::V
             double gu = gu_area * angleTerm + e_a * gu_angle;
             double gv = gv_area * angleTerm + e_a * gv_angle;
 
-            assert(std::isnan(gu) == false && std::isnan(gv) == false);
+            ensure_condition(std::isnan(gu) == false && std::isnan(gv) == false);
 
             g[i] = Eigen::Vector2d{gu, gv};
         }
@@ -229,17 +229,17 @@ void SymmetricDirichletEnergy::UpdateCache()
     data.UpdateSize();
     for (auto&f : m.face) {
         data[f][3] = (((P(&f, 1) - P(&f, 0)) ^ (P(&f, 2) - P(&f, 0))).Norm() / 2.0);
-        assert(!std::isnan(data[f][3]));
-        assert(std::isfinite(data[f][3]));
-        assert(data[f][3] > 0);
+        ensure_condition(!std::isnan(data[f][3]));
+        ensure_condition(std::isfinite(data[f][3]));
+        ensure_condition(data[f][3] > 0);
     }
     for (auto& f : m.face) {
         for (int i=0; i<3; i++) {
             Point3d a = P1(&f, i) - P0(&f, i);
             Point3d c = P2(&f, i) - P0(&f, i);
             data[f][i] = VecCotg(a, c);
-            assert(!std::isnan(data[f][i]));
-            assert(std::isfinite(data[f][i]));
+            ensure_condition(!std::isnan(data[f][i]));
+            ensure_condition(std::isfinite(data[f][i]));
         }
     }
     Energy::UpdateCache();

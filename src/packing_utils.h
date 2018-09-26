@@ -6,6 +6,7 @@
 
 #include <fstream>
 
+#include "utils.h"
 
 using Outline2f = std::vector<vcg::Point2f>;
 
@@ -57,11 +58,11 @@ class PixelShiftingOptimizer
         for (const auto& p : boundaries[k]) {
             int row = ypos + p.Y();
             int col = xpos + p.X();
-            //assert(!COLLIDE(buffer, row, col, k));
+            //ensure_condition(!COLLIDE(buffer, row, col, k));
             bool collision = COLLIDE(buffer, row, col, k);
             if (collision) {
                 std::cout << "collision at " << col << " " << row << std::endl;
-                //assert(!collision);
+                //ensure_condition(!collision);
             }
 
             buffer[row][col] = k;
@@ -76,11 +77,11 @@ class PixelShiftingOptimizer
         for (const auto& p : boundaries[k]) {
             int row = ypos + p.Y();
             int col = xpos + p.X();
-            //assert(!COLLIDE(buffer, row, col, k));
+            //ensure_condition(!COLLIDE(buffer, row, col, k));
             bool collision = COLLIDE(buffer, row, col, k);
             if (collision) {
                 std::cout << "collision at " << col << " " << row << std::endl;
-                assert(!collision);
+                ensure_condition(!collision);
             }
             buffer[row][col] = PIXEL_CLEAR();
         }
@@ -103,9 +104,9 @@ class PixelShiftingOptimizer
 
     static void ComputeBoundaryFromGrid(const std::vector<std::vector<int>>& grid, std::vector<vcg::Point2i>& boundaryVector)
     {
-        assert(grid.size() > 0);
+        ensure_condition(grid.size() > 0);
         int numRows = grid.size();
-        assert(grid[0].size() > 0);
+        ensure_condition(grid[0].size() > 0);
         int numCols = grid[0].size();
         boundaryVector.clear();
         for (int i = 0; i < numRows; ++i) {
@@ -132,7 +133,7 @@ public:
 
         // compute scale factor that optimally fits the raster space
         ScalarType scale = std::min(ScalarType(param.w), ScalarType(param.h));
-        assert(scale > 0);
+        ensure_condition(scale > 0);
 
         // compute the initial offsets
         std::vector<Box2x> polyBoxes;
@@ -185,7 +186,7 @@ public:
         {
             std::ofstream ofs("shift.ppm", std::ios_base::binary | std::ios_base::out | std::ios_base::trunc);
             if (!ofs) {
-                assert(0);
+                ensure_condition(0);
             } else {
                 ofs << "P6 " << param.w << " " << param.h << " 255\n";
                 for (int i = 0; i < param.h; ++i) {
@@ -260,7 +261,7 @@ public:
         /*
         std::ofstream ofs("shift_final.ppm", std::ios_base::binary | std::ios_base::out | std::ios_base::trunc);
         if (!ofs) {
-            assert(0);
+            ensure_condition(0);
         } else {
             ofs << "P6 " << param.w << " " << param.h << " 255\n";
             for (int i = 0; i < param.h; ++i) {

@@ -39,14 +39,14 @@ int main(int argc, char *argv[])
     TextureObjectHandle textureObject;
     int loadMask;
 
-    assert(argc > 1);
+    ensure_condition(argc > 1);
 
     if (LoadMesh(m, argv[1], textureObject, loadMask) == false) {
         std::cout << "Failed to open mesh " << argv[1] << std::endl;
         std::exit(-1);
     }
 
-    assert(loadMask & tri::io::Mask::IOM_WEDGTEXCOORD);
+    ensure_condition(loadMask & tri::io::Mask::IOM_WEDGTEXCOORD);
 
     tri::UpdateTopology<Mesh>::FaceFace(m);
 

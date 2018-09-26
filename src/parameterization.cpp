@@ -52,9 +52,9 @@ void ParameterizerObject::Reset()
         std::cout << "ParameterizerObject: Using warm start" << std::endl;
 
     bool init = BuildShell(shell, *chart, strategy.geometry, strategy.warmStart);
-    assert(init && "Failed to initialize ParameterizerObject solution");
-    assert(CheckUVConnectivity(shell));
-    assert(CheckLocalInjectivity(shell));
+    ensure_condition(init && "Failed to initialize ParameterizerObject solution");
+    ensure_condition(CheckUVConnectivity(shell));
+    ensure_condition(CheckLocalInjectivity(shell));
 
     if (strategy.scaffold)
         BuildScaffold(shell, strategy.geometry, baseMesh);
@@ -227,7 +227,7 @@ void ParameterizerObject::InitializeOptimizer()
         opt = std::make_shared<CompMaj>(energy_sd);
         break;
     default:
-        assert(0 && "Unknown descent algorithm");
+        ensure_condition(0 && "Unknown descent algorithm");
     }
     energy = energy_sd;
 }
@@ -464,7 +464,7 @@ void ParameterizerObject::PlaceCut()
 
     double maxDistance = 0;
     for (auto& sv : shell.vert) {
-        if (sv.Q() < 0) assert(0);
+        if (sv.Q() < 0) ensure_condition(0);
         if (sv.Q() < INFINITY && sv.Q() > maxDistance) maxDistance = sv.Q();
     }
 
@@ -491,14 +491,14 @@ void ParameterizerObject::PlaceCut()
             }
         }
     }
-    assert(startFace != nullptr);
+    ensure_condition(startFace != nullptr);
 
     //tri::io::Exporter<Mesh>::Save(shell, "shell_before_cut.obj", tri::io::Mask::IOM_ALL);
 
     std::cout << "Selected face " << tri::Index(shell, startFace) << " edge " << cutEdge << std::endl;
 
     PosF p(startFace, cutEdge);
-    assert(!p.IsBorder());
+    ensure_condition(!p.IsBorder());
 
     tri::UpdateFlags<Mesh>::FaceClearFaceEdgeS(shell);
     PosF boundaryPos = SelectShortestSeamPathToBoundary(shell, p);
@@ -527,7 +527,7 @@ void ParameterizerObject::PlaceCut()
  *     and close the holes in UV space */
 bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
 {
-    assert(ncones > 0);
+    ensure_condition(ncones > 0);
 
     // sanity check
     ComputeDistanceFromBorderOnSeams(shell);
@@ -853,9 +853,9 @@ void ComputeCotangentWeightedLaplacian(Mesh& shell, Eigen::SparseMatrix<double>&
             Mesh::VertexPointer vj = sf.V1(i);
             Mesh::VertexPointer vk = sf.V2(i);
 
-            assert(Idx[vi] >= 0 && Idx[vi] < shell.VN());
-            assert(Idx[vj] >= 0 && Idx[vj] < shell.VN());
-            assert(Idx[vk] >= 0 && Idx[vk] < shell.VN());
+            ensure_condition(Idx[vi] >= 0 && Idx[vi] < shell.VN());
+            ensure_condition(Idx[vj] >= 0 && Idx[vj] < shell.VN());
+            ensure_condition(Idx[vk] >= 0 && Idx[vk] < shell.VN());
 
             double alpha_ij = std::max(VecAngle(vi->P() - vk->P(), vj->P() - vk->P()), eps); // angle at k
             double alpha_ik = std::max(VecAngle(vi->P() - vj->P(), vk->P() - vj->P()), eps); // angle at j
@@ -965,7 +965,7 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf, c
     double minscale = std::numeric_limits<double>::infinity();
     for (int i = 0; i < m.VN(); ++i) {
         double s = std::abs(csf[i]);
-        //assert(scalingFactors[i] > 0.0);
+        //ensure_condition(scalingFactors[i] > 0.0);
         if (s > maxscale) {
             maxscale = s;
         }

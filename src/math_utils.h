@@ -50,7 +50,7 @@ double VecCotg(const PointType& u, const PointType& v)
 template <typename PointType, typename PointTypeOut>
 void LocalIsometry(const PointType& v1, const PointType& v2, PointTypeOut& w1, PointTypeOut& w2)
 {
-    //assert(v1.Norm() > 0 && v2.Norm() > 0);
+    //ensure_condition(v1.Norm() > 0 && v2.Norm() > 0);
     double v1n = v1.Norm();
     double v2n = v2.Norm();
     if (v1n == 0 || v2n == 0) {

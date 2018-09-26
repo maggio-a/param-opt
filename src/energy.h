@@ -118,7 +118,7 @@ public:
 
 inline Mesh::CoordType Energy::P(Mesh::ConstFacePointer fp, int i)
 {
-   assert(i >= 0 && i <= 2);
+   ensure_condition(i >= 0 && i <= 2);
    return targetShape[fp].P[i];
 }
 
@@ -128,7 +128,7 @@ inline Mesh::CoordType Energy::P2(Mesh::ConstFacePointer fp, int i) { return P(f
 
 inline double Energy::GetScaffoldWeight() const
 {
-    assert(scaffoldRegularizationTerm > 0);
+    ensure_condition(scaffoldRegularizationTerm > 0);
     return scaffoldRegularizationTerm;
 }
 

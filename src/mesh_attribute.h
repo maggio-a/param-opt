@@ -2,6 +2,7 @@
 #define MESH_ATTRIBUTE_H
 
 #include "mesh.h"
+#include "utils.h"
 
 /*
  * The input mesh has the following attributes defined
@@ -79,13 +80,13 @@ struct BoundaryInfo {
 
 inline std::size_t BoundaryInfo::N()
 {
-    assert(vBoundaryLength.size() == vBoundarySize.size() && vBoundaryLength.size() == vBoundaryFaces.size());
+    ensure_condition(vBoundaryLength.size() == vBoundarySize.size() && vBoundaryLength.size() == vBoundaryFaces.size());
     return vBoundaryLength.size();
 }
 
 inline std::size_t BoundaryInfo::LongestBoundary()
 {
-    assert(N() > 0);
+    ensure_condition(N() > 0);
     return std::distance(vBoundaryLength.begin(),
                          std::max_element(vBoundaryLength.begin(), vBoundaryLength.end()));
 }

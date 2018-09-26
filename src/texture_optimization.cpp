@@ -186,9 +186,9 @@ void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, std::ve
             while (!s.empty()) {
                 Mesh::FacePointer fp = s.top();
                 s.pop();
-                assert(visited.count(fp) == 0);
+                ensure_condition(visited.count(fp) == 0);
 
-                assert(inStack.count(fp) > 0);
+                ensure_condition(inStack.count(fp) > 0);
                 inStack.erase(fp);
 
                 RegionID id = ccid[fp];
@@ -209,7 +209,7 @@ void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, std::ve
                         if (currentMerge.size() == 0) {
                             // handle special case where a single subchart is overlapping by removing it
                             //std::cout << "single subchart overlaps " << id << std::endl;
-                            assert(inStack.size() == 0 && s.size() == 0); // we detect this from the starting face
+                            ensure_condition(inStack.size() == 0 && s.size() == 0); // we detect this from the starting face
                             for (auto fptr : chfp->fpVec) {
                                 visited.insert(fptr); // set all the subchart faces as visited
                             }
@@ -238,10 +238,10 @@ void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, std::ve
                     }
                 }
             } // while (!s.empty())
-            assert(inStack.empty());
+            ensure_condition(inStack.empty());
             for (auto cc : currentMerge) {
                 for (auto ff : cc->fpVec)
-                    assert(visited.count(ff) > 0);
+                    ensure_condition(visited.count(ff) > 0);
             }
             mergeSets.push_back(currentMerge);
         }
@@ -259,7 +259,7 @@ void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, std::ve
         std::cout << endl;
         */
         auto res = gm.Collapse(set.begin(), set.end());
-        assert(res.first == GraphManager::Collapse_OK);
+        ensure_condition(res.first == GraphManager::Collapse_OK);
         chartVec.push_back(res.second);
     }
 
@@ -312,7 +312,7 @@ void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, std::ve
 
 void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
 {
-    assert(HasParameterizationScaleInfoAttribute(m));
+    ensure_condition(HasParameterizationScaleInfoAttribute(m));
     auto info = GetParameterizationScaleInfoAttribute(m);
     double scale = info().scale;
 
@@ -372,7 +372,7 @@ void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, double sma
     int mergeCount;
     int numIter = 0;
 
-    assert(regionCount > 0);
+    ensure_condition(regionCount > 0);
 
     std::cout << "[LOG] Reduction strategy TargetRegionCount=" << regionCount << " (region threshold " << smallRegionAreaThreshold << ")" << std::endl;
 
@@ -412,7 +412,7 @@ void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, double sma
     std::stringstream ss;
     ss << "charts_" << gm.Graph()->mesh.name;
     tri::io::Exporter<MyMesh>::Save(edgeMesh, ss.str().c_str(), io::Mask::IOM_VERTCOORD);
-    assert(0);
+    ensure_condition(0);
     */
 
     // Make sure the texcoords of each chart refer to the same texture unit, otherwise
@@ -439,7 +439,7 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
     if (strategy.scaffold || injectivityTolerance < 0)
         injectivityCheckRequired = false;
     else {
-        assert(injectivityTolerance >= 0 && injectivityTolerance <= 1);
+        ensure_condition(injectivityTolerance >= 0 && injectivityTolerance <= 1);
         injectivityCheckRequired = true;
     }
 
@@ -447,7 +447,7 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
 
     GraphHandle graph = gm.Graph();
 
-    assert(HasWedgeTexCoordStorageAttribute(graph->mesh));
+    ensure_condition(HasWedgeTexCoordStorageAttribute(graph->mesh));
     auto wtcsattr = GetWedgeTexCoordStorageAttribute(graph->mesh);
 
     std::cout << "Parameterizing " << graph->charts.size() << " regions..." << std::endl;
@@ -516,7 +516,7 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
                 double oldUvArea = chart->OriginalAreaUV();
                 double newUvArea = chart->AreaUV();
                 double scale = std::sqrt(oldUvArea / newUvArea);
-                assert(scale > 0);
+                ensure_condition(scale > 0);
                 // scale shoud be very close to 1 if we optimize for area distortion wrt to original uv coords
                 std::cout << "Chart scale value = " << scale << std::endl;
                 vcg::Box2d uvBox = chart->UVBox();

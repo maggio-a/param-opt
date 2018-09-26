@@ -36,7 +36,7 @@ inline Polyline2 BuildPolyline2(const std::vector<std::size_t> &vfi, const std::
     polyline.reserve(vfi.size());
     for (std::size_t i = 0; i < vfi.size(); ++i) {
         const vcg::Point3d& p = shell2D.face[vfi[i]].cP(vvi[i]);
-        assert(p.Z() == 0.0);
+        ensure_condition(p.Z() == 0.0);
         polyline.push_back({p.X(), p.Y()});
     }
     return polyline;
@@ -58,9 +58,9 @@ void ComputeBoundaryInfo(Mesh& m)
 
                 face::Pos<Mesh::FaceType> p(&f, i);
                 face::Pos<Mesh::FaceType> startPos = p;
-                assert(p.IsBorder());
+                ensure_condition(p.IsBorder());
                 do {
-                    assert(p.IsManifold());
+                    ensure_condition(p.IsManifold());
                     p.F()->SetV();
                     borderFaces.push_back(tri::Index(m, p.F()));
                     vi.push_back(p.VInd());
@@ -83,19 +83,19 @@ void CloseMeshHoles(Mesh& shell)
     int startFN = shell.FN();
 
     // Get border info
-    assert(HasBoundaryInfoAttribute(shell));
+    ensure_condition(HasBoundaryInfoAttribute(shell));
     BoundaryInfo& info = GetBoundaryInfoAttribute(shell)();
 
     // Leave only the longest boundary
     tri::UpdateFlags<Mesh>::FaceClearS(shell);
-    assert(info.vBoundaryFaces.size() > 0 && "Mesh has no boundaries");
+    ensure_condition(info.vBoundaryFaces.size() > 0 && "Mesh has no boundaries");
     if (info.vBoundaryFaces.size() > 1) {
         std::size_t k = info.LongestBoundary();
         // select all the boundary faces
         for (std::size_t i = 0; i < info.vBoundaryFaces.size(); ++i) {
             if (i == k) continue;
             for (auto j : info.vBoundaryFaces[i]) {
-                assert(face::IsBorder(shell.face[j], 0) || face::IsBorder(shell.face[j], 1) || face::IsBorder(shell.face[j], 2));
+                ensure_condition(face::IsBorder(shell.face[j], 0) || face::IsBorder(shell.face[j], 1) || face::IsBorder(shell.face[j], 2));
                 shell.face[j].SetS();
             }
         }
@@ -211,7 +211,7 @@ void SyncShellWithModel(Mesh& shell, Mesh& baseMesh)
 {
     auto ia = GetFaceIndexAttribute(shell);
     for (auto& sf : shell.face) {
-        assert(sf.IsMesh());
+        ensure_condition(sf.IsMesh());
         auto& f = baseMesh.face[ia[sf]];
         for (int i = 0; i < 3; ++i)
             sf.P(i) = f.P(i);
@@ -256,7 +256,7 @@ void CloseShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh&
 
         Triangulate(poly, {}, points, indices);
 
-        assert(points.size() >= szoutline);
+        ensure_condition(points.size() >= szoutline);
 
         unsigned nv = points.size() - szoutline;
         unsigned nf = indices.size() / 3;
@@ -291,8 +291,8 @@ void CloseShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh&
             else if (targetGeometry == Texture)
                 scale = std::sqrt(avgUV / DistortionMetric::Area3D(*fi));
             else
-                assert(0 && "Unexpected targetGeometry parameter value");
-            assert(scale > 0);
+                ensure_condition(0 && "Unexpected targetGeometry parameter value");
+            ensure_condition(scale > 0);
             target.P[0] = fi->P(0) * scale;
             target.P[1] = fi->P(1) * scale;
             target.P[2] = fi->P(2) * scale;
@@ -367,7 +367,7 @@ void BuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& i
     Triangulate(scaffoldPoly, holes, points, indices);
 
     // allocate new primitives
-    assert(points.size() >= szoutline);
+    ensure_condition(points.size() >= szoutline);
     unsigned nv = points.size() - szoutline;
     unsigned nf = indices.size() / 3;
     auto vi = tri::Allocator<Mesh>::AddVertices(shell, nv);
@@ -497,7 +497,7 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
             else if (targetGeometry == Texture)
                 scale = std::sqrt(avgUV / DistortionMetric::Area3D(sf));
             else
-                assert(0 && "Unexpected targetGeometry parameter value");
+                ensure_condition(0 && "Unexpected targetGeometry parameter value");
             target.P[0] = sf.P(0) * scale;
             target.P[1] = sf.P(1) * scale;
             target.P[2] = sf.P(2) * scale;
@@ -551,8 +551,8 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
                     double s_max = 0.5 * (std::sqrt(bcplus + adminus) + std::sqrt(bcminus + adplus));
 
                     double interpolationFactor = 1.0 - (s_min / s_max);
-                    assert(interpolationFactor > 0);
-                    assert(interpolationFactor <= 1);
+                    ensure_condition(interpolationFactor > 0);
+                    ensure_condition(interpolationFactor <= 1);
 
                     Point2d v10 = (1.0 - interpolationFactor) * u10 + (interpolationFactor) * x10;
                     Point2d v20 = (1.0 - interpolationFactor) * u20 + (interpolationFactor) * x20;
@@ -581,7 +581,7 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
 
     // Scale the shell size to match the target shape area
     double areaScaleFactor = std::sqrt(targetArea / shellUvArea);
-    assert(areaScaleFactor > 0);
+    ensure_condition(areaScaleFactor > 0);
     for (auto& v : shell.vert)
         v.T().P() *= areaScaleFactor;
     SyncShellWithUV(shell);
@@ -627,7 +627,7 @@ void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2f>
 
 void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2d>> &outline2Vec)
 {
-    assert(chart.numMerges == 0);
+    ensure_condition(chart.numMerges == 0);
 
     outline2Vec.clear();
     std::vector<Point2d> outline;
@@ -640,9 +640,9 @@ void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2d>
             if (!fptr->IsV() && face::IsBorder(*fptr, i)) {
                 face::Pos<Mesh::FaceType> p(fptr, i);
                 face::Pos<Mesh::FaceType> startPos = p;
-                assert(p.IsBorder());
+                ensure_condition(p.IsBorder());
                 do {
-                    assert(p.IsManifold());
+                    ensure_condition(p.IsManifold());
                     p.F()->SetV();
                     //outline.push_back(Point2<ScalarType>(p.V()->P()));
                     outline.push_back(p.F()->WT(p.VInd()).P());
@@ -726,7 +726,7 @@ bool CleanSmallComponents(Mesh& m, GraphHandle graph, TextureObjectHandle texObj
                     Mesh::FacePointer fp = fptr->FFp(i);
                     if (!fp->IsV()) {
                         fp->SetV();
-                        assert(std::find(visitVec.begin(), visitVec.end(), fp) == visitVec.end());
+                        ensure_condition(std::find(visitVec.begin(), visitVec.end(), fp) == visitVec.end());
                         visitVec.push_back(fp);
                         visitedComponents.insert(CCIDh[fp]);
                     }
@@ -740,7 +740,7 @@ bool CleanSmallComponents(Mesh& m, GraphHandle graph, TextureObjectHandle texObj
                         auto fp = vfi.F();
                         if (!fp->IsV() && (visitedComponents.count(CCIDh[fp]) > 0)) {
                             fp->SetV();
-                            assert(std::find(visitVec.begin(), visitVec.end(), fp) == visitVec.end());
+                            ensure_condition(std::find(visitVec.begin(), visitVec.end(), fp) == visitVec.end());
                             visitVec.push_back(fp);
                             visitedComponents.insert(CCIDh[fp]);
                         }
@@ -840,12 +840,12 @@ bool CleanSmallComponents(Mesh& m, GraphHandle graph, TextureObjectHandle texObj
     tri::Allocator<Mesh>::CompactEveryVector(m);
     tri::UpdateTopology<Mesh>::FaceFace(m);
 
-    assert(m.face.size() > oldFaces);
+    ensure_condition(m.face.size() > oldFaces);
     std::cout << "Added " << m.face.size() - oldFaces << " faces" << std::endl;
 
     for (std::size_t h = oldFaces; h < m.face.size(); ++h) {
         auto& f = m.face[h];
-        assert(!f.IsD());
+        ensure_condition(!f.IsD());
         for (int i = 0; i < 3; ++i) {
             if (uvattr[f.V(i)] != Point2d::Zero()) {
                 f.WT(i).P() = uvattr[f.V(i)];
@@ -914,7 +914,7 @@ void FaceGroup::UpdateCache() const
 
     // TODO this does not take cuts into account...
     auto CCIDh = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(mesh, "ConnectedComponentID");
-    assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CCIDh));
+    ensure_condition(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CCIDh));
 
     double borderUV = 0.0;
     for (auto fptr : fpVec) {
@@ -959,7 +959,7 @@ void FaceGroup::AddFace(const Mesh::FacePointer fptr)
 
 double FaceGroup::OriginalAreaUV() const
 {
-    assert(HasWedgeTexCoordStorageAttribute(mesh));
+    ensure_condition(HasWedgeTexCoordStorageAttribute(mesh));
     auto wtcsattr = GetWedgeTexCoordStorageAttribute(mesh);
 
     double doubleAreaUV = 0;
@@ -1016,7 +1016,7 @@ void FaceGroup::ParameterizationChanged()
 
 Mesh::FacePointer FaceGroup::Fp()
 {
-    assert(!fpVec.empty()); return fpVec[0];
+    ensure_condition(!fpVec.empty()); return fpVec[0];
 }
 
 std::size_t FaceGroup::FN() const
@@ -1040,7 +1040,7 @@ void FaceGroup::MapDistortion(DistortionMetric::Type type, ParameterizationGeome
         else if (type == DistortionMetric::Angle) {
             fptr->Q() = DistortionMetric::AngleDistortion(mesh, *fptr, geometry);
         }
-        else assert(0 && "FaceGroup::MapDistortion");
+        else ensure_condition(0 && "FaceGroup::MapDistortion");
         minMappedFaceValue = std::min(minMappedFaceValue, fptr->Q());
         maxMappedFaceValue = std::max(maxMappedFaceValue, fptr->Q());
     }
@@ -1100,7 +1100,7 @@ std::pair<float,float> MeshGraph::DistortionRange() const
 
 std::shared_ptr<FaceGroup> MeshGraph::GetChart(RegionID i)
 {
-    //assert(charts.find(i) != charts.end() && "Chart does not exist");
+    //ensure_condition(charts.find(i) != charts.end() && "Chart does not exist");
     auto e = charts.find(i);
     if (e != charts.end()) return e->second;
     else return nullptr;
@@ -1192,13 +1192,13 @@ bool GraphManager::Valid(std::pair<GraphManager::Edge,double> weightedEdge)
 
 const std::pair<GraphManager::Edge,double>& GraphManager::PeekNextEdge()
 {
-    //assert(HasNextEdge());
+    //ensure_condition(HasNextEdge());
     return queue.top();
 }
 
 void GraphManager::RemoveNextEdge()
 {
-    //assert(HasNextEdge());
+    //ensure_condition(HasNextEdge());
     queue.pop();
 }
 
@@ -1273,10 +1273,10 @@ bool GraphManager::AddEdge(ChartHandle c1, ChartHandle c2, bool replace)
 
 void GraphManager::Merge(ChartHandle c1, ChartHandle c2)
 {
-    assert(edges.find(GraphManager::Edge{c1,c2}) != edges.end());
+    ensure_condition(edges.find(GraphManager::Edge{c1,c2}) != edges.end());
 
     auto CCIDh  = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(g->mesh, "ConnectedComponentID");
-    assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(g->mesh, CCIDh));
+    ensure_condition(tri::Allocator<Mesh>::IsValidHandle<RegionID>(g->mesh, CCIDh));
 
     // Update ID and add faces
     for (auto fp : c2->fpVec) {
@@ -1313,12 +1313,12 @@ void GraphManager::Merge(ChartHandle c1, ChartHandle c2)
 
 void GraphManager::Split(const RegionID id, std::vector<ChartHandle>& splitCharts)
 {
-    assert(g->charts.count(id) == 1);
+    ensure_condition(g->charts.count(id) == 1);
 
-    assert(HasConnectedComponentIDAttribute(g->mesh));
+    ensure_condition(HasConnectedComponentIDAttribute(g->mesh));
     auto CCIDh = GetConnectedComponentIDAttribute(g->mesh);
 
-    assert(HasInitialConnectedComponentIDAttribute(g->mesh));
+    ensure_condition(HasInitialConnectedComponentIDAttribute(g->mesh));
     auto ICCh  = GetInitialConnectedComponentIDAttribute(g->mesh);
 
     ChartHandle chart = g->GetChart(id);
@@ -1358,7 +1358,7 @@ void GraphManager::Split(const RegionID id, std::vector<ChartHandle>& splitChart
 
     // reset merge count and insert new edges in the support list
     for (auto c1 : newCharts) {
-        assert(c1->fpVec.size() > 0);
+        ensure_condition(c1->fpVec.size() > 0);
         c1->numMerges = 0;
         c1->id = CCIDh[c1->fpVec[0]];
         splitCharts.push_back(c1);
@@ -1386,7 +1386,7 @@ int GraphManager::CloseMacroRegions(double areaThreshold)
         if (invertedIndex.count(chart->id) == 1) continue; // skip if this region is already going to be merged to something else
         for (auto& adjRegion : chart->adj) {
             if (adjRegion->NumAdj() == 1 && adjRegion->Area3D() < thresholdValue) {
-                assert(invertedIndex.count(adjRegion->id) == 0);
+                ensure_condition(invertedIndex.count(adjRegion->id) == 0);
                 mergeLists[chart->id].push_back(adjRegion->id);
                 invertedIndex[adjRegion->id] = chart->id;
             }

@@ -135,7 +135,7 @@ int main(int argc, char *argv[])
         std::exit(-1);
     }
 
-    assert(loadMask & tri::io::Mask::IOM_WEDGTEXCOORD);
+    ensure_condition(loadMask & tri::io::Mask::IOM_WEDGTEXCOORD);
 
 
     GLInit();

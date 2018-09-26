@@ -191,7 +191,7 @@ struct MeshGraph {
     /* compute the minmax distortion of the graph */
     std::pair<float,float> DistortionRange() const;
 
-    /* Retrieve region i (assert if not found) */
+    /* Retrieve region i (ensure_condition if not found) */
     std::shared_ptr<FaceGroup> GetChart(RegionID i);
 
     /* Retrieve region i, creating if it is not found */
@@ -214,7 +214,7 @@ struct MeshGraph {
     {
         em.Clear();
         auto CCIDh = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(mesh, "ConnectedComponentID");
-        assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CCIDh));
+        ensure_condition(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CCIDh));
 
         for (auto& f : mesh.face) {
             for (int i = 0; i < 3; ++i) {
@@ -245,7 +245,7 @@ public:
 
         Edge(std::shared_ptr<FaceGroup> e1, std::shared_ptr<FaceGroup> e2) : a{e1}, b{e2}
         {
-            assert(a != b);
+            ensure_condition(a != b);
             if (b->id > a->id) std::swap(a, b);
         }
 
@@ -427,7 +427,7 @@ struct W3D : EdgeWeightFunction {
     {
         // First evaluate shared border
         auto CHIDh  = tri::Allocator<Mesh>::FindPerFaceAttribute<std::size_t>(mesh, "ConnectedComponentID");
-        assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CHIDh));
+        ensure_condition(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CHIDh));
 
         double area_a = e.a->Area3D();
         double area_b = e.b->Area3D();
@@ -450,7 +450,7 @@ struct W3D : EdgeWeightFunction {
         }
 
         double w = double(std::min(area_a, area_b)) / (sharedBorder/totalBorder); // The smaller the shared fraction, the larger the weight
-        assert(std::isfinite(w));
+        ensure_condition(std::isfinite(w));
         return w;
     }
 };
@@ -466,7 +466,7 @@ struct W_Geometry3D : EdgeWeightFunction {
     double operator()(GraphManager::Edge& e) const
     {
         auto CHIDh  = tri::Allocator<Mesh>::FindPerFaceAttribute<std::size_t>(mesh, "ConnectedComponentID");
-        assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CHIDh));
+        ensure_condition(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CHIDh));
 
         double border3D_contribution_a = e.a->Border3D();
         double border3D_contribution_b = e.b->Border3D();
@@ -489,7 +489,7 @@ struct W_Geometry3D : EdgeWeightFunction {
             }
         }
 
-        //assert(border3D >= 0);
+        //ensure_condition(border3D >= 0);
 
         W3D w3d{mesh};
         double w3dw = w3d(e);
@@ -523,7 +523,7 @@ struct WFN : EdgeWeightFunction {
     {
         // First evaluate shared border
         auto CHIDh  = tri::Allocator<Mesh>::FindPerFaceAttribute<std::size_t>(mesh, "ConnectedComponentID");
-        assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CHIDh));
+        ensure_condition(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CHIDh));
 
         ChartHandle chart1 = e.a->FN() < e.b->FN() ? e.a : e.b;
         ChartHandle chart2 = chart1 == e.a ? e.b : e.a;
@@ -544,7 +544,7 @@ struct WFN : EdgeWeightFunction {
         }
 
         double w = double(std::min(e.a->FN(), e.b->FN())) / (sharedBorder/totalBorder); // The smaller the shared fraction, the larger the weight
-        assert(std::isfinite(w));
+        ensure_condition(std::isfinite(w));
         return w;
     }
 };
@@ -561,7 +561,7 @@ struct WUV : EdgeWeightFunction {
     double operator()(GraphManager::Edge& e) const
     {
         auto CHIDh  = tri::Allocator<Mesh>::FindPerFaceAttribute<std::size_t>(mesh, "ConnectedComponentID");
-        assert(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CHIDh));
+        ensure_condition(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CHIDh));
 
         ChartHandle chart1 = e.a->FN() < e.b->FN() ? e.a : e.b;
         ChartHandle chart2 = chart1 == e.a ? e.b : e.a;
@@ -587,7 +587,7 @@ struct WUV : EdgeWeightFunction {
         double w3 = std::pow(borderFrom1 - borderFrom2, 2.0); // penalize merging regions with different resolution at the boundary in uv space
 
         double w = w1*w2*w3;
-        assert(std::isfinite(w));
+        ensure_condition(std::isfinite(w));
         return w;
     }
 };

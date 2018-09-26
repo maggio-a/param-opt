@@ -183,7 +183,7 @@ static std::shared_ptr<QImage> RenderTexture(std::vector<Mesh::FacePointer>& fve
 #include <wrap/io_trimesh/export.h>
 static GeometryImageStats GetGeometryImageStats(Mesh& m, const std::vector<Mesh::FacePointer>& faces, int width, int height)
 {
-    assert(sizeof(unsigned) == 4);
+    ensure_condition(sizeof(unsigned) == 4);
 
     // Create a hidden window
     GLFWwindow *parentWindow = glfwGetCurrentContext();
@@ -454,7 +454,7 @@ static int FacesByTextureIndex(Mesh& m, std::vector<std::vector<Mesh::FacePointe
 
     for (auto& f : m.face) {
         int ti = f.cWT(0).N();
-        assert(ti < nTex);
+        ensure_condition(ti < nTex);
         fv[ti].push_back(&f);
     }
 
@@ -558,7 +558,7 @@ inline bool Inspect3x3KernelClash(unsigned *buffer, int row, int col, int width,
 
 static RasterizedParameterizationStats GetRasterizationStats(Mesh& m, const std::vector<Mesh::FacePointer>& faces, int width, int height)
 {
-    assert(sizeof(unsigned) == 4);
+    ensure_condition(sizeof(unsigned) == 4);
 
     // Create a hidden window
     GLFWwindow *parentWindow = glfwGetCurrentContext();
@@ -589,7 +589,7 @@ static RasterizedParameterizationStats GetRasterizationStats(Mesh& m, const std:
 
     int fbw, fbh;
     glfwGetFramebufferSize(window, &fbw, &fbh);
-    //assert(fbw == width && fbh == height);
+    //ensure_condition(fbw == width && fbh == height);
 
     // OpenGL setup
 
@@ -607,7 +607,7 @@ static RasterizedParameterizationStats GetRasterizationStats(Mesh& m, const std:
 
     //vcg::Box2d box = chart->UVBox();
 
-    assert(HasConnectedComponentIDAttribute(m));
+    ensure_condition(HasConnectedComponentIDAttribute(m));
     auto CCIDh = GetConnectedComponentIDAttribute(m);
 
     glBindBuffer(GL_ARRAY_BUFFER, vertexbuf);
@@ -784,7 +784,7 @@ std::vector<TextureSize> ComputeSizes(int ntex, TextureObjectHandle inputTexture
         }
         return textureSizes;
     } else {
-        assert(ntex == 1);
+        ensure_condition(ntex == 1);
         int64_t textureArea = 0;
         for (int i = 0; i < ntex_in; ++i) {
             textureArea += inputTexture->TextureArea(i);
@@ -796,7 +796,7 @@ std::vector<TextureSize> ComputeSizes(int ntex, TextureObjectHandle inputTexture
         else if (textureArea <= 16384 * 16384)
             return { {16384, 16384} };
         else
-            assert(0 && "Unable to find a texture large enough to store all the data");
+            ensure_condition(0 && "Unable to find a texture large enough to store all the data");
     }
 }
 

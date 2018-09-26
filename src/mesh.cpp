@@ -12,6 +12,7 @@
 #include "mesh.h"
 #include "gl_utils.h"
 #include "timer.h"
+#include "utils.h"
 
 bool LoadMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject, int &loadMask)
 {
@@ -84,7 +85,7 @@ bool SaveMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject,
     std::cout << " done." << std::endl;
 
     QFileInfo fi(fileName);
-    assert (fi.exists());
+    ensure_condition (fi.exists());
 
     QString wd = QDir::currentPath();
     QDir::setCurrent(fi.absoluteDir().absolutePath());

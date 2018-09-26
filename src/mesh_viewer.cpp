@@ -121,7 +121,7 @@ void TrackballGlfwMouseButtonCapture(GLFWwindow *window, int x, int y, int butto
     case GLFW_MOUSE_BUTTON_LEFT: trackButton = vcg::Trackball::BUTTON_LEFT; break;
     case GLFW_MOUSE_BUTTON_MIDDLE: trackButton = vcg::Trackball::BUTTON_MIDDLE; break;
     case GLFW_MOUSE_BUTTON_RIGHT:/* trackButton = vcg::Trackball::BUTTON_RIGHT;*/ break;
-    default: assert(0 && "Mouse button input");
+    default: ensure_condition(0 && "Mouse button input");
     }
 
     if (glfwGetKey(window, GLFW_KEY_LEFT_ALT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_ALT) == GLFW_PRESS) {
@@ -336,7 +336,7 @@ MeshViewer::MeshViewer(GraphHandle gh, const std::string& fileName_)
       _detailCamera{},
       strategy(DefaultStrategy())
 {
-    assert(_currentTexture->ArraySize() == 1 && "Only single texture meshes are supported by the viewer");
+    ensure_condition(_currentTexture->ArraySize() == 1 && "Only single texture meshes are supported by the viewer");
     Mesh& m = graph->mesh;
     if (m.FN() < 100000)
         minRegionSize = 1000;
@@ -441,7 +441,7 @@ void MeshViewer::ClearSelection()
 
 void MeshViewer::Select(const RegionID id)
 {
-    assert(graph->GetChart(id) != nullptr);
+    ensure_condition(graph->GetChart(id) != nullptr);
     UpdateSelection(id);
 }
 
@@ -489,7 +489,7 @@ void MeshViewer::UpdateDetailBuffers()
             if (sf.IsMesh()) {
                 if (ia[sf] == -1) {
                     std::cout << tri::Index<Mesh>(shell, sf) << std::endl;
-                    assert(ia[sf] != -1);
+                    ensure_condition(ia[sf] != -1);
                 }
                 auto& f = m.face[ia[sf]];
                 *buffptr++ = wtcs[f].tc[i].U() / (double) _currentTexture->TextureWidth(0);
@@ -755,7 +755,7 @@ void MeshViewer::UpdateSelection(const RegionID id)
 
             glDrawBuffer(GL_COLOR_ATTACHMENT0);
 
-            if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) assert(0 && "Framebuffer state not supported");
+            if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) ensure_condition(0 && "Framebuffer state not supported");
 
             glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
             glClear(GL_COLOR_BUFFER_BIT);
@@ -1511,7 +1511,7 @@ void MeshViewer::ManageImGuiState()
                 } else if (result.first == gm->Collapse_ERR_UNFEASIBLE) {
                     std::cout << "Cannot merge, result is unfeasible" << std::endl;
                 } else {
-                    assert(0 && "GraphManager::Collapse() exit status");
+                    ensure_condition(0 && "GraphManager::Collapse() exit status");
                 }
             }
         }

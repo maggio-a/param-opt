@@ -72,7 +72,7 @@ static const char *fs_text_pack[] = {
 
 void GeneratePackingQualityTexture(GraphHandle graph, TextureObjectHandle textureObject, std::unordered_map<RegionID,float>& qualityMap)
 {
-    assert(0 && "TODO add multitexture support");
+    ensure_condition(0 && "TODO add multitexture support");
     // Create a hidden window
     GLFWwindow *parentWindow = glfwGetCurrentContext();
     bool sharedContext = (parentWindow != nullptr);
@@ -221,7 +221,7 @@ void GeneratePackingQualityTexture(GraphHandle graph, TextureObjectHandle textur
 
 void GenerateDistortionTextures(Mesh& m, TextureObjectHandle textureObject)
 {
-    assert(0 && "TODO add multitexture support");
+    ensure_condition(0 && "TODO add multitexture support");
     // Create a hidden window
     GLFWwindow *parentWindow = glfwGetCurrentContext();
     bool sharedContext = (parentWindow != nullptr);
@@ -261,7 +261,7 @@ void GenerateDistortionTextures(Mesh& m, TextureObjectHandle textureObject)
 
     double texArea = textureObject->TextureWidth(0) * (double) textureObject->TextureHeight(0);
     double uvRatio = textureObject->TextureWidth(0) / (double) textureObject->TextureHeight(0);
-    assert(HasWedgeTexCoordStorageAttribute(m));
+    ensure_condition(HasWedgeTexCoordStorageAttribute(m));
     auto WTCSh = GetWedgeTexCoordStorageAttribute(m);
 
     double c_min = std::numeric_limits<double>::max();
@@ -328,8 +328,8 @@ void GenerateDistortionTextures(Mesh& m, TextureObjectHandle textureObject)
         double s2 = 0.5 * (std::sqrt(bcplus + adminus) + std::sqrt(bcminus + adplus));
 
         interpolationFactor = 1.0 - (s1 / s2);
-        assert(interpolationFactor > 0);
-        assert(interpolationFactor <= 1);
+        ensure_condition(interpolationFactor > 0);
+        ensure_condition(interpolationFactor <= 1);
 
 
         f.Q() = interpolationFactor;

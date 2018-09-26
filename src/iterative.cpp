@@ -63,7 +63,7 @@ static double ComputeStepSizeNoFlip(const Vector2d& pi, const Vector2d& pj, cons
     double x1, x2;
     double delta = QuadraticRoots(a, b, c, &x1, &x2);
     if (delta < 0) return std::numeric_limits<double>::max();
-    //assert(x1 != 0 && x2 != 0);
+    //ensure_condition(x1 != 0 && x2 != 0);
     if (x2 < x1) std::swap(x1, x2);
     if (x1 > 0) return x1;
     else if (x2 > 0) return x2;
@@ -118,7 +118,7 @@ double DescentMethod::SearchStrongWolfe(const MatrixXd& uv, const MatrixXd& grad
 
     double maxStepWithoutInversion = std::numeric_limits<double>::max();
     for (auto& f : m.face) {
-        //assert(((f.V(1)->T().P() - f.V(0)->T().P()) ^ (f.V(2)->T().P() - f.V(0)->T().P())) > 0);
+        //ensure_condition(((f.V(1)->T().P() - f.V(0)->T().P()) ^ (f.V(2)->T().P() - f.V(0)->T().P())) > 0);
         double localStep = ComputeStepSizeNoFlip(uv.row(Index(m, f.V(0))), uv.row(Index(m, f.V(1))), uv.row(Index(m, f.V(2))),
                                                  dir.row(Index(m, f.V(0))), dir.row(Index(m, f.V(1))), dir.row(Index(m, f.V(2))));
         if (localStep < maxStepWithoutInversion) maxStepWithoutInversion = localStep;
@@ -144,7 +144,7 @@ double DescentMethod::SearchStrongWolfe(const MatrixXd& uv, const MatrixXd& grad
             std::cout << u2[0] << " " << u2[1] << " dir =  " << d2[0] << " " << d2[1] << std::endl;
 
         }
-        assert ((d1^d2) >= 0);*/
+        ensure_condition ((d1^d2) >= 0);*/
     }
 
     double alpha_max = std::min(1.0 / 0.8, 0.99 * maxStepWithoutInversion);
@@ -169,7 +169,7 @@ double DescentMethod::SearchStrongWolfe(const MatrixXd& uv, const MatrixXd& grad
         }
         double phiprime_curr = dir.cwiseProduct(energy->Grad()).sum();
         if (std::abs(phiprime_curr) <= c2 * phiprime_zero) {
-            assert(alpha_curr < maxStepWithoutInversion);
+            ensure_condition(alpha_curr < maxStepWithoutInversion);
             return alpha_curr;
         }
         if (phiprime_curr >= 0) {
@@ -202,7 +202,7 @@ double DescentMethod::SearchStrongWolfe(const MatrixXd& uv, const MatrixXd& grad
         else {
             double phiprime_curr = dir.cwiseProduct(energy->Grad()).sum();
             if (std::abs(phiprime_curr) <= -c2 * phiprime_zero) {
-                assert(alpha_curr < maxStepWithoutInversion);
+                ensure_condition(alpha_curr < maxStepWithoutInversion);
                 return alpha_curr;
             }
             if (phiprime_curr * (alpha_hi - alpha_lo) >= 0) {
@@ -214,7 +214,7 @@ double DescentMethod::SearchStrongWolfe(const MatrixXd& uv, const MatrixXd& grad
         k++;
     }
 
-    assert(alpha_curr < maxStepWithoutInversion);
+    ensure_condition(alpha_curr < maxStepWithoutInversion);
     return alpha_curr;
 }
 
@@ -225,7 +225,7 @@ double DescentMethod::Search(const MatrixXd& uv, const MatrixXd& grad, const Mat
     double c = 0.2;
     double descentCoeff = c * dir.cwiseProduct(grad).sum();
 
-    //assert(descentCoeff < 0); // otherwise dir is not a descent direction
+    //ensure_condition(descentCoeff < 0); // otherwise dir is not a descent direction
     if (descentCoeff >= 0)
         std::cout << "WARNING Not a descent direction" << std::endl;
 
@@ -265,7 +265,7 @@ MatrixXd DescentMethod::X()
 
 void DescentMethod::SetX(const MatrixXd& x)
 {
-    assert(x.rows() == m.VN() && x.cols() == 2);
+    ensure_condition(x.rows() == m.VN() && x.cols() == 2);
     for (auto& v : m.vert) {
         auto uv = x.row(Index(m, v));
         v.T().U() = uv(0);
@@ -274,7 +274,7 @@ void DescentMethod::SetX(const MatrixXd& x)
     for (auto& f : m.face) {
         Point2d u10 = f.V(1)->T().P() - f.V(0)->T().P();
         Point2d u20 = f.V(2)->T().P() - f.V(0)->T().P();
-        assert((u10 ^ u20) > 0);
+        ensure_condition((u10 ^ u20) > 0);
     }
 }
 
@@ -309,7 +309,7 @@ LBFGS::LBFGS(std::shared_ptr<Energy> energy, std::size_t memory)
 
 MatrixXd LBFGS::ComputeDescentDirection()
 {
-    assert(sVec.size() == yVec.size());
+    ensure_condition(sVec.size() == yVec.size());
     int memsz = sVec.size();
     MatrixXd q = energy->Grad();
     if (memsz > 0) {
@@ -764,10 +764,10 @@ void SLIM::MinimizeProxyEnergy(Eigen::MatrixXd& p_k)
     }
 
     solver.factorize(L);
-    assert((solver.info() == Eigen::Success) && "SLIM::MinimizeProxyEnergy factorization failed");
+    ensure_condition((solver.info() == Eigen::Success) && "SLIM::MinimizeProxyEnergy factorization failed");
 
     sol = solver.solve(rhs);
-    assert((solver.info() == Eigen::Success) && "SLIM::MinimizeProxyEnergy solve failed");
+    ensure_condition((solver.info() == Eigen::Success) && "SLIM::MinimizeProxyEnergy solve failed");
 
     p_k = Eigen::Map<MatrixXd>(sol.data(), m.VN(), 2);
 }
@@ -953,7 +953,7 @@ void CompMaj::UpdateJ()
         d(i) = D2d.col(i).transpose() * f_v;
     }
     detJuv = a.cwiseProduct(d) - b.cwiseProduct(c);
-    assert(!(detJuv.array() < 0).any());
+    ensure_condition(!(detJuv.array() < 0).any());
 }
 
 static inline void SSVD2x2(const Eigen::Matrix2d& A, Eigen::Matrix2d& U, Eigen::Matrix2d& S, Eigen::Matrix2d& V)
@@ -1149,11 +1149,11 @@ Eigen::MatrixXd CompMaj::ComputeDescentDirection()
     solver.analyzePattern(A);
 
     solver.factorize(A);
-    assert((solver.info() == Eigen::Success) && "CompMaj factorization failed");
+    ensure_condition((solver.info() == Eigen::Success) && "CompMaj factorization failed");
 
     Eigen::VectorXd sol;
     sol = solver.solve(- Eigen::Map<Eigen::VectorXd>(grad.data(), 2 * vn));
-    assert((solver.info() == Eigen::Success) && "CompMaj solve failed");
+    ensure_condition((solver.info() == Eigen::Success) && "CompMaj solve failed");
 
     return Eigen::Map<MatrixXd>(sol.data(), vn, 2);
 }

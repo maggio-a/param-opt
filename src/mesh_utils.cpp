@@ -14,7 +14,7 @@ void MarkInitialSeamsAsFaux(Mesh& shell, Mesh& baseMesh)
 {
     tri::UpdateTopology<Mesh>::FaceFace(shell);
     tri::UpdateFlags<Mesh>::FaceClearF(shell);
-    assert(HasFaceIndexAttribute(shell));
+    ensure_condition(HasFaceIndexAttribute(shell));
     auto ia = GetFaceIndexAttribute(shell);
     for (auto& sf : shell.face) {
         if (sf.IsMesh()) {
@@ -56,7 +56,7 @@ std::vector<PosF> GetFauxPosFan(PosF& startPos)
             if (p.IsBorder()) break;
             p.FlipF();
             p.FlipE();
-            assert(p != startPos);
+            ensure_condition(p != startPos);
         }
     }
 
@@ -110,7 +110,7 @@ void ComputeDistanceFromBorderOnSeams(Mesh& m)
         }
     }
 
-    assert(HasTargetShapeAttribute(m));
+    ensure_condition(HasTargetShapeAttribute(m));
     auto targetShape = GetTargetShapeAttribute(m);
     //FeatureBasedEdgeLength dist{targetShape};
 
@@ -127,9 +127,9 @@ void ComputeDistanceFromBorderOnSeams(Mesh& m)
             std::vector<PosF> fan = GetFauxPosFan(node.pos);
             for (auto& fauxPos : fan) {
                 double d = node.pos.V()->Q() + dist(fauxPos);
-                assert(d > node.pos.V()->Q());
+                ensure_condition(d > node.pos.V()->Q());
                 if (d < fauxPos.V()->Q()) {
-                    assert(fauxPos.V()->IsB() == false);
+                    ensure_condition(fauxPos.V()->IsB() == false);
                     fauxPos.V()->Q() = d;
                     probes.push_back(PosNode{fauxPos, d});
                     std::push_heap(probes.begin(), probes.end(), posNodeComp);
@@ -141,7 +141,7 @@ void ComputeDistanceFromBorderOnSeams(Mesh& m)
 
 PosF SelectShortestSeamPathToBoundary(Mesh& m, const PosF& pos)
 {
-    assert(pos.IsFaux());
+    ensure_condition(pos.IsFaux());
     tri::UpdateFlags<Mesh>::VertexBorderFromFaceAdj(m);
     tri::UpdateFlags<Mesh>::VertexClearV(m);
     PosF curPos = pos;
@@ -154,20 +154,20 @@ PosF SelectShortestSeamPathToBoundary(Mesh& m, const PosF& pos)
     };
     while (true) {
         Mesh::FacePointer fp = curPos.F();
-        assert(curPos.VFlip()->IsV());
+        ensure_condition(curPos.VFlip()->IsV());
         curPos.F()->SetFaceEdgeS(curPos.E());
         curPos.FlipF();
         curPos.F()->SetFaceEdgeS(curPos.E());
         curPos.FlipF();
-        assert(curPos.F() == fp && "Mesh is not edge manifold along path");
+        ensure_condition(curPos.F() == fp && "Mesh is not edge manifold along path");
         curPos.V()->SetV();
         if (curPos.V()->IsB())
             break;
         else {
             std::vector<PosF> fan = GetFauxPosFan(curPos);
             curPos = *(std::min_element(fan.begin(), fan.end(), posQualityComparator));
-            assert(curDistance >= curPos.V()->Q());
-            assert(!curPos.V()->IsV());
+            ensure_condition(curDistance >= curPos.V()->Q());
+            ensure_condition(!curPos.V()->IsV());
             curDistance = curPos.V()->Q();
         }
     }
@@ -176,7 +176,7 @@ PosF SelectShortestSeamPathToBoundary(Mesh& m, const PosF& pos)
 
 void SelectShortestSeamPathToPeak(Mesh& m, const PosF& pos)
 {
-    assert(pos.IsFaux());
+    ensure_condition(pos.IsFaux());
     tri::UpdateFlags<Mesh>::VertexClearV(m);
     PosF curPos = pos;
     if (curPos.V()->Q() < curPos.VFlip()->Q())
@@ -188,12 +188,12 @@ void SelectShortestSeamPathToPeak(Mesh& m, const PosF& pos)
     };
     while (true) {
         Mesh::FacePointer fp = curPos.F();
-        assert(curPos.VFlip()->IsV());
+        ensure_condition(curPos.VFlip()->IsV());
         curPos.F()->SetFaceEdgeS(curPos.E());
         curPos.FlipF();
         curPos.F()->SetFaceEdgeS(curPos.E());
         curPos.FlipF();
-        assert(curPos.F() == fp && "Mesh is not edge manifold along path");
+        ensure_condition(curPos.F() == fp && "Mesh is not edge manifold along path");
         curPos.V()->SetV();
         auto pred = [&](const PosF& p){
             return p.V()->IsV() || (p.V()->Q() < curDistance);
@@ -205,7 +205,7 @@ void SelectShortestSeamPathToPeak(Mesh& m, const PosF& pos)
         else {
             //curPos = *(std::min_element(fan.begin(), fan.end(), posQualityComparator));
             curPos = *(std::max_element(fan.begin(), fan.end(), posQualityComparator));
-            assert(curDistance <= curPos.V()->Q());
+            ensure_condition(curDistance <= curPos.V()->Q());
             curDistance = curPos.V()->Q();
         }
     }
@@ -218,7 +218,7 @@ void SelectShortestSeamPathToPeak(Mesh& m, const PosF& pos)
  * in the parameterization */
 bool RectifyCut(Mesh& shell, PosF boundaryPos)
 {
-    assert(boundaryPos.V()->IsB());
+    ensure_condition(boundaryPos.V()->IsB());
     tri::UpdateFlags<Mesh>::VertexClearV(shell);
     PosF p = boundaryPos;
     bool reachedFillArea = false;
@@ -247,7 +247,7 @@ bool RectifyCut(Mesh& shell, PosF boundaryPos)
         for (auto& fanPos : fan) {
             if (!fanPos.V()->IsV()) {
                 if (fanPos.F()->IsFaceEdgeS(fanPos.E())) {
-                    assert(!moved && "Cut path has branches");
+                    ensure_condition(!moved && "Cut path has branches");
                     moved = true;
                     p = fanPos;
                 }
@@ -326,9 +326,9 @@ void CopyShell(Mesh& shell, Mesh& out)
     out.Clear();
     out.ClearAttributes();
 
-    assert(HasBoundaryInfoAttribute(shell));
-    assert(HasTargetShapeAttribute(shell));
-    assert(HasFaceIndexAttribute(shell));
+    ensure_condition(HasBoundaryInfoAttribute(shell));
+    ensure_condition(HasTargetShapeAttribute(shell));
+    ensure_condition(HasFaceIndexAttribute(shell));
     GetBoundaryInfoAttribute(out);
     GetTargetShapeAttribute(out);
     GetFaceIndexAttribute(out);
