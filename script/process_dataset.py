@@ -16,7 +16,8 @@ index_path = ""
 dataset_path = ""
 
 # extra args for the exe
-executable_options = [ "--regionCount=20" ]
+# options for viewer: "--regionCount=NUM" "--fixcontextcapture" 
+executable_options = [ ]
 
 import os
 import os.path
