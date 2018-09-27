@@ -53,16 +53,16 @@ private:
 
 class MeshVertex;
 class MeshFace;
-//class MeshEdge;
-struct MeshUsedTypes : public UsedTypes<Use<MeshVertex>::AsVertexType, Use<MeshFace>::AsFaceType/*, Use<MeshEdge>::AsEdgeType*/> {};
+class MeshEdge;
+struct MeshUsedTypes : public UsedTypes<Use<MeshVertex>::AsVertexType, Use<MeshFace>::AsFaceType, Use<MeshEdge>::AsEdgeType> {};
 
-class MeshVertex : public Vertex<MeshUsedTypes, vertex::Coord3d, vertex::TexCoord2d, vertex::Normal3d,/* vertex::VEAdj,*/ vertex::VFAdj, vertex::Color4b, vertex::Qualityd, vertex::BitFlags> {};
+class MeshVertex : public Vertex<MeshUsedTypes, vertex::Coord3d, vertex::TexCoord2d, vertex::Normal3d, vertex::VEAdj, vertex::VFAdj, vertex::Color4b, vertex::Qualityd, vertex::BitFlags> {};
 class MeshFace : public Face<MeshUsedTypes, FaceQualifier, face::VertexRef, face::FFAdj, face::VFAdj, face::Mark, face::WedgeTexCoord2d, face::Normal3d, face::Color4b, face::Qualityf, face::BitFlags>
 {
 };
 
-//class MeshEdge : public Edge<MeshUsedTypes, edge::VertexRef, edge::VEAdj, edge::EEAdj, edge::BitFlags> {};
-class Mesh : public tri::TriMesh<std::vector<MeshVertex>, std::vector<MeshFace>/*, std::vector<MeshEdge>*/>{
+class MeshEdge : public Edge<MeshUsedTypes, edge::VertexRef, edge::VEAdj, edge::EEAdj, edge::BitFlags> {};
+class Mesh : public tri::TriMesh<std::vector<MeshVertex>, std::vector<MeshFace>, std::vector<MeshEdge>>{
 public:
     std::string name{"mesh"};
 };

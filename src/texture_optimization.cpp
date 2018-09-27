@@ -26,10 +26,6 @@
 
 #include <wrap/io_trimesh/export.h>
 
-//#include<vcg/complex/algorithms/cut_tree.h>
-//#include<vcg/complex/algorithms/curve_on_manifold.h>
-//#include<vcg/complex/algorithms/crease_cut.h>
-
 #include <vector>
 #include <algorithm>
 
@@ -364,6 +360,43 @@ void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
     }
 
     std::cout << "[LOG] Newly parameterized regions: " << numParameterized << "/" << numNoParam << std::endl;
+}
+
+int RemoveOutliers(GraphHandle& graph)
+{
+    double totalArea3D = graph->Area3D();
+    int count = 0;
+    for (auto & entry : graph->charts) {
+        ChartHandle c = entry.second;
+
+        double frac = c->Area3D() / totalArea3D;
+
+        if ((frac < 0.0001) && (c->AreaUV() > 0.1)) {
+            for (auto fptr : c->fpVec) {
+                for (int i = 0; i < 3; ++i) {
+                    fptr->WT(i).P() = Point2d(0, 0);
+                }
+            }
+            count++;
+        }
+    }
+
+    std::vector<Mesh::FacePointer> toRemove;
+    for (auto& entry : graph->charts) {
+        ChartHandle c = entry.second;
+        if ((c->NumAdj() == 0) && (c->Area3D() < 0.0001 * totalArea3D)) {
+            toRemove.insert(toRemove.end(), c->fpVec.begin(), c->fpVec.end());
+        }
+    }
+
+    for (auto fptr : toRemove)
+        tri::Allocator<Mesh>::DeleteFace(graph->mesh, *fptr);
+
+    tri::Allocator<Mesh>::CompactEveryVector(graph->mesh);
+
+    graph = nullptr;
+
+    return count;
 }
 
 void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, double smallRegionAreaThreshold)

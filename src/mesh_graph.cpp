@@ -413,12 +413,17 @@ void BuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& i
     tri::UpdateTopology<Mesh>::VertexFace(shell);
 }
 
+#include <vcg/complex/algorithms/cut_tree.h>
+#include <vcg/complex/algorithms/curve_on_manifold.h>
+#include <vcg/complex/algorithms/crease_cut.h>
+
 bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeometry, bool useExistingUV)
 {
     Mesh& m = fg.mesh;
 
     CopyToMesh(fg, shell);
 
+    tri::UpdateBounding<Mesh>::Box(shell);
     tri::UpdateTopology<Mesh>::FaceFace(shell);
     int splitCount = tri::Clean<Mesh>::SplitNonManifoldVertex(shell, 0.15);
     if (splitCount > 0) {
@@ -464,6 +469,17 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
         ComputeBoundaryInfo(shell);
         CloseShellHoles(shell, targetGeometry, m);
     } else {
+        if (!Parameterizable(shell)) {
+            Mesh cut;
+            std::srand(0);
+            tri::CutTree<Mesh> ct(shell);
+            ct.Build(cut, rand() % shell.FN());
+            tri::CoM<Mesh> cc(shell);
+            cc.Init();
+            bool ok = cc.TagFaceEdgeSelWithPolyLine(cut);
+            ensure_condition(ok && "topological cut failed");
+            tri::CutMeshAlongSelectedFaceEdges(shell);
+        }
         // Compute the initial configuration (Tutte's parameterization)
         ComputeBoundaryInfo(shell);
         CloseMeshHoles(shell);
@@ -476,6 +492,8 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
         } else
             SyncShellWithUV(shell);
     }
+
+    // if we reach this point, the shell is synced with its uv coordinates
 
     // Compute average areas
     auto psi = GetParameterizationScaleInfoAttribute(m);
@@ -564,9 +582,10 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
             }
         }
         tsa[sf] = target;
-        Point2d u10 = Point2d(target.P[1].X() - target.P[0].X(), target.P[1].Y() - target.P[0].Y());
-        Point2d u20 = Point2d(target.P[2].X() - target.P[0].X(), target.P[2].Y() - target.P[0].Y());
-        targetArea += std::abs(u10 ^ u20) / 2.0;
+        //Point2d u10 = Point2d(target.P[1].X() - target.P[0].X(), target.P[1].Y() - target.P[0].Y());
+        //Point2d u20 = Point2d(target.P[2].X() - target.P[0].X(), target.P[2].Y() - target.P[0].Y());
+        //targetArea += std::abs(u10 ^ u20) / 2.0;
+        targetArea += ((target.P[1] - target.P[0]) ^ (target.P[2] - target.P[0])).Norm() / 2.0;
     }
 
     for (auto& sf : shell.face) {

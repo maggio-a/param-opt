@@ -142,34 +142,61 @@ int main(int argc, char *argv[])
 
     // Log original info
 
-    auto dummyGraph = ComputeParameterizationGraph(m, textureObject);
-    PrintParameterizationInfo(dummyGraph);
-    LogAggregateStats("stats_input", dummyGraph, textureObject);
-    std::vector<RasterizedParameterizationStats> before = GetRasterizationStats(m, textureObject);
-    std::cout << "[LOG] Raster stats before processing" << std::endl;
-    LogParameterizationStats(dummyGraph, before);
+    {
+        auto dummyGraph = ComputeParameterizationGraph(m, textureObject);
+        PrintParameterizationInfo(dummyGraph);
+        LogAggregateStats("stats_input", dummyGraph, textureObject);
+        std::vector<RasterizedParameterizationStats> before = GetRasterizationStats(m, textureObject);
+        std::cout << "[LOG] Raster stats before processing" << std::endl;
+        LogParameterizationStats(dummyGraph, before);
+    }
 
     // Preliminary cleaning
 
     std::cout << "Cleaning mesh..." << std::endl;
+
+    int dupVert = tri::Clean<Mesh>::RemoveDuplicateVertex(m);
+    int zeroArea = tri::Clean<Mesh>::RemoveZeroAreaFace(m);
+
+    tri::Allocator<Mesh>::CompactEveryVector(m);
+
     tri::UpdateTopology<Mesh>::FaceFace(m);
+
+    if (dupVert > 0)
+        std::cout << "Removed " << dupVert << " duplicate vertices" << std::endl;
+
+    if (zeroArea > 0)
+        std::cout << "Removed " << zeroArea << " zero area faces" << std::endl;
+
     int numVertexSplit = tri::Clean<Mesh>::SplitNonManifoldVertex(m, 0);
     if (numVertexSplit > 0)
         std::cout << "Mesh was not vertex manifold, split " << numVertexSplit << " vertices" << std::endl;
+
     int numRemovedFaces = tri::Clean<Mesh>::RemoveNonManifoldFace(m);
     if (numRemovedFaces > 0)
         std::cout << "Mesh was not edge manifold, removed " << numRemovedFaces << " faces" << std::endl;
 
     tri::Allocator<Mesh>::CompactEveryVector(m);
 
-    // Apply topological filter if requested
+    {
+        auto dummyGraph = ComputeParameterizationGraph(m, textureObject);
 
-    if (args.fixContextCapture) {
-        std::cout << "WARNING: option --fixcontextcapture detected, attempting to remove topological noise" << std::endl;
-        CleanSmallComponents(m, dummyGraph, textureObject, 1e-4);
+        // Apply topological filter if requested
+
+        if (args.fixContextCapture) {
+            std::cout << "WARNING: option --fixcontextcapture detected, attempting to remove topological noise" << std::endl;
+            CleanSmallComponents(m, dummyGraph, textureObject, 1e-4);
+        }
+
+        // WARNING, THIS NEXT FUNCTION INVALIDATES THE GRAPH
+
+        int outliers = RemoveOutliers(dummyGraph);
+        if (outliers)
+            std::cout << "Removed " << outliers << " outlier charts" << std::endl;
+
+        dummyGraph = nullptr;
     }
 
-    dummyGraph = nullptr;
     // Prepare the mesh for processing
 
     ScaleTextureCoordinatesToImage(m, textureObject);
