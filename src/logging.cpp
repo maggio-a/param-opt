@@ -352,18 +352,19 @@ void LogAggregateStats(const std::string& filename, std::shared_ptr<MeshGraph> g
 
     stats_file << "{" << std::endl;
 
-    stats_file << JSONField("mesh"                , m.name)                 << "," << std::endl;
-    stats_file << JSONField("vn"                  , m.FN())                 << "," << std::endl;
-    stats_file << JSONField("fn"                  , m.VN())                 << "," << std::endl;
-    stats_file << JSONField("connected_components", connected_components)   << "," << std::endl;
-    stats_file << JSONField("boundary_loops"      , boundary_loops)         << "," << std::endl;
-    stats_file << JSONField("genus"               , genus)                  << "," << std::endl;
-    stats_file << JSONField("nonmanif_vert"       , nonmanif_vert)          << "," << std::endl;
-    stats_file << JSONField("nonmanif_edge"       , nonmanif_edge)          << "," << std::endl;
-    stats_file << JSONField("mapped_fraction"     , mapped_fraction)        << "," << std::endl;
-    stats_file << JSONField("num_charts"          , num_charts)             << "," << std::endl;
-    stats_file << JSONField("num_null_charts"     , num_null_charts)        << "," << std::endl;
-    stats_file << JSONField("occupancy"           , occupancy)              << "," << std::endl;
+    stats_file << JSONField("mesh"                , m.name)                        << "," << std::endl;
+    stats_file << JSONField("vn"                  , m.FN())                        << "," << std::endl;
+    stats_file << JSONField("fn"                  , m.VN())                        << "," << std::endl;
+    stats_file << JSONField("connected_components", connected_components)          << "," << std::endl;
+    stats_file << JSONField("boundary_loops"      , boundary_loops)                << "," << std::endl;
+    stats_file << JSONField("genus"               , genus)                         << "," << std::endl;
+    stats_file << JSONField("nonmanif_vert"       , nonmanif_vert)                 << "," << std::endl;
+    stats_file << JSONField("nonmanif_edge"       , nonmanif_edge)                 << "," << std::endl;
+    stats_file << JSONField("mapped_fraction"     , mapped_fraction)               << "," << std::endl;
+    stats_file << JSONField("num_charts"          , num_charts)                    << "," << std::endl;
+    stats_file << JSONField("num_null_charts"     , num_null_charts)               << "," << std::endl;
+    stats_file << JSONField("occupancy"           , occupancy)                     << "," << std::endl;
+    stats_file << JSONField("ntex"                , (int) statsAtMipLevels.size()) << "," << std::endl;
 
     for (std::size_t ntex = 0; ntex < statsAtMipLevels.size(); ntex++) {
         std::stringstream ss;

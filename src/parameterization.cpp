@@ -69,9 +69,10 @@ void ParameterizerObject::Reset()
     targetArea = 0;
     for (auto& sf : shell.face) {
         CoordStorage target = tsa[sf];
-        Point2d u10 = Point2d(target.P[1].X() - target.P[0].X(), target.P[1].Y() - target.P[0].Y());
-        Point2d u20 = Point2d(target.P[2].X() - target.P[0].X(), target.P[2].Y() - target.P[0].Y());
-        targetArea += std::abs(u10 ^ u20) / 2.0;
+        // changing this because it seems more robust
+        //Point2d u10 = Point2d(target.P[1].X() - target.P[0].X(), target.P[1].Y() - target.P[0].Y());
+        //Point2d u20 = Point2d(target.P[2].X() - target.P[0].X(), target.P[2].Y() - target.P[0].Y());
+        targetArea += ((target.P[1] - target.P[0]) ^ (target.P[2] - target.P[0])).Norm() / 2.0;
     }
 
 //    std::cout << "ENERGY WHEN CONSTRUCTED == " << energy->E() << std::endl;
