@@ -497,6 +497,33 @@ std::vector<RasterizedParameterizationStats> GetRasterizationStats(Mesh& m, Text
     return statsVec;
 }
 
+std::vector<std::vector<GeometryImageStats>> GetGeometryImageStatsAtMipmapLevels(Mesh& m, TextureObjectHandle textureObject)
+{
+    constexpr int MIN_DIM = 4;
+    std::vector<std::vector<Mesh::FacePointer>> facesByTexture;
+    int ntex = FacesByTextureIndex(m, facesByTexture);
+
+    std::vector<std::vector<GeometryImageStats>> levelStats;
+    for (int i = 0; i < ntex; ++i) {
+        std::vector<GeometryImageStats> giStats;
+        int tw = textureObject->TextureWidth(i);
+        int th = textureObject->TextureHeight(i);
+        while (std::min(tw, th) > 4096) {
+            tw /= 2;
+            th /= 2;
+        }
+        while (std::max(tw, th) >= MIN_DIM) {
+            GeometryImageStats stats = GetGeometryImageStats(m, facesByTexture[i], tw, th);
+            giStats.push_back(stats);
+            tw /= 2;
+            th /= 2;
+        }
+        levelStats.push_back(giStats);
+    }
+
+    return levelStats;
+}
+
 std::vector<std::vector<RasterizedParameterizationStats>> GetRasterizationStatsAtMipmapLevels(Mesh& m, TextureObjectHandle textureObject)
 {
     constexpr int MIN_DIM = 4;

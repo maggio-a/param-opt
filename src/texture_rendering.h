@@ -49,5 +49,7 @@ std::vector<std::vector<RasterizedParameterizationStats>> GetRasterizationStatsA
 
 std::vector<GeometryImageStats> GetGeometryImageStats(Mesh& m, TextureObjectHandle textureObject);
 
+std::vector<std::vector<GeometryImageStats>> GetGeometryImageStatsAtMipmapLevels(Mesh& m, TextureObjectHandle textureObject);
+
 #endif // TEXTURE_RENDERING_H
 

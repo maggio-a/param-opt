@@ -3,6 +3,10 @@
 #include "texture_rendering.h"
 #include "utils.h"
 
+#include <Eigen/Core>
+
+#include <vcg/math/histogram.h>
+
 #include <string>
 #include <fstream>
 
@@ -122,9 +126,6 @@ void LogParameterizationStats(std::shared_ptr<MeshGraph> graph, const std::vecto
               << lostFragments << "" << std::endl;
 
 }
-
-#include <Eigen/Core>
-#include <vcg/math/histogram.h>
 
 void ExtractSingularValues(vcg::Point3d p10, vcg::Point3d p20, vcg::Point2d u10, vcg::Point2d u20, double *s_min, double *s_max)
 {
@@ -331,10 +332,11 @@ void LogAggregateStats(const std::string& filename, std::shared_ptr<MeshGraph> g
         }
     }
 
-    std::vector<std::vector<RasterizedParameterizationStats>> statsAtMipLevels =
-            GetRasterizationStatsAtMipmapLevels(m, textureObject);
+    std::vector<std::vector<RasterizedParameterizationStats>> statsAtMipLevels
+            = GetRasterizationStatsAtMipmapLevels(m, textureObject);
 
-    std::vector<GeometryImageStats> geomStats = GetGeometryImageStats(m, textureObject);
+    std::vector<std::vector<GeometryImageStats>> geomStatsAtMipLevels
+            = GetGeometryImageStatsAtMipmapLevels(m, textureObject);
 
     // occupancy
     long totalFragments = 0;
@@ -369,7 +371,11 @@ void LogAggregateStats(const std::string& filename, std::shared_ptr<MeshGraph> g
         stats_file << JSONField(ss.str().c_str(), statsAtMipLevels[ntex]) << "," << std::endl;
     }
 
-    stats_file << JSONField("geometry_image_stats", geomStats) << "," << std::endl;
+    for (std::size_t ntex = 0; ntex < geomStatsAtMipLevels.size(); ntex++) {
+        std::stringstream ss;
+        ss << "geometry_texture_" << ntex;
+        stats_file << JSONField(ss.str().c_str(), geomStatsAtMipLevels[ntex]) << "," << std::endl;
+    }
 
     stats_file << JSONField("qc_dist_avg"    , hist_angle.Avg()) << "," << std::endl;
     stats_file << JSONField("qc_dist_hist"   , hist_angle)       << "," << std::endl;
