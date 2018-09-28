@@ -325,28 +325,22 @@ void MeshViewer::FramebufferSizeCallback(GLFWwindow *window, int width, int heig
 
 // Member functions
 
-MeshViewer::MeshViewer(GraphHandle gh, const std::string& fileName_)
+MeshViewer::MeshViewer(GraphHandle gh, const Args& args)
     : graph{gh},
       _currentTexture{gh->textureObject},
       //gm{std::make_shared<GraphManager>(gh, std::unique_ptr<EdgeWeightFunction>(new W3D(gh->mesh)))},
       gm{std::make_shared<GraphManager>(gh, std::unique_ptr<EdgeWeightFunction>(new W_Geometry3D(gh->mesh)))},
-      fileName{fileName_},
-      minRegionSize{0},
+      fileName{args.filename},
+      regionCount{0},
       _textureCamera{},
       _detailCamera{},
       strategy(DefaultStrategy())
 {
     ensure_condition(_currentTexture->ArraySize() == 1 && "Only single texture meshes are supported by the viewer");
     Mesh& m = graph->mesh;
-    if (m.FN() < 100000)
-        minRegionSize = 1000;
-    else if (m.FN() < 300000)
-        minRegionSize = 5000;
-    else
-        minRegionSize = 10000;
 
-    //std::cout << "fixme" << std::endl;
-    //minRegionSize = 100000;
+    int cc = tri::Clean<Mesh>::CountConnectedComponents(m);
+    regionCount = args.regionCount + (cc - 1);
 
     std::size_t numRegions = graph->Count();
     regionColors.reserve(numRegions);
@@ -1527,7 +1521,7 @@ void MeshViewer::ManageImGuiState()
 
         if (ImGui::Button("Invoke greedy algorithm")) {
             ClearSelection();
-            RecomputeSegmentation(*gm, 20, minRegionSize);
+            RecomputeSegmentation(*gm, regionCount, 0.02);
         }
 
         static bool retry = true;
@@ -1912,7 +1906,7 @@ void MeshViewer::ManageImGuiState()
 
 void MeshViewer::gmClose()
 {
-    int count = gm->CloseMacroRegions(minRegionSize);
+    int count = gm->CloseMacroRegions(0.02);
     if (count > 0) std::cout << "Close operation merged " << count << " regions" << std::endl;
 }
 

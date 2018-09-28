@@ -1404,7 +1404,7 @@ int GraphManager::CloseMacroRegions(double areaThreshold)
         auto chart = entry.second;
         if (invertedIndex.count(chart->id) == 1) continue; // skip if this region is already going to be merged to something else
         for (auto& adjRegion : chart->adj) {
-            if (adjRegion->NumAdj() == 1 && adjRegion->Area3D() < thresholdValue) {
+            if ((adjRegion->NumAdj() == 1) && (adjRegion->Area3D() < thresholdValue)) {
                 ensure_condition(invertedIndex.count(adjRegion->id) == 0);
                 mergeLists[chart->id].push_back(adjRegion->id);
                 invertedIndex[adjRegion->id] = chart->id;

@@ -25,8 +25,8 @@
 
 using namespace vcg;
 
-int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
-             Args args)
+
+int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject, Args args)
 {
     ParameterizationStrategy strategy = MakeStrategy(
             DirectParameterizer::FixedBorderBijective,
@@ -106,11 +106,10 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
     return 0;
 }
 
-int MainGui(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject,
-             Args args)
+int MainGui(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject, Args args)
 {
     GLInit();
-    MeshViewer viewer(graph, args.filename);
+    MeshViewer viewer(graph, args);
     viewer.Run();
     GLTerminate();
     return 0;

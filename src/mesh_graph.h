@@ -450,6 +450,7 @@ struct W3D : EdgeWeightFunction {
         }
 
         double w = double(std::min(area_a, area_b)) / (sharedBorder/totalBorder); // The smaller the shared fraction, the larger the weight
+        //double w = double(std::min(area_a, area_b)) * (1.0 - (sharedBorder/totalBorder)); // The smaller the shared fraction, the larger the weight
         ensure_condition(std::isfinite(w));
         return w;
     }

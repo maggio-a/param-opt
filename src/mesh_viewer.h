@@ -13,6 +13,7 @@
 #include "texture_optimization.h"
 #include "linmath.h"
 #include "parameterization.h"
+#include "utils.h"
 
 struct GLFWwindow;
 
@@ -97,7 +98,7 @@ private:
 
 
     // TODO move the optimizer parameters somewhere else
-    std::size_t minRegionSize;
+    int regionCount;
 
     // GUI related variables///////////////////////////////////////// TODO move into info
     GLFWwindow *_window = nullptr;
@@ -272,7 +273,7 @@ private:
     */
 
 public:
-    MeshViewer(GraphHandle gh, const std::string &fileName_);
+    MeshViewer(GraphHandle gh, const Args& args);
     void Run();
     void InitBuffers();
     void UpdateDetailBuffers();

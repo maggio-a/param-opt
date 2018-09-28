@@ -348,7 +348,7 @@ void LogAggregateStats(const std::string& filename, std::shared_ptr<MeshGraph> g
     double occupancy = usedFragments / (double) totalFragments;
 
     // write all the stats to a json object
-    std::ofstream stats_file(filename + ".json");
+    std::ofstream stats_file(filename + "_" + m.name + ".json");
 
     stats_file << "{" << std::endl;
 
