@@ -308,11 +308,14 @@ void LogAggregateStats(const std::string& filename, std::shared_ptr<MeshGraph> g
     hist_angle.Clear();
     hist_angle.SetRange(1.0, 10.0, 1000);
     for (auto& f : m.face) {
-        if ((DistortionMetric::Area3D(f) > 0) && (DistortionMetric::AreaUV(f) > 0)) {
-            double s_min, s_max;
-            ExtractSingularValues(f.P(1) - f.P(0), f.P(2) - f.P(0), f.WT(1).P() - f.WT(0).P(), f.WT(2).P() - f.WT(0).P(), &s_min, &s_max);
-            double quasi_conformal_distortion = s_max / s_min;
-            hist_angle.Add(quasi_conformal_distortion, DistortionMetric::Area3D(f));
+        if ((DistortionMetric::Area3D(f) > 0)) {
+            double areaUV = DistortionMetric::AreaUV(f);
+            if (std::isfinite(areaUV)) {
+                double s_min, s_max;
+                ExtractSingularValues(f.P(1) - f.P(0), f.P(2) - f.P(0), f.WT(1).P() - f.WT(0).P(), f.WT(2).P() - f.WT(0).P(), &s_min, &s_max);
+                double quasi_conformal_distortion = s_max / s_min;
+                hist_angle.Add(quasi_conformal_distortion, DistortionMetric::Area3D(f));
+            }
         }
     }
 
