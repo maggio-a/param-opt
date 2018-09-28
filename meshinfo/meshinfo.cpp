@@ -99,7 +99,7 @@ int main(int argc, char *argv[])
 
     std::cout << std::endl;
 
-    LogAggregateStats(m.name, graph, textureObject);
+    LogAggregateStats("stats", graph, textureObject);
 
     GLTerminate();
 
