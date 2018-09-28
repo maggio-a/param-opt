@@ -329,7 +329,7 @@ MeshViewer::MeshViewer(GraphHandle gh, const Args& args)
     : graph{gh},
       _currentTexture{gh->textureObject},
       //gm{std::make_shared<GraphManager>(gh, std::unique_ptr<EdgeWeightFunction>(new W3D(gh->mesh)))},
-      gm{std::make_shared<GraphManager>(gh, std::unique_ptr<EdgeWeightFunction>(new W_Geometry3D(gh->mesh)))},
+      gm{std::make_shared<GraphManager>(gh, std::unique_ptr<EdgeWeightFunction>(new W3D(gh->mesh)))},
       fileName{args.filename},
       regionCount{0},
       _textureCamera{},
