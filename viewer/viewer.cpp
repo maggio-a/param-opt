@@ -67,6 +67,8 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject, Args 
 
     double areaThreshold = 0.02;
 
+    std::cout << "Min allowed area percentage while merging = " << areaThreshold << std::endl;
+
     RecomputeSegmentation(gm, args.regionCount + (cc - 1), areaThreshold);
 
     int c = ParameterizeGraph(gm, strategy, tolerance);

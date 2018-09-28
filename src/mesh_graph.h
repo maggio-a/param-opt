@@ -425,34 +425,44 @@ struct W3D : EdgeWeightFunction {
 
     double operator()(GraphManager::Edge& e) const
     {
-        // First evaluate shared border
-        auto CHIDh  = tri::Allocator<Mesh>::FindPerFaceAttribute<std::size_t>(mesh, "ConnectedComponentID");
-        ensure_condition(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CHIDh));
+        constexpr double infinity = std::numeric_limits<double>::infinity();
+        constexpr int FACE_THRESHOLD = 100000;
 
-        double area_a = e.a->Area3D();
-        double area_b = e.b->Area3D();
-        ChartHandle chart1 = area_a < area_b ? e.a : e.b;
-        ChartHandle chart2 = chart1 == e.a ? e.b : e.a;
+        bool islandEdge = ((e.a->NumAdj() == 1) || (e.b->NumAdj() == 1));
 
-        double totalBorder = 0.0f;
-        double sharedBorder = 0.0f;
-        for (auto fptr : chart1->fpVec) {
-            for (int i = 0; i < fptr->VN(); ++i) {
-                auto ffpi = fptr->FFp(i);
-                auto adjId = CHIDh[ffpi];
-                if (adjId != CHIDh[fptr]) {
-                    double edgeLength = EdgeLength(*fptr, i);
-                    if (adjId == chart2->id)
-                        sharedBorder += edgeLength;
-                    totalBorder += edgeLength;
+        if (islandEdge || ((e.a->FN() + e.b->FN()) < FACE_THRESHOLD)) {
+            // First evaluate shared border
+            auto CHIDh  = tri::Allocator<Mesh>::FindPerFaceAttribute<std::size_t>(mesh, "ConnectedComponentID");
+            ensure_condition(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CHIDh));
+
+            double area_a = e.a->Area3D();
+            double area_b = e.b->Area3D();
+            ChartHandle chart1 = area_a < area_b ? e.a : e.b;
+            ChartHandle chart2 = chart1 == e.a ? e.b : e.a;
+
+            double totalBorder = 0.0f;
+            double sharedBorder = 0.0f;
+            for (auto fptr : chart1->fpVec) {
+                for (int i = 0; i < fptr->VN(); ++i) {
+                    auto ffpi = fptr->FFp(i);
+                    auto adjId = CHIDh[ffpi];
+                    if (adjId != CHIDh[fptr]) {
+                        double edgeLength = EdgeLength(*fptr, i);
+                        if (adjId == chart2->id)
+                            sharedBorder += edgeLength;
+                        totalBorder += edgeLength;
+                    }
                 }
             }
+
+            double w = double(std::min(area_a, area_b)) * std::pow((sharedBorder/totalBorder), -1.0); // The smaller the shared fraction, the larger the weight
+            //double w = double(std::min(area_a, area_b)) * (1.0 - (sharedBorder/totalBorder)); // The smaller the shared fraction, the larger the weight
+            ensure_condition(std::isfinite(w));
+            return w;
+        } else {
+            return infinity;
         }
 
-        double w = double(std::min(area_a, area_b)) * std::pow((sharedBorder/totalBorder), -1.0); // The smaller the shared fraction, the larger the weight
-        //double w = double(std::min(area_a, area_b)) * (1.0 - (sharedBorder/totalBorder)); // The smaller the shared fraction, the larger the weight
-        ensure_condition(std::isfinite(w));
-        return w;
     }
 };
 

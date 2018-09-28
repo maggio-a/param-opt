@@ -314,7 +314,8 @@ void LogAggregateStats(const std::string& filename, std::shared_ptr<MeshGraph> g
                 double s_min, s_max;
                 ExtractSingularValues(f.P(1) - f.P(0), f.P(2) - f.P(0), f.WT(1).P() - f.WT(0).P(), f.WT(2).P() - f.WT(0).P(), &s_min, &s_max);
                 double quasi_conformal_distortion = s_max / s_min;
-                hist_angle.Add(quasi_conformal_distortion, DistortionMetric::Area3D(f));
+                if (std::isfinite(quasi_conformal_distortion))
+                    hist_angle.Add(quasi_conformal_distortion, DistortionMetric::Area3D(f));
             }
         }
     }
