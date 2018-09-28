@@ -77,4 +77,8 @@ win32 {
 HEADERS += \
     $$PWD/src/utils.h
 
+SOURCES += \
+    $$VCGPATH/wrap/openfbx/src/ofbx.cpp \
+    $$VCGPATH/wrap/openfbx/src/miniz.c
+
 
