@@ -862,6 +862,16 @@ void ComputeCotangentWeightedLaplacian(Mesh& shell, Eigen::SparseMatrix<double>&
             double alpha_ik = std::max(VecAngle(vi->P() - vj->P(), vk->P() - vj->P()), eps); // angle at j
             double weight_ij = 0.5 * std::tan(M_PI_2 - alpha_ij);
             double weight_ik = 0.5 * std::tan(M_PI_2 - alpha_ik);
+
+            if (!std::isfinite(weight_ij))
+                weight_ij = 1e-8;
+
+            if (!std::isfinite(weight_ik))
+                weight_ik = 1e-8;
+
+            ensure_condition(std::isfinite(weight_ij));
+            ensure_condition(std::isfinite(weight_ik));
+
             tri.push_back(Td(Idx[vi], Idx[vj], -weight_ij));
             tri.push_back(Td(Idx[vi], Idx[vk], -weight_ik));
             tri.push_back(Td(Idx[vi], Idx[vi], (weight_ij + weight_ik)));
@@ -913,7 +923,9 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf, c
     for (auto& sf : m.face) {
         //auto& f = baseMesh.face[ia[sf]];
         for (int i = 0; i < 3; ++i) {
-            Korig[index[sf.V(i)]] -= VecAngle(sf.P1(i) - sf.P0(i), sf.P2(i) - sf.P0(i));
+            double angle = VecAngle(sf.P1(i) - sf.P0(i), sf.P2(i) - sf.P0(i));
+            if (std::isfinite(angle))
+                Korig[index[sf.V(i)]] -= angle;
         }
     }
     Korig.segment(0, n_internal) += Eigen::VectorXd::Constant(n_internal, 2.0 * M_PI);
@@ -955,6 +967,8 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf, c
         std::cout << "WARNING ComputeConformalScalingFactors(): factorization of the cotangent-weighted Laplacian failed" << std::endl;
         return false;
     }
+
+    Eigen::VectorXd p = Knew - Korig;
 
     Eigen::VectorXd scalingFactors = solverLDLT.solve(Knew - Korig);
     csf.resize(scalingFactors.size());

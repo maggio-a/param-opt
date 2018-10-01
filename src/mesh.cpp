@@ -153,5 +153,16 @@ bool Parameterizable(Mesh &m)
         return false;
     }
 
+    if (!tri::Clean<Mesh>::IsCoherentlyOrientedMesh(m)) {
+        std::cout << "Attempting to reorient faces" << std::endl;
+        bool p1, p2;
+        tri::Clean<Mesh>::OrientCoherentlyMesh(m, p1, p2);
+        if (!p1)
+            std::cout << "Mesh is not coherently oriented" << std::endl;
+        if (!p2)
+            std::cout << "Mesh is non-orientable" << std::endl;
+        return p2;
+    }
+
     return true;
 }

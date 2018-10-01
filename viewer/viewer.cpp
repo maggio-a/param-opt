@@ -198,6 +198,7 @@ int main(int argc, char *argv[])
         dummyGraph = nullptr;
     }
 
+
     // Prepare the mesh for processing
 
     ScaleTextureCoordinatesToImage(m, textureObject);
@@ -207,6 +208,7 @@ int main(int argc, char *argv[])
     auto graph = ComputeParameterizationGraph(m, textureObject);
     ParameterizeZeroAreaRegions(m, graph);
     StoreWedgeTexCoordAsAttribute(m);
+
 
     if (args.gui)
         return MainGui(m, graph, textureObject, args);

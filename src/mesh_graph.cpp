@@ -82,6 +82,7 @@ void CloseMeshHoles(Mesh& shell)
 {
     int startFN = shell.FN();
 
+
     // Get border info
     ensure_condition(HasBoundaryInfoAttribute(shell));
     BoundaryInfo& info = GetBoundaryInfoAttribute(shell)();
@@ -101,7 +102,6 @@ void CloseMeshHoles(Mesh& shell)
         }
         tri::Hole<Mesh>::EarCuttingFill<tri::MinimumWeightEar<Mesh>>(shell, shell.FN(), true);
     }
-    tri::UpdateTopology<Mesh>::FaceFace(shell);
 
     auto ia = GetFaceIndexAttribute(shell);
     tri::UpdateFlags<Mesh>::FaceClearS(shell);
@@ -480,17 +480,43 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
             ensure_condition(ok && "topological cut failed");
             tri::CutMeshAlongSelectedFaceEdges(shell);
         }
+
+        if (!tri::Clean<Mesh>::IsCoherentlyOrientedMesh(shell)) {
+            std::cout << "Attempting to reorient faces" << std::endl;
+            bool p1, p2;
+            tri::Clean<Mesh>::OrientCoherentlyMesh(shell, p1, p2);
+            if (!p1)
+                std::cout << "Mesh is not coherently oriented" << std::endl;
+            if (!p2)
+                std::cout << "Mesh is non-orientable" << std::endl;
+        }
+
         // Compute the initial configuration (Tutte's parameterization)
         ComputeBoundaryInfo(shell);
         CloseMeshHoles(shell);
-        UniformSolver<Mesh> solver(shell);
-        bool solved = solver.Solve();
-        //MeanValueSolver<Mesh> solver(shell);
-        //bool solved = solver.Solve(DefaultVertexPosition<Mesh>{});
+        bool solved = false;
+
         if (!solved) {
+            UniformSolver<Mesh> solver(shell);
+            solved = solver.Solve();
+        }
+        if (!solved) {
+            UniformSolver<Mesh> solver(shell);
+            solver.SetBoundaryMapProportional();
+            solved = solver.Solve();
+        }
+
+        if (!solved) {
+            MeanValueSolver<Mesh> mvs(shell);
+            solved = mvs.Solve();
+        }
+
+        if (!solved) {
+            tri::io::Exporter<Mesh>::Save(shell, "error.obj", tri::io::Mask::IOM_ALL);
             return false;
-        } else
+        } else {
             SyncShellWithUV(shell);
+        }
     }
 
     // if we reach this point, the shell is synced with its uv coordinates

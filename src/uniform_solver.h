@@ -40,12 +40,18 @@ private:
     std::unordered_map<IndexType,CoordUV> constraints;
     std::vector<Td> coeffList;
 
+    int mode = 0;
+
 public:
 
     UniformSolver(MeshType &m) : mesh{m}
     {
         tri::UpdateTopology<MeshType>::FaceFace(m);
         assert(tri::Clean<MeshType>::MeshGenus(m) == 0);
+    }
+
+    void SetBoundaryMapProportional() {
+        mode = 1;
     }
 
 private:
@@ -101,7 +107,12 @@ public:
         constexpr double twoPi = 2 * M_PI;
         for (std::size_t i = 0; i < vBorderVertices[0].size(); ++i) {
             //float angle = (vCumulativeBorder[0][i] / vTotalBorderLength[0]) * twoPi;
-            double angle = (i / double(vBorderVertices[0].size())) * twoPi;
+            double angle;
+            if (mode == 0)
+                angle = (i / double(vBorderVertices[0].size())) * twoPi;
+            else if (mode == 1)
+                angle = (vCumulativeBorder[0][i] / vTotalBorderLength[0]) * twoPi;
+
             Point2d uvCoord = Point2d{std::sin(angle), std::cos(angle)};
             mesh.vert[vBorderVertices[0][i]].T().P() = uvCoord;
             AddConstraint(vBorderVertices[0][i], uvCoord);

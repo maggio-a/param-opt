@@ -126,7 +126,7 @@ public:
         int gutter;
     };
 
-    static ScalarType Apply(std::vector<Poly>& polyVec, std::vector<Similarity2x>& trVec, const Parameters& param)
+    static vcg::Point2i Apply(std::vector<Poly>& polyVec, std::vector<Similarity2x>& trVec, const Parameters& param)
     {
         std::cout << "=== Pixel shifting procedure ===" << std::endl;
         using vcg::Point2i;
@@ -134,6 +134,8 @@ public:
         // compute scale factor that optimally fits the raster space
         ScalarType scale = std::min(ScalarType(param.w), ScalarType(param.h));
         ensure_condition(scale > 0);
+
+        std::cout << "Packing into a grid of size " << param.w << "x" << param.h << std::endl;
 
         // compute the initial offsets
         std::vector<Box2x> polyBoxes;
@@ -279,7 +281,20 @@ public:
 
         std::cout << "=== Pixel shifting procedure finished ===" << std::endl;
 
-        return std::max(cover.DimX(), cover.DimY());
+        double aspectRatio;
+        if (param.w == param.h) {
+            int maxDim = std::max(cover.DimX(), cover.DimY());
+            return Point2i(maxDim, maxDim);
+        } else {
+            aspectRatio = param.w / (double) param.h;
+            if (aspectRatio > 1) {
+                ensure_condition(cover.DimX() >= cover.DimY());
+                return Point2i(cover.DimX(), cover.DimX() / aspectRatio);
+            } else {
+                ensure_condition(cover.DimY() >= cover.DimX());
+                return Point2i(cover.DimY() * aspectRatio, cover.DimY());
+            }
+        }
     }
 
 };

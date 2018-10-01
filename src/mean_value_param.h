@@ -62,7 +62,7 @@ public:
 
     bool Solve(float lambda = 1.0f, float mi = 0.0f)
     {
-        return Solve(DefaultVertexPosition<MeshType>{}, lambda, mi);
+        return Solve(DefaultVertexPosition<MeshType>{});
     }
 
     template <typename VertexPosFct>

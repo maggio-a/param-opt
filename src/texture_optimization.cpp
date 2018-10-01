@@ -381,17 +381,18 @@ int RemoveOutliers(GraphHandle& graph)
         }
     }
 
+    /*
     std::vector<Mesh::FacePointer> toRemove;
     for (auto& entry : graph->charts) {
         ChartHandle c = entry.second;
-        if ((c->NumAdj() == 0) && (c->Area3D() < 0.0001 * totalArea3D)) {
+        if ((c->NumAdj() == 0) && (c->Area3D() < 0.00001 * totalArea3D)) {
             toRemove.insert(toRemove.end(), c->fpVec.begin(), c->fpVec.end());
         }
     }
 
     for (auto fptr : toRemove)
         tri::Allocator<Mesh>::DeleteFace(graph->mesh, *fptr);
-
+    */
     tri::Allocator<Mesh>::CompactEveryVector(graph->mesh);
 
     graph = nullptr;
@@ -691,12 +692,14 @@ RasterizationBasedPacker::PackingStats Pack(GraphHandle graph, const PackingOpti
             Point2i gridSize = containerVec[ic];
             for (std::size_t j = 0; j < texOutlines[i].size(); ++j) {
                 Point2f p = packingTransforms[i] * texOutlines[i][j];
-                texOutlines[i][j] = Point2f(p.X() / gridSize.X(), p.Y() / gridSize.Y());
+                //texOutlines[i][j] = Point2f(p.X() / gridSize.X(), p.Y() / gridSize.Y());
+                int minDim = std::min(gridSize.X(), gridSize.Y());
+                texOutlines[i][j] = Point2f(p.X() / minDim, p.Y() / minDim);
             }
         }
 
         std::vector<Similarity2f> shiftingTransforms(texOutlines.size());
-        std::vector<double> scaleFactors(texOutlines.size());
+        std::vector<Point2i> scaleFactors(texOutlines.size());
 
         // for each container, pick all the outlines mapped to that container and
         // invoke the shifting procedure
@@ -710,8 +713,21 @@ RasterizationBasedPacker::PackingStats Pack(GraphHandle graph, const PackingOpti
                 }
             }
             std::vector<Similarity2f> containerTransforms;
-            PixelShiftingOptimizer<float, QtOutline2Rasterizer>::Parameters par = {4096, 4096, 16};
-            float scale = PixelShiftingOptimizer<float, QtOutline2Rasterizer>::Apply(containerOutlines, containerTransforms, par);
+            //PixelShiftingOptimizer<float, QtOutline2Rasterizer>::Parameters par = {4096, 4096, 16};
+
+            double ratio = containerRatios[c];
+            int cw = 4096;
+            int ch = 4096;
+            if (ratio > 1)
+                cw = cw * ratio;
+            else if (ratio < 1)
+                ch = ch / ratio;
+
+            PixelShiftingOptimizer<float, QtOutline2Rasterizer>::Parameters par = {cw, ch, 16};
+
+
+            Point2i scale = PixelShiftingOptimizer<float, QtOutline2Rasterizer>::Apply(containerOutlines, containerTransforms, par);
+
             for (unsigned j = 0; j < containerTransforms.size(); ++j) {
                 shiftingTransforms[outlineIndex[j]] = containerTransforms[j];
                 scaleFactors[outlineIndex[j]] = scale;
@@ -723,9 +739,20 @@ RasterizationBasedPacker::PackingStats Pack(GraphHandle graph, const PackingOpti
             for (auto fptr : graph->charts[entry.first]->fpVec) {
                 for (int j = 0; j < fptr->VN(); ++j) {
                     Point2d uv = fptr->WT(j).P();
+
+                    int ic = containerIndices[entry.second];
+                    Point2i gridSize = containerVec[ic];
+                    int minDim = std::min(gridSize.X(), gridSize.Y());
+
+                    uv.X() *= (gridSize.X() / (double) minDim);
+                    uv.Y() *= (gridSize.Y() / (double) minDim);
+
                     Point2f p(uv[0], uv[1]);
+
                     p = shiftingTransforms[entry.second] * p;
-                    p /= scaleFactors[entry.second];
+                    p.X() /= (double) scaleFactors[entry.second].X();
+                    p.Y() /= (double) scaleFactors[entry.second].Y();
+
                     fptr->WT(j).P() = Point2d(p.X(), p.Y());
                 }
             }
