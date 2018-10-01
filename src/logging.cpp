@@ -320,6 +320,24 @@ void LogAggregateStats(const std::string& filename, std::shared_ptr<MeshGraph> g
         }
     }
 
+    double minPerc = hist_angle.Percentile(0.01);
+    double maxPerc = hist_angle.Percentile(0.99);
+
+    vcg::Histogram<double> hist_angle_robust;
+    hist_angle_robust.Clear();
+    hist_angle_robust.SetRange(1.0, 10.0, 1000);
+    for (auto& f : m.face) {
+        if ((DistortionMetric::Area3D(f) > 0)) {
+            double areaUV = DistortionMetric::AreaUV(f);
+            if (std::isfinite(areaUV)) {
+                double s_min, s_max;
+                ExtractSingularValues(f.P(1) - f.P(0), f.P(2) - f.P(0), f.WT(1).P() - f.WT(0).P(), f.WT(2).P() - f.WT(0).P(), &s_min, &s_max);
+                double quasi_conformal_distortion = s_max / s_min;
+                if (std::isfinite(quasi_conformal_distortion) && (minPerc < quasi_conformal_distortion) && (maxPerc > quasi_conformal_distortion))
+                    hist_angle_robust.Add(quasi_conformal_distortion, DistortionMetric::Area3D(f));
+            }
+        }
+    }
 
     // rasterization stats at various mipmap levels
     ScaleTextureCoordinatesToParameterArea(m, textureObject);
@@ -384,6 +402,10 @@ void LogAggregateStats(const std::string& filename, std::shared_ptr<MeshGraph> g
 
     stats_file << JSONField("qc_dist_avg"    , hist_angle.Avg()) << "," << std::endl;
     stats_file << JSONField("qc_dist_hist"   , hist_angle)       << "," << std::endl;
+
+    stats_file << JSONField("qc_dist_robust_avg"    , hist_angle_robust.Avg()) << "," << std::endl;
+    stats_file << JSONField("qc_dist_robust_hist"   , hist_angle_robust)       << "," << std::endl;
+
     stats_file << JSONField("qc_area_hist"   , hist_area)               << std::endl;
 
     stats_file << "}" << std::endl;
