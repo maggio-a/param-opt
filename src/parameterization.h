@@ -85,6 +85,8 @@ class ParameterizerObject {
 
     double targetArea;
 
+    bool badInit;
+
 public:
 
     ParameterizerObject(ChartHandle c, ParameterizationStrategy strat);

@@ -42,7 +42,14 @@ private:
 
     int vn;
 
+    int mode = 0;
+
 public:
+
+    void UseCotangentWeights()
+    {
+        mode = 1;
+    }
 
     MeanValueSolver(MeshType &m) : mesh{m}, vn{0} {}
 
@@ -134,23 +141,44 @@ public:
                 VertexPointer vk = f.V((i+1)%3);
                 Coord3D pk = VertPos(&f, (i+1)%3);
 
-                double angle_i = VecAngle(pi - pj, pi - pk);
-                if (!std::isfinite(angle_i)) {
-                    angle_i = M_PI / 3.0;
-                }
-                double pij2 = (pi - pj).SquaredNorm();
-                double pik2 = (pi - pk).SquaredNorm();
-                double weight_ij = std::tan(angle_i / 2.0) / (pij2 > 0 ? pij2 : 1e-6)  ;
-                double weight_ik = std::tan(angle_i / 2.0) / (pik2 > 0 ? pik2 : 1e-6)  ;
+                if (mode == 0) {
+                    double angle_i = VecAngle(pi - pj, pi - pk);
+                    if (!std::isfinite(angle_i)) {
+                        angle_i = M_PI / 3.0;
+                    }
 
-                if (!(std::isfinite(weight_ij) && std::isfinite(weight_ik))) {
-                    std::cout << "Failed to compute matrix coefficients for face " << tri::Index(mesh, f) << std::endl;
-                    return false;
-                }
+                    double pij2 = (pi - pj).SquaredNorm();
+                    double pik2 = (pi - pk).SquaredNorm();
+                    double weight_ij = std::tan(angle_i / 2.0) / (pij2 > 0 ? pij2 : 1e-6)  ;
+                    double weight_ik = std::tan(angle_i / 2.0) / (pik2 > 0 ? pik2 : 1e-6)  ;
 
-                coeffList.push_back(Td(Idx(vi), Idx(vj), weight_ij));
-                coeffList.push_back(Td(Idx(vi), Idx(vk), weight_ik));
-                coeffList.push_back(Td(Idx(vi), Idx(vi), -(weight_ij + weight_ik)));
+                    if (!(std::isfinite(weight_ij) && std::isfinite(weight_ik))) {
+                        std::cout << "Failed to compute matrix coefficients for face " << tri::Index(mesh, f) << std::endl;
+                        return false;
+                    }
+
+                    coeffList.push_back(Td(Idx(vi), Idx(vj), weight_ij));
+                    coeffList.push_back(Td(Idx(vi), Idx(vk), weight_ik));
+                    coeffList.push_back(Td(Idx(vi), Idx(vi), -(weight_ij + weight_ik)));
+                } else if (mode == 1) {
+                    ScalarType alpha_ij = std::max(vcg::Angle(pi - pk, pj - pk), eps); // angle at k
+                    ScalarType alpha_ik = std::max(vcg::Angle(pi - pj, pk - pj), eps); // angle at j
+
+                    ScalarType weight_ij = std::tan(M_PI_2 - alpha_ij);
+                    ScalarType weight_ik = std::tan(M_PI_2 - alpha_ik);
+
+                    if (!(std::isfinite(weight_ij) && std::isfinite(weight_ik))) {
+                        std::cout << "Failed to compute matrix coefficients for face " << tri::Index(mesh, f) << std::endl;
+                        return false;
+                    }
+
+                    coeffList.push_back(Td(Idx(vi), Idx(vj), weight_ij));
+                    coeffList.push_back(Td(Idx(vi), Idx(vk), weight_ik));
+                    coeffList.push_back(Td(Idx(vi), Idx(vi), -(weight_ij + weight_ik)));
+
+                } else {
+                    assert(0);
+                }
             }
         }
 

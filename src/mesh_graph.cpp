@@ -431,6 +431,8 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
     }
     auto ia = GetFaceIndexAttribute(shell);
 
+    bool init = true;
+
     if (useExistingUV) {
         // copy wedge texture data from the input mesh
         for (auto& sf : shell.face) {
@@ -440,7 +442,6 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
             }
         }
         // split vertices at seams
-        int vn = shell.VN();
         auto vExt = [](const Mesh& msrc, const MeshFace& f, int k, const Mesh& mdst, MeshVertex& v) {
             (void) msrc;
             (void) mdst;
@@ -479,6 +480,7 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
             bool ok = cc.TagFaceEdgeSelWithPolyLine(cut);
             ensure_condition(ok && "topological cut failed");
             tri::CutMeshAlongSelectedFaceEdges(shell);
+            tri::UpdateTopology<Mesh>::FaceFace(shell);
         }
 
         if (!tri::Clean<Mesh>::IsCoherentlyOrientedMesh(shell)) {
@@ -487,8 +489,10 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
             tri::Clean<Mesh>::OrientCoherentlyMesh(shell, p1, p2);
             if (!p1)
                 std::cout << "Mesh is not coherently oriented" << std::endl;
-            if (!p2)
+            if (!p2) {
                 std::cout << "Mesh is non-orientable" << std::endl;
+                tri::io::Exporter<Mesh>::Save(shell, "non_orientable.obj", tri::io::Mask::IOM_ALL);
+            }
         }
 
         // Compute the initial configuration (Tutte's parameterization)
@@ -512,11 +516,16 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
         }
 
         if (!solved) {
-            tri::io::Exporter<Mesh>::Save(shell, "error.obj", tri::io::Mask::IOM_ALL);
-            return false;
-        } else {
-            SyncShellWithUV(shell);
+            MeanValueSolver<Mesh> mvs(shell);
+            mvs.UseCotangentWeights();
+            solved = mvs.Solve();
         }
+
+        if (!solved) {
+            tri::io::Exporter<Mesh>::Save(shell, "error.obj", tri::io::Mask::IOM_ALL);
+        }
+
+        init = solved;
     }
 
     // if we reach this point, the shell is synced with its uv coordinates
@@ -631,7 +640,7 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
         v.T().P() *= areaScaleFactor;
     SyncShellWithUV(shell);
 
-    return true;
+    return init;
 }
 
 /* This function is used to 'correct' degenerate triangles (too small and/or

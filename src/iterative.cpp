@@ -271,11 +271,13 @@ void DescentMethod::SetX(const MatrixXd& x)
         v.T().U() = uv(0);
         v.T().V() = uv(1);
     }
+    /*
     for (auto& f : m.face) {
         Point2d u10 = f.V(1)->T().P() - f.V(0)->T().P();
         Point2d u20 = f.V(2)->T().P() - f.V(0)->T().P();
         ensure_condition((u10 ^ u20) > 0);
     }
+    */
 }
 
 
@@ -1126,6 +1128,7 @@ inline Matrix66d CompMaj::ComputeConvexConcaveFaceHessian(
     return H;
 }
 
+#include <wrap/io_trimesh/export.h>
 Eigen::MatrixXd CompMaj::ComputeDescentDirection()
 {
     UpdateJ();
@@ -1149,6 +1152,10 @@ Eigen::MatrixXd CompMaj::ComputeDescentDirection()
     solver.analyzePattern(A);
 
     solver.factorize(A);
+
+    if (solver.info() != Eigen::Success) {
+        tri::io::Exporter<Mesh>::Save(m, "factorization_failed.obj", tri::io::Mask::IOM_ALL);
+    }
     ensure_condition((solver.info() == Eigen::Success) && "CompMaj factorization failed");
 
     Eigen::VectorXd sol;

@@ -341,6 +341,7 @@ void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
 
         if (!parameterized) {
             std::cout << "WARNING: preliminary parameterization of chart " << chart->id << " failed" << std::endl;
+            ensure_condition(0 && "Failed to assign valid parameterization to null chart");
         } else {
             po.SyncChart();
             // As convenience to detect regions that originally did not have a parameterization, the texcoords
@@ -393,6 +394,7 @@ int RemoveOutliers(GraphHandle& graph)
     for (auto fptr : toRemove)
         tri::Allocator<Mesh>::DeleteFace(graph->mesh, *fptr);
     */
+
     tri::Allocator<Mesh>::CompactEveryVector(graph->mesh);
 
     graph = nullptr;
@@ -565,17 +567,29 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
                 chart->numMerges = 0;
             }
         } else {
-            numFailed++;
             std::cout << "Parameterization failed" << std::endl;
             // split the aggregate and restore the original uvs
+            bool recover = (chart->numMerges > 0);
+
             std::vector<ChartHandle> splitCharts;
             gm.Split(chart->id, splitCharts);
-            for (auto split : splitCharts) {
-                for (auto fptr : split->fpVec) {
-                    TexCoordStorage tcs = wtcsattr[fptr];
-                    for (int i = 0; i < 3; ++i) {
-                        fptr->WT(i) = tcs.tc[i];
-                        fptr->V(i)->T() = tcs.tc[i];
+
+            if (recover) {
+                std::vector<ChartHandle> newCharts;
+                RecoverFromSplit(splitCharts, gm, newCharts, true);
+                for (auto& c : newCharts) {
+                    paramQueue.push_back(ParamTask{c, false});
+                }
+            } else {
+                std::cout << "Chart cannot be split, restoring uvs..." << std::endl;
+                numFailed++;
+                for (auto split : splitCharts) {
+                    for (auto fptr : split->fpVec) {
+                        TexCoordStorage tcs = wtcsattr[fptr];
+                        for (int i = 0; i < 3; ++i) {
+                            fptr->WT(i) = tcs.tc[i];
+                            fptr->V(i)->T() = tcs.tc[i];
+                        }
                     }
                 }
             }
@@ -670,6 +684,8 @@ RasterizationBasedPacker::PackingStats Pack(GraphHandle graph, const PackingOpti
 
     std::cout << "Packing took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
 
+    for (unsigned i = 0; i < containerIndices.size(); ++i)
+        std::cout << "Packed outline " << i << " into container " << containerIndices[i] << std::endl;
     for (auto entry : outlineMap) {
         for (auto fptr : graph->charts[entry.first]->fpVec) {
             int ic = containerIndices[entry.second];

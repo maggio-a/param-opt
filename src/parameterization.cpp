@@ -6,6 +6,7 @@
 #include "math_utils.h"
 #include "timer.h"
 #include "uniform_solver.h"
+#include "mean_value_param.h"
 
 #include <memory>
 
@@ -31,7 +32,8 @@ ParameterizerObject::ParameterizerObject(ChartHandle c, ParameterizationStrategy
       needsRemeshing{false},
       iterationCount{0},
       gradientNormTolerance{1e-3},
-      energyDiffTolerance{1e-6}
+      energyDiffTolerance{1e-6},
+      badInit{false}
 {
     Reset();
 }
@@ -52,9 +54,12 @@ void ParameterizerObject::Reset()
         std::cout << "ParameterizerObject: Using warm start" << std::endl;
 
     bool init = BuildShell(shell, *chart, strategy.geometry, strategy.warmStart);
+    if (!init) {
+        std::cout << "WARNING: Failed to initialize injective solution" << std::endl;
+        badInit = true;
+    }
+
     ensure_condition(init && "Failed to initialize ParameterizerObject solution");
-    ensure_condition(CheckUVConnectivity(shell));
-    ensure_condition(CheckLocalInjectivity(shell));
 
     if (strategy.scaffold)
         BuildScaffold(shell, strategy.geometry, baseMesh);
@@ -242,11 +247,31 @@ bool ParameterizerObject::OptimizerIsInitialized()
 /* Parameterization-related methods
  * ================================ */
 
-
 bool ParameterizerObject::InitializeSolution()
 {
-    UniformSolver<Mesh> u{shell};
-    bool solved = u.Solve();
+    bool solved = false;
+
+    if (!solved) {
+        UniformSolver<Mesh> solver(shell);
+        solved = solver.Solve();
+    }
+    if (!solved) {
+        UniformSolver<Mesh> solver(shell);
+        solver.SetBoundaryMapProportional();
+        solved = solver.Solve();
+    }
+
+    if (!solved) {
+        MeanValueSolver<Mesh> mvs(shell);
+        solved = mvs.Solve();
+    }
+
+    if (!solved) {
+        MeanValueSolver<Mesh> mvs(shell);
+        mvs.UseCotangentWeights();
+        solved = mvs.Solve();
+    }
+
     if (solved) {
         // scale the parameterization
         double uvArea = M_PI * 0.5 * 0.5;
@@ -255,7 +280,13 @@ bool ParameterizerObject::InitializeSolution()
             sv.T().P() *= scale;
         }
         SyncShellWithUV(shell);
+        badInit = false;
+    } else {
+        std::cout << "WARNING: failed to initialize injective solution" << std::endl;
+        tri::io::Exporter<Mesh>::Save(shell, "error.obj", tri::io::Mask::IOM_ALL);
+        badInit = true;
     }
+
     return solved;
 }
 
@@ -366,6 +397,9 @@ bool ParameterizerObject::Parameterize()
 {
     constexpr double CONFORMAL_SCALING_THRESHOLD = 1.98;
 
+    if (badInit) // bad init, bail out
+        return false;
+
     if (!OptimizerIsInitialized())
         InitializeOptimizer();
 
@@ -376,6 +410,9 @@ bool ParameterizerObject::Parameterize()
         }
         std::cout << "Placed " << c << " cuts" << std::endl;
     }
+
+    if (badInit)
+        return false;
 
     // check if remeshing is required during iterations
     needsRemeshing = false;
@@ -600,6 +637,8 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
 
 int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScalingThreshold)
 {
+    if (badInit)
+        return 0;
     /*
     // sanity check
     if (strategy.scaffold) {
@@ -684,8 +723,9 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScaling
     ComputeBoundaryInfo(shell); // boundary changed after the cut
     SyncShellWithUV(shell);
 
-    if (strategy.padBoundaries)
+    if (strategy.padBoundaries) {
         CloseShellHoles(shell, strategy.geometry, baseMesh);
+    }
 
     // Initialize solution if cones were placed
     if (coneIndices.size() > 0)

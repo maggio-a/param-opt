@@ -805,7 +805,7 @@ std::vector<TextureSize> ComputeSizes(int ntex, TextureObjectHandle inputTexture
 {
     std::vector<TextureSize> textureSizes;
     int ntex_in = inputTexture->ArraySize();
-    if (ntex == ntex_in) {
+    if (ntex <= ntex_in) {
         for (int i = 0; i < ntex_in; ++i) {
             textureSizes.push_back({inputTexture->TextureWidth(i), inputTexture->TextureHeight(i)});
         }
