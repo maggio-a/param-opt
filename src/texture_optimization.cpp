@@ -302,9 +302,75 @@ void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, std::ve
     }
     n++;
     */
-
-
 }
+
+
+
+/* Ugly function that tries to perform subsequent merges after a split. split is the vector of charts
+ * that formed the aggregate, chartQueue is the queue were the newly merged charts must be inserted
+ * */
+static void RecoverFromFailedInit(std::vector<ChartHandle>& split, GraphManager& gm, std::vector<ChartHandle>& chartQueue)
+{
+    /* very simple heuristic, select the two largest charts in the split, and iteratively grow them
+     * until all the charts in the split are covered, producing to 2 new aggregates that will be
+     * parameterized independently */
+    std::sort(split.begin(), split.end(),
+              [](const ChartHandle& c1, const ChartHandle& c2) { return c1->Area3D() > c2->Area3D(); }
+    );
+    ChartHandle c1 = split[0];
+    ChartHandle c2 = split[1];
+
+    std::unordered_set<ChartHandle, FaceGroup::Hasher> charts;
+    for (std::size_t i = 2; i < split.size(); ++i) {
+        charts.insert(split[i]);
+    }
+
+    while (charts.size() > 0) {
+
+        // grow c1
+
+        ChartHandle bestCollapseCandidate = nullptr;
+        double minWeight = std::numeric_limits<double>::infinity();
+
+        for (auto ch : c1->adj) {
+            if (charts.count(ch) == 1) {
+                GraphManager::Edge e(c1, ch);
+                double w = gm.EdgeWeight(e);
+                if (w < minWeight) {
+                    minWeight = w;
+                    bestCollapseCandidate = ch;
+                }
+            }
+        }
+        charts.erase(bestCollapseCandidate);
+        c1 = gm.Collapse(GraphManager::Edge(c1, bestCollapseCandidate));
+
+        // grow c2
+
+        bestCollapseCandidate = nullptr;
+        minWeight = std::numeric_limits<double>::infinity();
+
+        for (auto ch : c2->adj) {
+            if (charts.count(ch) == 1) {
+                GraphManager::Edge e(c1, ch);
+                double w = gm.EdgeWeight(e);
+                if (w < minWeight) {
+                    minWeight = w;
+                    bestCollapseCandidate = ch;
+                }
+            }
+        }
+        charts.erase(bestCollapseCandidate);
+        c2 = gm.Collapse(GraphManager::Edge(c2, bestCollapseCandidate));
+    }
+
+    chartQueue.push_back(c1);
+    chartQueue.push_back(c2);
+    std::cout << "Recovery produced two charts of sizes " << c1->numMerges + 1 << " " << c2->numMerges + 1 << std::endl;
+}
+
+
+
 
 void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
 {
@@ -382,18 +448,17 @@ int RemoveOutliers(GraphHandle& graph)
         }
     }
 
-    /*
     std::vector<Mesh::FacePointer> toRemove;
     for (auto& entry : graph->charts) {
         ChartHandle c = entry.second;
-        if ((c->NumAdj() == 0) && (c->Area3D() < 0.00001 * totalArea3D)) {
+        //if ((c->NumAdj() == 0) && (c->Area3D() < 0.00001 * totalArea3D)) {
+        if ((c->NumAdj() == 0) && (c->FN() < 3)) {
             toRemove.insert(toRemove.end(), c->fpVec.begin(), c->fpVec.end());
         }
     }
 
     for (auto fptr : toRemove)
         tri::Allocator<Mesh>::DeleteFace(graph->mesh, *fptr);
-    */
 
     tri::Allocator<Mesh>::CompactEveryVector(graph->mesh);
 
@@ -522,8 +587,13 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
         if (task.warmStart)
             strat.warmStart = true;
 
+        bool parameterized = false;
+
         ParameterizerObject po{chart, strat};
-        bool parameterized = po.Parameterize();
+
+        if (po.IsInitialized())
+            parameterized = po.Parameterize();
+
         if (parameterized) {
             std::cout << "  Chart parameterized correctly" << std::endl;
             po.SyncChart();
@@ -576,7 +646,7 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
 
             if (recover) {
                 std::vector<ChartHandle> newCharts;
-                RecoverFromSplit(splitCharts, gm, newCharts, true);
+                RecoverFromFailedInit(splitCharts, gm, newCharts);
                 for (auto& c : newCharts) {
                     paramQueue.push_back(ParamTask{c, false});
                 }

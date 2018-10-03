@@ -59,7 +59,10 @@ void ParameterizerObject::Reset()
         badInit = true;
     }
 
-    ensure_condition(init && "Failed to initialize ParameterizerObject solution");
+    if (badInit)
+        return;
+
+    //ensure_condition(init && "Failed to initialize ParameterizerObject solution");
 
     if (strategy.scaffold)
         BuildScaffold(shell, strategy.geometry, baseMesh);
@@ -83,6 +86,11 @@ void ParameterizerObject::Reset()
 //    std::cout << "ENERGY WHEN CONSTRUCTED == " << energy->E() << std::endl;
 
     //tri::io::Exporter<Mesh>::Save(shell, "shell_init.obj", tri::io::Mask::IOM_ALL);
+}
+
+bool ParameterizerObject::IsInitialized()
+{
+    return (badInit == false);
 }
 
 void ParameterizerObject::SyncChart()

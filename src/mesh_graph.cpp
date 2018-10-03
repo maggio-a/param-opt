@@ -78,15 +78,17 @@ void ComputeBoundaryInfo(Mesh& m)
     std::cout << "Mesh has " << info.N() << " boundaries" << std::endl;
 }
 
+#include <vcg/complex/algorithms/isotropic_remeshing.h>
+
 void CloseMeshHoles(Mesh& shell)
 {
     int startFN = shell.FN();
-
 
     // Get border info
     ensure_condition(HasBoundaryInfoAttribute(shell));
     BoundaryInfo& info = GetBoundaryInfoAttribute(shell)();
 
+    //vcg::tri::io::ExporterPLY<Mesh>::Save(shell, "original.ply", tri::io::Mask::IOM_FACECOLOR);
     // Leave only the longest boundary
     tri::UpdateFlags<Mesh>::FaceClearS(shell);
     ensure_condition(info.vBoundaryFaces.size() > 0 && "Mesh has no boundaries");
@@ -103,6 +105,60 @@ void CloseMeshHoles(Mesh& shell)
         tri::Hole<Mesh>::EarCuttingFill<tri::MinimumWeightEar<Mesh>>(shell, shell.FN(), true);
     }
 
+    tri::Clean<Mesh>::RemoveZeroAreaFace(shell);
+    tri::Allocator<Mesh>::CompactEveryVector(shell);
+
+    // Compute border info
+    double length = 0;
+    int count = 0;
+    for (std::size_t i = 0; i < info.vBoundaryFaces.size(); ++i) {
+        if (i == info.LongestBoundary())
+            continue;
+        length += info.vBoundaryLength[i];
+        count += (int) info.vBoundarySize[i];
+    }
+
+    // select the hole-filling faces that need to be remeshed
+    tri::UpdateFlags<Mesh>::FaceClearS(shell);
+    for (auto& sf : shell.face) {
+        if (sf.IsHoleFilling()) sf.SetS();
+    }
+
+    /*
+    int startFN = 0;
+    int max_i  = 0;
+    for (auto& sf : shell.face) {
+        if (sf.IsMesh()) {
+            assert(ia[sf] != -1);
+            startFN++;
+            max_i = std::max(max_i, int(tri::Index<Mesh>(shell, sf)));
+        }
+    }
+    */
+
+    // Remesh filled hole
+    //ColorFace(shell);
+    //vcg::tri::io::ExporterPLY<Mesh>::Save(shell, "original_closed.ply", tri::io::Mask::IOM_FACECOLOR);
+    IsotropicRemeshing<Mesh>::Params params;
+    //params.SetTargetLen(2.0*(totalBorderLen / totalBorderFaces));
+    //params.SetTargetLen(length / count);
+    params.SetTargetLen(length / (2 * count));
+    params.SetFeatureAngleDeg(30);
+    params.selectedOnly = true;
+    //params.splitFlag = false;
+    //params.swapFlag = false;
+    //params.collapseFlag = false;
+    params.smoothFlag = false;
+    params.projectFlag = false;
+    params.iter = 3;
+    int iter = 0;
+    do {
+        IsotropicRemeshing<Mesh>::Do(shell, params);
+        iter += params.iter;
+    } while (params.stat.collapseNum + params.stat.flipNum + params.stat.splitNum > 0 && iter < 3);
+
+    tri::Allocator<Mesh>::CompactEveryVector(shell);
+
     auto ia = GetFaceIndexAttribute(shell);
     tri::UpdateFlags<Mesh>::FaceClearS(shell);
     for (auto& f: shell.face) {
@@ -111,6 +167,9 @@ void CloseMeshHoles(Mesh& shell)
             ia[f] = -1;
         }
     }
+
+    tri::UpdateTopology<Mesh>::FaceFace(shell);
+    tri::UpdateTopology<Mesh>::VertexFace(shell);
 }
 
 void ColorFace(Mesh& shell)
@@ -423,8 +482,12 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
 
     CopyToMesh(fg, shell);
 
+    tri::Clean<Mesh>::RemoveDuplicateVertex(shell);
+
     tri::UpdateBounding<Mesh>::Box(shell);
+
     tri::UpdateTopology<Mesh>::FaceFace(shell);
+
     int splitCount = tri::Clean<Mesh>::SplitNonManifoldVertex(shell, 0.15);
     if (splitCount > 0) {
         std::cout << "Mesh was not vertex-manifold, " << splitCount << " vertices split" << std::endl;
@@ -470,19 +533,6 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
         ComputeBoundaryInfo(shell);
         CloseShellHoles(shell, targetGeometry, m);
     } else {
-        if (!Parameterizable(shell)) {
-            Mesh cut;
-            std::srand(0);
-            tri::CutTree<Mesh> ct(shell);
-            ct.Build(cut, rand() % shell.FN());
-            tri::CoM<Mesh> cc(shell);
-            cc.Init();
-            bool ok = cc.TagFaceEdgeSelWithPolyLine(cut);
-            ensure_condition(ok && "topological cut failed");
-            tri::CutMeshAlongSelectedFaceEdges(shell);
-            tri::UpdateTopology<Mesh>::FaceFace(shell);
-        }
-
         if (!tri::Clean<Mesh>::IsCoherentlyOrientedMesh(shell)) {
             std::cout << "Attempting to reorient faces" << std::endl;
             bool p1, p2;
@@ -495,34 +545,54 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
             }
         }
 
+        if (!Parameterizable(shell)) {
+            Mesh cut;
+            std::srand(0);
+            tri::CutTree<Mesh> ct(shell);
+            ct.Build(cut, rand() % shell.FN());
+            tri::CoM<Mesh> cc(shell);
+            cc.Init();
+            bool ok = cc.TagFaceEdgeSelWithPolyLine(cut);
+            ensure_condition(ok && "topological cut failed");
+            //tri::io::Exporter<Mesh>::Save(shell, "to_cut.obj", tri::io::Mask::IOM_ALL);
+            tri::CutMeshAlongSelectedFaceEdges(shell);
+            tri::UpdateTopology<Mesh>::FaceFace(shell);
+        }
+
         // Compute the initial configuration (Tutte's parameterization)
         ComputeBoundaryInfo(shell);
         CloseMeshHoles(shell);
+
         bool solved = false;
 
         if (!solved) {
             UniformSolver<Mesh> solver(shell);
             solved = solver.Solve();
+            if (!solved)
+                tri::io::Exporter<Mesh>::Save(shell, "error_tutte.obj", tri::io::Mask::IOM_ALL);
         }
+
         if (!solved) {
             UniformSolver<Mesh> solver(shell);
             solver.SetBoundaryMapProportional();
             solved = solver.Solve();
+            if (!solved)
+                tri::io::Exporter<Mesh>::Save(shell, "error_tutte_prop.obj", tri::io::Mask::IOM_ALL);
         }
 
         if (!solved) {
             MeanValueSolver<Mesh> mvs(shell);
             solved = mvs.Solve();
+            if (!solved)
+                tri::io::Exporter<Mesh>::Save(shell, "error_mvs.obj", tri::io::Mask::IOM_ALL);
         }
 
         if (!solved) {
             MeanValueSolver<Mesh> mvs(shell);
             mvs.UseCotangentWeights();
             solved = mvs.Solve();
-        }
-
-        if (!solved) {
-            tri::io::Exporter<Mesh>::Save(shell, "error.obj", tri::io::Mask::IOM_ALL);
+            if (!solved)
+                tri::io::Exporter<Mesh>::Save(shell, "error_cotan.obj", tri::io::Mask::IOM_ALL);
         }
 
         init = solved;
@@ -606,6 +676,7 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
                     double interpolationFactor = 1.0 - (s_min / s_max);
                     ensure_condition(interpolationFactor > 0);
                     ensure_condition(interpolationFactor <= 1);
+                    ensure_condition(std::isfinite(interpolationFactor));
 
                     Point2d v10 = (1.0 - interpolationFactor) * u10 + (interpolationFactor) * x10;
                     Point2d v20 = (1.0 - interpolationFactor) * u20 + (interpolationFactor) * x20;
@@ -621,6 +692,13 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
         //Point2d u20 = Point2d(target.P[2].X() - target.P[0].X(), target.P[2].Y() - target.P[0].Y());
         //targetArea += std::abs(u10 ^ u20) / 2.0;
         targetArea += ((target.P[1] - target.P[0]) ^ (target.P[2] - target.P[0])).Norm() / 2.0;
+        /*
+        std::cout << target.P[0].X() << "  " << target.P[0].Y() << "  " << target.P[0].Z() << std::endl;
+        std::cout << target.P[1].X() << "  " << target.P[1].Y() << "  " << target.P[1].Z() << std::endl;
+        std::cout << target.P[2].X() << "  " << target.P[2].Y() << "  " << target.P[2].Z() << std::endl;
+        std::cout << "------------ " << (sf.IsHoleFilling() == true) << std::endl;
+        */
+        ensure_condition(std::isfinite(targetArea));
     }
 
     for (auto& sf : shell.face) {
@@ -635,6 +713,7 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
 
     // Scale the shell size to match the target shape area
     double areaScaleFactor = std::sqrt(targetArea / shellUvArea);
+    std::cout << targetArea << " " << shellUvArea << std::endl;
     ensure_condition(areaScaleFactor > 0);
     for (auto& v : shell.vert)
         v.T().P() *= areaScaleFactor;
@@ -1291,6 +1370,21 @@ bool GraphManager::HasNextEdge()
     }
     return false;
 }
+
+bool GraphManager::ExistsEdge(GraphManager::Edge e)
+{
+    return edges.count(e) > 0;
+}
+
+double GraphManager::EdgeWeight(GraphManager::Edge e)
+{
+    if (ExistsEdge(e))
+        return (*wfct)(e);
+    else
+        return std::numeric_limits<double>::infinity();
+}
+
+
 
 /// TODO this is not robust if a client tries to collapse an arbitrary edge rather than the one returned
 /// by *NextEdge() since feasibility is lazily evaluated (unfeasible edges may be present in the edge set)

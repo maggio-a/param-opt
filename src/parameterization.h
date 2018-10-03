@@ -124,6 +124,8 @@ public:
     double GetGradientNormTolerance();
     double GetEnergyDiffTolerance();
 
+    bool IsInitialized();
+
 private:
 
     void InitializeOptimizer();

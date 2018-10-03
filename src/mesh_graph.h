@@ -383,10 +383,9 @@ public:
         } else return std::make_pair(p.first, nullptr);
     }
 
-    bool ExistsEdge(GraphManager::Edge e)
-    {
-        return edges.count(e) > 0;
-    }
+    bool ExistsEdge(GraphManager::Edge e);
+
+    double EdgeWeight(GraphManager::Edge e);
 
 private:
 
