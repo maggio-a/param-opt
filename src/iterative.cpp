@@ -86,14 +86,17 @@ DescentMethod::~DescentMethod()
     // empty
 }
 
-double DescentMethod::Iterate(double& gradientNorm, double& objValDiff)
+bool DescentMethod::Iterate(double& gradientNorm, double& objValDiff, double& energyAfterIter)
 {
     double energyPrev = energy->E();
 
     MatrixXd uv = X();
     MatrixXd grad = energy->Grad();
 
-    MatrixXd dir = ComputeDescentDirection();
+    MatrixXd dir;
+    if (!ComputeDescentDirection(dir))
+        return false;
+
     Search(uv, grad, dir);
 
     double energyCurr = energy->E();
@@ -101,7 +104,9 @@ double DescentMethod::Iterate(double& gradientNorm, double& objValDiff)
     gradientNorm = std::sqrt(newGrad.cwiseProduct(newGrad).sum());
     objValDiff = energyPrev - energyCurr;
 
-    return energyCurr;
+    energyAfterIter = energyCurr;
+
+    return true;
 }
 
 void DescentMethod::UpdateCache()
@@ -290,9 +295,10 @@ GradientDescent::GradientDescent(std::shared_ptr<Energy> energy)
     energy->CorrectScale();
 }
 
-MatrixXd GradientDescent::ComputeDescentDirection()
+bool GradientDescent::ComputeDescentDirection(Eigen::MatrixXd& dir)
 {
-    return - energy->Grad();
+    dir = - energy->Grad();
+    return true;
 }
 
 
@@ -309,7 +315,7 @@ LBFGS::LBFGS(std::shared_ptr<Energy> energy, std::size_t memory)
     energy->CorrectScale();
 }
 
-MatrixXd LBFGS::ComputeDescentDirection()
+bool LBFGS::ComputeDescentDirection(Eigen::MatrixXd& dir)
 {
     ensure_condition(sVec.size() == yVec.size());
     int memsz = sVec.size();
@@ -328,16 +334,21 @@ MatrixXd LBFGS::ComputeDescentDirection()
             q = q + (alpha[i] - b_i) * sVec[i];
         }
     }
-    return -q;
+    dir = -q;
+    return true;
 }
 
-double LBFGS::Iterate(double& gradientNorm, double& objValDiff)
+bool LBFGS::Iterate(double& gradientNorm, double& objValDiff, double& energyAfterIter)
 {
     //energy->CorrectScale();
     double energyPrev = energy->E();
     MatrixXd uv = X();
     MatrixXd grad = energy->Grad();
-    MatrixXd dir = ComputeDescentDirection();
+
+    MatrixXd dir;
+    if (!ComputeDescentDirection(dir))
+        return false;
+
     //MatrixXd sdir = ComputeScaleDirection();
     //MatrixXd combined = dir + sdir;
     //if (combined.cwiseProduct(grad).sum() < 0) {
@@ -360,7 +371,8 @@ double LBFGS::Iterate(double& gradientNorm, double& objValDiff)
     gradientNorm = std::sqrt(newGrad.cwiseProduct(newGrad).sum());
     objValDiff = energyPrev - energyCurr;
 
-    return energyCurr;
+    energyAfterIter = energyCurr;
+    return true;
 }
 
 /* Since the dimension of the problem changes, simply clear the history. Note
@@ -395,20 +407,22 @@ SLIM::SLIM(std::shared_ptr<SymmetricDirichletEnergy> sd)
     UpdateCache();
 }
 
-Eigen::MatrixXd SLIM::ComputeDescentDirection()
+bool SLIM::ComputeDescentDirection(Eigen::MatrixXd& dir)
 {
     // Update jacobians, rotations and weights for each face
     UpdateJRW();
 
     // Find solution to the proxy energy minimization
     Eigen::MatrixXd p_k;
-    MinimizeProxyEnergy(p_k);
+    if (!MinimizeProxyEnergy(p_k))
+        return false;
 
     // The descent direction is the one that points towards the proxy solution from the current point
     for (auto const& v : m.vert) {
         p_k.row(tri::Index(m, v)) -= Eigen::Vector2d{v.T().U(), v.T().V()};
     }
-    return p_k;
+    dir = p_k;
+    return true;
 }
 
 void SLIM::UpdateCache()
@@ -742,7 +756,7 @@ void SLIM::BuildSystem(Eigen::SparseMatrix<double>& A, Eigen::VectorXd &rhs)
     A.setFromTriplets(tripletVec.begin(), tripletVec.end());
 }
 
-void SLIM::MinimizeProxyEnergy(Eigen::MatrixXd& p_k)
+bool SLIM::MinimizeProxyEnergy(Eigen::MatrixXd& p_k)
 {
     Timer t;
     // solves using least squares (so build the normal equations system)
@@ -766,12 +780,19 @@ void SLIM::MinimizeProxyEnergy(Eigen::MatrixXd& p_k)
     }
 
     solver.factorize(L);
-    ensure_condition((solver.info() == Eigen::Success) && "SLIM::MinimizeProxyEnergy factorization failed");
+    if (!(solver.info() == Eigen::Success)) {
+        std::cout << "SLIM::MinimizeProxyEnergy factorization failed" << std::endl;
+        return false;
+    }
 
     sol = solver.solve(rhs);
-    ensure_condition((solver.info() == Eigen::Success) && "SLIM::MinimizeProxyEnergy solve failed");
+    if (!(solver.info() == Eigen::Success)) {
+        std::cout << "SLIM::MinimizeProxyEnergy solve failed" << std::endl;
+        return false;
+    }
 
     p_k = Eigen::Map<MatrixXd>(sol.data(), m.VN(), 2);
+    return true;
 }
 
 
@@ -1129,7 +1150,7 @@ inline Matrix66d CompMaj::ComputeConvexConcaveFaceHessian(
 }
 
 #include <wrap/io_trimesh/export.h>
-Eigen::MatrixXd CompMaj::ComputeDescentDirection()
+bool CompMaj::ComputeDescentDirection(Eigen::MatrixXd& dir)
 {
     UpdateJ();
     UpdateSSVDFunction();
@@ -1154,14 +1175,19 @@ Eigen::MatrixXd CompMaj::ComputeDescentDirection()
     solver.factorize(A);
 
     if (solver.info() != Eigen::Success) {
+        std::cout << "CompMaj factorization failed" << std::endl;
         tri::io::Exporter<Mesh>::Save(m, "factorization_failed.obj", tri::io::Mask::IOM_ALL);
+        return false;
     }
-    ensure_condition((solver.info() == Eigen::Success) && "CompMaj factorization failed");
 
     Eigen::VectorXd sol;
     sol = solver.solve(- Eigen::Map<Eigen::VectorXd>(grad.data(), 2 * vn));
-    ensure_condition((solver.info() == Eigen::Success) && "CompMaj solve failed");
+    if (!(solver.info() == Eigen::Success)) {
+        std::cout << "CompMaj solve failed" << std::endl;
+        return false;
+    }
 
-    return Eigen::Map<MatrixXd>(sol.data(), vn, 2);
+    dir = Eigen::Map<MatrixXd>(sol.data(), vn, 2);
+    return true;
 }
 

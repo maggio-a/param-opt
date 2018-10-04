@@ -494,6 +494,8 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
     }
     auto ia = GetFaceIndexAttribute(shell);
 
+    tri::io::Exporter<Mesh>::Save(shell, "shell.obj", tri::io::Mask::IOM_ALL);
+
     bool init = true;
 
     if (useExistingUV) {
@@ -554,9 +556,20 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
             cc.Init();
             bool ok = cc.TagFaceEdgeSelWithPolyLine(cut);
             ensure_condition(ok && "topological cut failed");
-            //tri::io::Exporter<Mesh>::Save(shell, "to_cut.obj", tri::io::Mask::IOM_ALL);
             tri::CutMeshAlongSelectedFaceEdges(shell);
             tri::UpdateTopology<Mesh>::FaceFace(shell);
+
+            if (!Parameterizable(shell)) {
+                tri::UpdateFlags<Mesh>::FaceClearFaceEdgeS(shell);
+                Mesh::FacePointer fp = &shell.face[0];
+                fp->SetFaceEdgeS(0);
+                fp->SetFaceEdgeS(1);
+                fp->FFp(0)->SetFaceEdgeS(fp->FFi(0));
+                fp->FFp(1)->SetFaceEdgeS(fp->FFi(1));
+                tri::CutMeshAlongSelectedFaceEdges(shell);
+                tri::UpdateTopology<Mesh>::FaceFace(shell);
+                ensure_condition(Parameterizable(shell));
+            }
         }
 
         // Compute the initial configuration (Tutte's parameterization)
@@ -713,7 +726,7 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
 
     // Scale the shell size to match the target shape area
     double areaScaleFactor = std::sqrt(targetArea / shellUvArea);
-    std::cout << targetArea << " " << shellUvArea << std::endl;
+    //std::cout << targetArea << " " << shellUvArea << std::endl;
     ensure_condition(areaScaleFactor > 0);
     for (auto& v : shell.vert)
         v.T().P() *= areaScaleFactor;
@@ -1378,13 +1391,9 @@ bool GraphManager::ExistsEdge(GraphManager::Edge e)
 
 double GraphManager::EdgeWeight(GraphManager::Edge e)
 {
-    if (ExistsEdge(e))
-        return (*wfct)(e);
-    else
-        return std::numeric_limits<double>::infinity();
+    ensure_condition(ExistsEdge(e));
+    return (*wfct)(e);
 }
-
-
 
 /// TODO this is not robust if a client tries to collapse an arbitrary edge rather than the one returned
 /// by *NextEdge() since feasibility is lazily evaluated (unfeasible edges may be present in the edge set)

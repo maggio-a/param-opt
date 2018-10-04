@@ -325,43 +325,57 @@ static void RecoverFromFailedInit(std::vector<ChartHandle>& split, GraphManager&
         charts.insert(split[i]);
     }
 
+    std::cout << "Split contains " << split.size() << " charts" << std::endl;
+
     while (charts.size() > 0) {
 
-        // grow c1
+        bool merged = false;
 
-        ChartHandle bestCollapseCandidate = nullptr;
-        double minWeight = std::numeric_limits<double>::infinity();
+        {
+            // grow c1
+            ChartHandle bestCollapseCandidate = nullptr;
+            double minWeight = std::numeric_limits<double>::infinity();
 
-        for (auto ch : c1->adj) {
-            if (charts.count(ch) == 1) {
-                GraphManager::Edge e(c1, ch);
-                double w = gm.EdgeWeight(e);
-                if (w < minWeight) {
-                    minWeight = w;
-                    bestCollapseCandidate = ch;
+            for (auto ch : c1->adj) {
+                if (charts.count(ch) == 1) {
+                    GraphManager::Edge e(c1, ch);
+                    double w = gm.EdgeWeight(e);
+                    if (w < minWeight) {
+                        minWeight = w;
+                        bestCollapseCandidate = ch;
+                    }
                 }
             }
+            if (bestCollapseCandidate != nullptr) {
+                charts.erase(bestCollapseCandidate);
+                c1 = gm.Collapse(GraphManager::Edge(c1, bestCollapseCandidate));
+                merged = true;
+            }
         }
-        charts.erase(bestCollapseCandidate);
-        c1 = gm.Collapse(GraphManager::Edge(c1, bestCollapseCandidate));
 
+        {
         // grow c2
+            ChartHandle bestCollapseCandidate = nullptr;
+            double minWeight = std::numeric_limits<double>::infinity();
 
-        bestCollapseCandidate = nullptr;
-        minWeight = std::numeric_limits<double>::infinity();
-
-        for (auto ch : c2->adj) {
-            if (charts.count(ch) == 1) {
-                GraphManager::Edge e(c1, ch);
-                double w = gm.EdgeWeight(e);
-                if (w < minWeight) {
-                    minWeight = w;
-                    bestCollapseCandidate = ch;
+            for (auto ch : c2->adj) {
+                if (charts.count(ch) == 1) {
+                    GraphManager::Edge e(c2, ch);
+                    double w = gm.EdgeWeight(e);
+                    if (w < minWeight) {
+                        minWeight = w;
+                        bestCollapseCandidate = ch;
+                    }
                 }
             }
+            if (bestCollapseCandidate != nullptr) {
+                charts.erase(bestCollapseCandidate);
+                c2 = gm.Collapse(GraphManager::Edge(c2, bestCollapseCandidate));
+                merged = true;
+            }
         }
-        charts.erase(bestCollapseCandidate);
-        c2 = gm.Collapse(GraphManager::Edge(c2, bestCollapseCandidate));
+
+        ensure_condition(merged);
     }
 
     chartQueue.push_back(c1);
@@ -381,7 +395,7 @@ void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
     int numNoParam = 0;
     int numParameterized = 0;
 
-    ParameterizationStrategy strategy = MakeStrategy(
+    ParameterizationStrategy strategy_cm = MakeStrategy(
             DirectParameterizer::FixedBorderBijective,
             EnergyType::SymmetricDirichlet,
             ParameterizationGeometry::Model,
@@ -393,6 +407,19 @@ void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
             false           // Disable scaffold
     );
 
+    ParameterizationStrategy strategy_slim = MakeStrategy(
+            DirectParameterizer::FixedBorderBijective,
+            EnergyType::SymmetricDirichlet,
+            ParameterizationGeometry::Model,
+            DescentType::ScalableLocallyInjectiveMappings,
+            200,            // Number of iterations
+            true,           // Fill holes
+            true,           // Use cuts
+            false,          // No warm start
+            false           // Disable scaffold
+    );
+
+
     for (auto& entry : graph->charts) {
         auto chart = entry.second;
         if (chart->AreaUV() > 0)
@@ -401,15 +428,29 @@ void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
 
         std::cout << "Parameterizing region of " << chart->FN() << " zero UV area faces" << std::endl;
 
-        ParameterizerObject po{chart, strategy};
-        po.SetEnergyDiffTolerance(0);
-        bool parameterized = po.Parameterize();
+        bool parameterized = false;
+
+        {
+            ParameterizerObject po{chart, strategy_cm};
+            po.SetEnergyDiffTolerance(0);
+            parameterized = po.Parameterize();
+            if (parameterized)
+                po.SyncChart();
+        }
+
+        if (!parameterized) {
+            std::cout << "Parameterization using CM failed, falling back to SLIM" << std::endl;
+            ParameterizerObject po{chart, strategy_slim};
+            po.SetEnergyDiffTolerance(0);
+            parameterized = po.Parameterize();
+            if (parameterized)
+                po.SyncChart();
+        }
 
         if (!parameterized) {
             std::cout << "WARNING: preliminary parameterization of chart " << chart->id << " failed" << std::endl;
             ensure_condition(0 && "Failed to assign valid parameterization to null chart");
         } else {
-            po.SyncChart();
             // As convenience to detect regions that originally did not have a parameterization, the texcoords
             // of such regions have negative u and a randomly displaced v
             Box2d box = chart->UVBox();
@@ -448,6 +489,7 @@ int RemoveOutliers(GraphHandle& graph)
         }
     }
 
+    /*
     std::vector<Mesh::FacePointer> toRemove;
     for (auto& entry : graph->charts) {
         ChartHandle c = entry.second;
@@ -461,6 +503,7 @@ int RemoveOutliers(GraphHandle& graph)
         tri::Allocator<Mesh>::DeleteFace(graph->mesh, *fptr);
 
     tri::Allocator<Mesh>::CompactEveryVector(graph->mesh);
+    */
 
     graph = nullptr;
 
@@ -641,12 +684,16 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
             // split the aggregate and restore the original uvs
             bool recover = (chart->numMerges > 0);
 
+            std::cout << "Splitting" << std::endl;
             std::vector<ChartHandle> splitCharts;
             gm.Split(chart->id, splitCharts);
 
+            std::cout << "Done" << std::endl;
             if (recover) {
+                std::cout << "Recovering" << std::endl;
                 std::vector<ChartHandle> newCharts;
                 RecoverFromFailedInit(splitCharts, gm, newCharts);
+                std::cout << "Done" << std::endl;
                 for (auto& c : newCharts) {
                     paramQueue.push_back(ParamTask{c, false});
                 }

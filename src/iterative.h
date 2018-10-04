@@ -30,8 +30,8 @@ public:
 
     // Interface
 
-    virtual Eigen::MatrixXd ComputeDescentDirection() = 0;
-    virtual double Iterate(double& gradientNorm, double& objValDiff);
+    virtual bool ComputeDescentDirection(Eigen::MatrixXd& dir) = 0;
+    virtual bool Iterate(double& gradientNorm, double& objValDiff, double& energyAfterIter);
 
     /* Utility function to update cached data. This must be called whenever the
      * underlying mesh changes. We need it to update the cached data of the
@@ -63,7 +63,7 @@ public:
 
     GradientDescent(std::shared_ptr<Energy> energy);
 
-    virtual Eigen::MatrixXd ComputeDescentDirection();
+    virtual bool ComputeDescentDirection(Eigen::MatrixXd& dir);
 };
 
 
@@ -78,8 +78,8 @@ public:
 
     LBFGS(std::shared_ptr<Energy> energy, std::size_t memory);
 
-    Eigen::MatrixXd ComputeDescentDirection();
-    virtual double Iterate(double& gradientNorm, double& objValDiff);
+    virtual bool ComputeDescentDirection(Eigen::MatrixXd& dir);
+    virtual bool Iterate(double& gradientNorm, double& objValDiff, double& energyAfterIter);
     virtual void UpdateCache();
 };
 
@@ -109,7 +109,7 @@ public:
 
     SLIM(std::shared_ptr<SymmetricDirichletEnergy> sd);
 
-    virtual Eigen::MatrixXd ComputeDescentDirection();
+    virtual bool ComputeDescentDirection(Eigen::MatrixXd& dir);
     virtual void UpdateCache();
 
 private:
@@ -118,7 +118,7 @@ private:
     void UpdateJRW();
     void BuildA(Eigen::SparseMatrix<double>& A);
     void BuildRhs(const Eigen::SparseMatrix<double>& At, Eigen::VectorXd &rhs);
-    void MinimizeProxyEnergy(Eigen::MatrixXd &p_k);
+    bool MinimizeProxyEnergy(Eigen::MatrixXd &p_k);
     void BuildSystem(Eigen::SparseMatrix<double>& A, Eigen::VectorXd &rhs);
 };
 
@@ -132,7 +132,7 @@ public:
 
     CompMaj(std::shared_ptr<SymmetricDirichletEnergy> sd);
 
-    virtual Eigen::MatrixXd ComputeDescentDirection();
+    virtual bool ComputeDescentDirection(Eigen::MatrixXd& dir);
     virtual void UpdateCache();
 
 private:

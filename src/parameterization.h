@@ -85,7 +85,9 @@ class ParameterizerObject {
 
     double targetArea;
 
-    bool badInit;
+    enum ParameterizerState { OK, InitializationFailed, IterationFailed };
+
+    ParameterizerState state;
 
 public:
 

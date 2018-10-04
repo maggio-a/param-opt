@@ -33,7 +33,7 @@ ParameterizerObject::ParameterizerObject(ChartHandle c, ParameterizationStrategy
       iterationCount{0},
       gradientNormTolerance{1e-3},
       energyDiffTolerance{1e-6},
-      badInit{false}
+      state{ParameterizerState::OK}
 {
     Reset();
 }
@@ -56,11 +56,9 @@ void ParameterizerObject::Reset()
     bool init = BuildShell(shell, *chart, strategy.geometry, strategy.warmStart);
     if (!init) {
         std::cout << "WARNING: Failed to initialize injective solution" << std::endl;
-        badInit = true;
-    }
-
-    if (badInit)
+        state = ParameterizerState::InitializationFailed;
         return;
+    }
 
     //ensure_condition(init && "Failed to initialize ParameterizerObject solution");
 
@@ -90,7 +88,7 @@ void ParameterizerObject::Reset()
 
 bool ParameterizerObject::IsInitialized()
 {
-    return (badInit == false);
+    return (state != ParameterizerState::InitializationFailed);
 }
 
 void ParameterizerObject::SyncChart()
@@ -147,7 +145,8 @@ void ParameterizerObject::MapEnergyGradientToShellVertexColor()
 
 void ParameterizerObject::MapDescentDirectionToShellVertexColor()
 {
-    Eigen::MatrixXd D = opt->ComputeDescentDirection();
+    Eigen::MatrixXd D;
+    ensure_condition(opt->ComputeDescentDirection(D));
     double maxn = 0;
     for (int i = 0; i < D.rows(); ++i) {
         maxn = std::max(maxn, D.row(i).norm());
@@ -288,11 +287,11 @@ bool ParameterizerObject::InitializeSolution()
             sv.T().P() *= scale;
         }
         SyncShellWithUV(shell);
-        badInit = false;
+        state = ParameterizerState::OK;
     } else {
         std::cout << "WARNING: failed to initialize injective solution" << std::endl;
         tri::io::Exporter<Mesh>::Save(shell, "error.obj", tri::io::Mask::IOM_ALL);
-        badInit = true;
+        state = ParameterizerState::InitializationFailed;
     }
 
     return solved;
@@ -405,7 +404,7 @@ bool ParameterizerObject::Parameterize()
 {
     constexpr double CONFORMAL_SCALING_THRESHOLD = 1.98;
 
-    if (badInit) // bad init, bail out
+    if (state != ParameterizerState::OK) // bail out
         return false;
 
     if (!OptimizerIsInitialized())
@@ -419,7 +418,7 @@ bool ParameterizerObject::Parameterize()
         std::cout << "Placed " << c << " cuts" << std::endl;
     }
 
-    if (badInit)
+    if (state != ParameterizerState::OK)
         return false;
 
     // check if remeshing is required during iterations
@@ -438,7 +437,14 @@ bool ParameterizerObject::Parameterize()
     double meshSurfaceArea = energy->SurfaceAreaNotHoleFilling();
     double meshCurrentEnergy = energy->E_IgnoreMarkedFaces();
     for (i = 0; i < strategy.optimizerIterations; ++i) {
+        ensure_condition(state == ParameterizerState::OK);
+
         info = Iterate();
+        if (state == ParameterizerState::IterationFailed) {
+            std::cout << "Warning: failed to compute descent direction" << std::endl;
+            return false;
+        }
+
         if (info.gradientNorm < gradientNormTolerance) {
             std::cout << "Stopping because gradient magnitude is small enough (" << info.gradientNorm << ")" << std::endl;
             break;
@@ -472,26 +478,31 @@ IterationInfo ParameterizerObject::Iterate()
     if (!OptimizerIsInitialized())
         InitializeOptimizer();
 
-    IterationInfo info;
+    IterationInfo info = {};
 
-    info.energyVal = opt->Iterate(info.gradientNorm, info.energyDiff);
+    bool ok = opt->Iterate(info.gradientNorm, info.energyDiff, info.energyVal);
 
-    SyncShellWithUV(shell);
-    iterationCount++;
+    if (!ok) {
+        std::cout << "WARNING: Iteration failed" << std::endl;
+        state = ParameterizerState::IterationFailed;
+    } else {
+        SyncShellWithUV(shell);
+        iterationCount++;
 
-    bool meshChanged = false;
-    if (strategy.padBoundaries) {
-        RemeshHolefillingAreas();
-        meshChanged = true;
+        bool meshChanged = false;
+        if (strategy.padBoundaries) {
+            RemeshHolefillingAreas();
+            meshChanged = true;
+        }
+
+        if (strategy.scaffold) {
+            RebuildScaffold(shell, strategy.geometry, baseMesh);
+            meshChanged = true;
+        }
+
+        if (meshChanged)
+            opt->UpdateCache();
     }
-
-    if (strategy.scaffold) {
-        RebuildScaffold(shell, strategy.geometry, baseMesh);
-        meshChanged = true;
-    }
-
-    if (meshChanged)
-        opt->UpdateCache();
 
     return info;
 }
@@ -645,7 +656,7 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
 
 int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScalingThreshold)
 {
-    if (badInit)
+    if (state != ParameterizerState::OK)
         return 0;
     /*
     // sanity check
