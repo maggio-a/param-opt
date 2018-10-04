@@ -602,6 +602,7 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
     ClearHoleFillingFaces(shell, strategy.padBoundaries, strategy.scaffold);
 
     SyncShellWithModel(shell, baseMesh);
+
     ComputeBoundaryInfo(shell);
     CloseMeshHoles(shell);
     MarkInitialSeamsAsFaux(shell, baseMesh);
@@ -639,6 +640,8 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
         tri::CutMeshAlongSelectedFaceEdges(shell);
         CleanupShell(shell);
         tri::UpdateTopology<Mesh>::FaceFace(shell);
+
+        ensure_condition(tri::Clean<Mesh>::CountConnectedComponents(shell) == 1);
     }
 
     ClearHoleFillingFaces(shell, true, false);
@@ -693,6 +696,11 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScaling
             }
         }
     }
+
+    tri::Clean<Mesh>::RemoveDuplicateVertex(shell);
+    tri::UpdateTopology<Mesh>::FaceFace(shell);
+    tri::Clean<Mesh>::SplitNonManifoldVertex(shell, 0.15);
+
     ComputeBoundaryInfo(shell);
     CloseMeshHoles(shell);
     MarkInitialSeamsAsFaux(shell, baseMesh);
@@ -838,7 +846,7 @@ void ParameterizerObject::FindConesWithThreshold(double conformalScalingThreshol
         // Select seam vertices that reach the boundary
         tri::UpdateFlags<Mesh>::VertexClearS(shell);
         for (auto& sv : shell.vert)
-            if (sv.Q() < INFINITY)
+            if (sv.Q() > 0 && sv.Q() < INFINITY)
                 sv.SetS();
 
         // Find the max scale factor at seam vertices

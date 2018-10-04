@@ -640,9 +640,19 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
         } else {
             auto& mf = m.face[ia[sf]];
             if (targetGeometry == Model) {
+                /*
+                Point2d v10, v20;
+                LocalIsometry(mf.P(1) - mf.P(0), mf.P(2) - mf.P(0), v10, v20);
+
+                target.P[0] = Point3d(0, 0, 0);
+                target.P[1] = Point3d(v10.X(), v10.Y(), 0);
+                target.P[2] = Point3d(v20.X(), v20.Y(), 0);
+                */
+
                 target.P[0] = mf.P(0);
                 target.P[1] = mf.P(1);
                 target.P[2] = mf.P(2);
+
             } else if (targetGeometry == Texture) {
                 const Point2d& u0 = wtcsa[mf].tc[0].P();
                 const Point2d& u1 = wtcsa[mf].tc[1].P();
@@ -712,6 +722,7 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
         std::cout << "------------ " << (sf.IsHoleFilling() == true) << std::endl;
         */
         ensure_condition(std::isfinite(targetArea));
+        ensure_condition(targetArea > 0);
     }
 
     for (auto& sf : shell.face) {
@@ -726,10 +737,11 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
 
     // Scale the shell size to match the target shape area
     double areaScaleFactor = std::sqrt(targetArea / shellUvArea);
-    //std::cout << targetArea << " " << shellUvArea << std::endl;
     ensure_condition(areaScaleFactor > 0);
+
     for (auto& v : shell.vert)
         v.T().P() *= areaScaleFactor;
+
     SyncShellWithUV(shell);
 
     return init;

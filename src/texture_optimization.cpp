@@ -402,7 +402,7 @@ void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
             DescentType::CompositeMajorization,
             200,            // Number of iterations
             true,           // Fill holes
-            true,           // Use cuts
+            false,          // Do not use cuts
             false,          // No warm start
             false           // Disable scaffold
     );
@@ -414,7 +414,7 @@ void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
             DescentType::ScalableLocallyInjectiveMappings,
             200,            // Number of iterations
             true,           // Fill holes
-            true,           // Use cuts
+            false,           // Do not use cuts
             false,          // No warm start
             false           // Disable scaffold
     );
@@ -430,21 +430,33 @@ void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
 
         bool parameterized = false;
 
-        {
-            ParameterizerObject po{chart, strategy_cm};
-            po.SetEnergyDiffTolerance(0);
-            parameterized = po.Parameterize();
-            if (parameterized)
-                po.SyncChart();
-        }
+        if (chart->FN() == 1) {
+            auto fptr = chart->fpVec[0];
+            Point2d v10, v20;
+            LocalIsometry(fptr->P(1) - fptr->P(0), fptr->P(2) - fptr->P(0), v10, v20);
 
-        if (!parameterized) {
-            std::cout << "Parameterization using CM failed, falling back to SLIM" << std::endl;
-            ParameterizerObject po{chart, strategy_slim};
-            po.SetEnergyDiffTolerance(0);
-            parameterized = po.Parameterize();
-            if (parameterized)
-                po.SyncChart();
+            fptr->WT(0).P() = Point2d::Zero();
+            fptr->WT(1).P() = Point2d::Zero() + v10;
+            fptr->WT(2).P() = Point2d::Zero() + v20;
+
+            parameterized = true;
+        } else {
+            {
+                ParameterizerObject po{chart, strategy_cm};
+                po.SetEnergyDiffTolerance(0);
+                parameterized = po.Parameterize();
+                if (parameterized)
+                    po.SyncChart();
+            }
+
+            if (!parameterized) {
+                std::cout << "Parameterization using CM failed, falling back to SLIM" << std::endl;
+                ParameterizerObject po{chart, strategy_slim};
+                po.SetEnergyDiffTolerance(0);
+                parameterized = po.Parameterize();
+                if (parameterized)
+                    po.SyncChart();
+            }
         }
 
         if (!parameterized) {
