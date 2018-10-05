@@ -705,7 +705,10 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScaling
 
     tri::Clean<Mesh>::RemoveDuplicateVertex(shell);
     tri::UpdateTopology<Mesh>::FaceFace(shell);
-    tri::Clean<Mesh>::SplitNonManifoldVertex(shell, 0.15);
+    int splitCount;
+    while ((splitCount = tri::Clean<Mesh>::SplitNonManifoldVertex(shell, 0.15)) > 0) {
+        tri::Allocator<Mesh>::CompactEveryVector(shell);
+    }
     tri::Allocator<Mesh>::CompactEveryVector(shell);
 
     ComputeBoundaryInfo(shell);

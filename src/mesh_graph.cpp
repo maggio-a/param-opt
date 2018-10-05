@@ -484,11 +484,11 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
 
     tri::UpdateTopology<Mesh>::FaceFace(shell);
 
-    int splitCount = tri::Clean<Mesh>::SplitNonManifoldVertex(shell, 0.15);
-    if (splitCount > 0) {
+    int splitCount;
+    while ((splitCount = tri::Clean<Mesh>::SplitNonManifoldVertex(shell, 0.15)) > 0) {
         std::cout << "Mesh was not vertex-manifold, " << splitCount << " vertices split" << std::endl;
+        tri::Allocator<Mesh>::CompactEveryVector(shell);
     }
-    tri::Allocator<Mesh>::CompactEveryVector(shell);
     //tri::io::Exporter<Mesh>::Save(shell, "shell.obj", tri::io::Mask::IOM_ALL);
 
     auto ia = GetFaceIndexAttribute(shell);
@@ -687,6 +687,7 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
                     // compute the singular values of the transformation matrix, s2 > s1
                     // ref for the formula: smith&schaefer 2015 bijective,
                     Eigen::Matrix2d phi = ComputeTransformationMatrix(x10, x20, u10, u20);
+
                     double bcplus  = std::pow(phi(0, 1) + phi(1, 0), 2.0);
                     double bcminus = std::pow(phi(0, 1) - phi(1, 0), 2.0);
                     double adplus  = std::pow(phi(0, 0) + phi(1, 1), 2.0);
@@ -695,7 +696,7 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
                     double s_max = 0.5 * (std::sqrt(bcplus + adminus) + std::sqrt(bcminus + adplus));
 
                     double interpolationFactor = 1.0 - (s_min / s_max);
-                    ensure_condition(interpolationFactor > 0);
+                    ensure_condition(interpolationFactor >= 0);
                     ensure_condition(interpolationFactor <= 1);
                     ensure_condition(std::isfinite(interpolationFactor));
 

@@ -792,7 +792,7 @@ RasterizationBasedPacker::PackingStats Pack(GraphHandle graph, const PackingOpti
         packingParam.pad = 2;
     } else {
         sizeUnit = 2048;
-        packingParam.pad = 8;
+        packingParam.pad = 4;
     }
 
     std::vector<Point2i> containerVec;

@@ -74,8 +74,15 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject, Args 
     int c = ParameterizeGraph(gm, strategy, tolerance);
     if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
 
-    PackingOptions opts = { RasterizationBasedPacker::Parameters::CostFuncEnum::MinWastedSpace, true, true, true, false };
-    Pack(gm.Graph(), opts);
+    if (gm.Graph()->Count() < 500) {
+        std::cout << "Packing " << gm.Graph()->Count() << " regions in low resolution with permutations" << std::endl;
+        PackingOptions opts = { RasterizationBasedPacker::Parameters::CostFuncEnum::MinWastedSpace, true, true, true, false };
+        Pack(gm.Graph(), opts);
+    } else {
+        std::cout << "Packing " << gm.Graph()->Count() << " regions in high resolution" << std::endl;
+        PackingOptions opts = { RasterizationBasedPacker::Parameters::CostFuncEnum::MinWastedSpace, false, false, true, false };
+        Pack(gm.Graph(), opts);
+    }
 
     std::cout << "Rendering texture..." << std::endl;
     TextureObjectHandle newTexture = RenderTexture(m, textureObject, args.filter, InterpolationMode::Linear, nullptr);
@@ -169,7 +176,10 @@ int main(int argc, char *argv[])
     if (zeroArea > 0)
         std::cout << "Removed " << zeroArea << " zero area faces" << std::endl;
 
-    int numVertexSplit = tri::Clean<Mesh>::SplitNonManifoldVertex(m, 0);
+    int numVertexSplit = 0;
+    int nv;
+    while ((nv = tri::Clean<Mesh>::SplitNonManifoldVertex(m, 0)) > 0)
+        numVertexSplit += nv;
     if (numVertexSplit > 0)
         std::cout << "Mesh was not vertex manifold, split " << numVertexSplit << " vertices" << std::endl;
 
