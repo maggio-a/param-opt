@@ -318,6 +318,8 @@ void CleanupShell(Mesh& shell)
     // vertex of a hole-filling face
     if (deleted) {
         tri::Clean<Mesh>::SplitNonManifoldVertex(shell, 0.15);
+        tri::UpdateTopology<Mesh>::FaceFace(shell);
+        tri::UpdateTopology<Mesh>::VertexFace(shell);
     }
 }
 

@@ -764,7 +764,6 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScaling
     // Cleanup (and restore hole-filling and scaffold faces if needed)
     ClearHoleFillingFaces(shell, true, true);
 
-
     // restore the vertex texture coordinates
     ensure_condition(shell.FN() == ((int) savedUVs.size() / 6));
     double *coordPtr = savedUVs.data();
