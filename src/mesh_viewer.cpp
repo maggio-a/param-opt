@@ -1791,15 +1791,16 @@ void MeshViewer::ManageImGuiState()
             shellChanged = true;
         }
 
-
         ImGui::Separator();
         static int ncones = 0;
         ImGui::InputInt("##ncones", &ncones, 1, 1);
         if (ncones < 1) ncones = 1;
 
+        static float cst = 2.0;
+        ImGui::InputFloat("##ConformalScalingThreshold", &cst, 0.01, 0.1, 2);
 
         if (ImGui::Button("Place cut with cone singularities")) {
-            if (parameterizer->PlaceCutWithConesUntilThreshold(0.01)) {
+            if (parameterizer->PlaceCutWithConesUntilThreshold(cst)) {
                 //parameterizer->InitializeSolution();
                 shellChanged = true;
             } else {

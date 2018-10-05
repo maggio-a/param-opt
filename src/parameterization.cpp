@@ -411,11 +411,8 @@ bool ParameterizerObject::Parameterize()
         InitializeOptimizer();
 
     if (strategy.applyCut) {
-        int c = 0;
-        while (int nc = PlaceCutWithConesUntilThreshold(CONFORMAL_SCALING_THRESHOLD) > 0) {
-            c += nc;
-        }
-        std::cout << "Placed " << c << " cuts" << std::endl;
+        int nc = PlaceCutWithConesUntilThreshold(CONFORMAL_SCALING_THRESHOLD);
+        std::cout << "Placed " << nc << " cuts" << std::endl;
     }
 
     if (state != ParameterizerState::OK)
@@ -687,6 +684,15 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScaling
 
     // Put the shell in a configuration suitable to compute the conformal scaling factors
     ClearHoleFillingFaces(shell, true, true);
+
+    std::vector<double> savedUVs;
+    for (auto& sf : shell.face) {
+        for (int i = 0; i < 3; ++i) {
+            savedUVs.push_back(sf.P(i).X());
+            savedUVs.push_back(sf.P(i).Y());
+        }
+    }
+
     SyncShellWithModel(shell, baseMesh);
     for (auto& sf : shell.face) {
         for (int i = 0; i < 3; ++i) {
@@ -700,53 +706,75 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScaling
     tri::Clean<Mesh>::RemoveDuplicateVertex(shell);
     tri::UpdateTopology<Mesh>::FaceFace(shell);
     tri::Clean<Mesh>::SplitNonManifoldVertex(shell, 0.15);
+    tri::Allocator<Mesh>::CompactEveryVector(shell);
 
     ComputeBoundaryInfo(shell);
     CloseMeshHoles(shell);
     MarkInitialSeamsAsFaux(shell, baseMesh);
 
-    std::vector<int> coneIndices;
-    FindConesWithThreshold(conformalScalingThreshold, coneIndices);
+    int numPlacedCones = 0;
 
-    if (coneIndices.size() > 0) {
-        // Cone singularities were found, place the cut
-        // The cones are guaranteed to be placed on a mesh vertex since
-        // CloseMeshHoles() fills holes by closing ears (no vertices are added)
+    for (;;) {
+        std::vector<int> coneIndices;
+        FindConesWithThreshold(conformalScalingThreshold, coneIndices);
 
-        ComputeDistanceFromBorderOnSeams(shell);
-        // Select cone vertices
-        tri::UpdateFlags<Mesh>::VertexClearS(shell);
-        for (int i : coneIndices)
-            shell.vert[i].SetS();
-        // Store Pos objects that lie on seams and point to cone vertices (1 pos per cone)
-        std::vector<PosF> pv;
-        for (auto& sf : shell.face) {
-            if (sf.IsMesh()) {
-                for (int i = 0; i < 3; ++i) {
-                    if (sf.IsF(i) && (sf.V0(i)->IsS() || sf.V1(i)->IsS())) {
-                        PosF p(&sf, i);
-                        p.V()->ClearS();
-                        p.VFlip()->ClearS();
-                        pv.push_back(p);
+        if (coneIndices.size() > 0) {
+            // Cone singularities were found, place the cut
+            // The cones are guaranteed to be placed on a mesh vertex since
+            // CloseMeshHoles() fills holes by closing ears (no vertices are added)
+
+            ComputeDistanceFromBorderOnSeams(shell);
+            // Select cone vertices
+            tri::UpdateFlags<Mesh>::VertexClearS(shell);
+            for (int i : coneIndices)
+                shell.vert[i].SetS();
+            // Store Pos objects that lie on seams and point to cone vertices (1 pos per cone)
+            std::vector<PosF> pv;
+            for (auto& sf : shell.face) {
+                if (sf.IsMesh()) {
+                    for (int i = 0; i < 3; ++i) {
+                        if (sf.IsF(i) && (sf.V0(i)->IsS() || sf.V1(i)->IsS())) {
+                            PosF p(&sf, i);
+                            p.V()->ClearS();
+                            p.VFlip()->ClearS();
+                            pv.push_back(p);
+                        }
                     }
                 }
             }
+            // Repeatedly cut starting from each pos
+            for (auto p : pv) {
+                std::cout << "Selected face " << tri::Index(shell, p.F()) << " edge " << p.E() << std::endl;
+                tri::UpdateFlags<Mesh>::FaceClearFaceEdgeS(shell);
+                PosF boundaryPos = SelectShortestSeamPathToBoundary(shell, p);
+                //SelectShortestSeamPathToPeak(shell, p);
+                bool corrected = RectifyCut(shell, boundaryPos);
+                tri::CutMeshAlongSelectedFaceEdges(shell);
+                CleanupShell(shell);
+                tri::UpdateTopology<Mesh>::FaceFace(shell);
+            }
+
+            numPlacedCones += (int) coneIndices.size();
+        } else {
+            break;
         }
-        // Repeatedly cut starting from each pos
-        for (auto p : pv) {
-            std::cout << "Selected face " << tri::Index(shell, p.F()) << " edge " << p.E() << std::endl;
-            tri::UpdateFlags<Mesh>::FaceClearFaceEdgeS(shell);
-            PosF boundaryPos = SelectShortestSeamPathToBoundary(shell, p);
-            //SelectShortestSeamPathToPeak(shell, p);
-            bool corrected = RectifyCut(shell, boundaryPos);
-            tri::CutMeshAlongSelectedFaceEdges(shell);
-            CleanupShell(shell);
-            tri::UpdateTopology<Mesh>::FaceFace(shell);
-        }
+
     }
 
     // Cleanup (and restore hole-filling and scaffold faces if needed)
     ClearHoleFillingFaces(shell, true, true);
+
+
+    // restore the vertex texture coordinates
+    ensure_condition(shell.FN() == ((int) savedUVs.size() / 6));
+    double *coordPtr = savedUVs.data();
+    for (auto& sf : shell.face) {
+        for (int i = 0; i < 3; ++i) {
+            sf.V(i)->T().P().X() = *coordPtr++;
+            sf.V(i)->T().P().Y() = *coordPtr++;
+        }
+    }
+
     ComputeBoundaryInfo(shell); // boundary changed after the cut
     SyncShellWithUV(shell);
 
@@ -754,8 +782,9 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScaling
         CloseShellHoles(shell, strategy.geometry, baseMesh);
     }
 
+
     // Initialize solution if cones were placed
-    if (coneIndices.size() > 0)
+    if (numPlacedCones > 0)
         InitializeSolution();
 
     if (strategy.scaffold)
@@ -766,7 +795,7 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScaling
     if (OptimizerIsInitialized())
         opt->UpdateCache();
 
-    return (int) coneIndices.size();
+    return numPlacedCones;
 }
 
 void ParameterizerObject::FindCones(int ncones, std::vector<int>& coneIndices)

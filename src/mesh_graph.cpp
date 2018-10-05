@@ -105,9 +105,6 @@ void CloseMeshHoles(Mesh& shell)
         tri::Hole<Mesh>::EarCuttingFill<tri::MinimumWeightEar<Mesh>>(shell, shell.FN(), true);
     }
 
-    tri::Clean<Mesh>::RemoveZeroAreaFace(shell);
-    tri::Allocator<Mesh>::CompactEveryVector(shell);
-
     // Compute border info
     double length = 0;
     int count = 0;
@@ -138,7 +135,6 @@ void CloseMeshHoles(Mesh& shell)
 
     // Remesh filled hole
     //ColorFace(shell);
-    //vcg::tri::io::ExporterPLY<Mesh>::Save(shell, "original_closed.ply", tri::io::Mask::IOM_FACECOLOR);
     IsotropicRemeshing<Mesh>::Params params;
     //params.SetTargetLen(2.0*(totalBorderLen / totalBorderFaces));
     //params.SetTargetLen(length / count);
@@ -492,9 +488,11 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
     if (splitCount > 0) {
         std::cout << "Mesh was not vertex-manifold, " << splitCount << " vertices split" << std::endl;
     }
+    tri::Allocator<Mesh>::CompactEveryVector(shell);
+    //tri::io::Exporter<Mesh>::Save(shell, "shell.obj", tri::io::Mask::IOM_ALL);
+
     auto ia = GetFaceIndexAttribute(shell);
 
-    tri::io::Exporter<Mesh>::Save(shell, "shell.obj", tri::io::Mask::IOM_ALL);
 
     bool init = true;
 
