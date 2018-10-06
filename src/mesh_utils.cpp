@@ -317,7 +317,9 @@ void CleanupShell(Mesh& shell)
     // no longer vertex manifold because the new boundary touched only a
     // vertex of a hole-filling face
     if (deleted) {
-        tri::Clean<Mesh>::SplitNonManifoldVertex(shell, 0.15);
+        int nv;
+        while ((nv = tri::Clean<Mesh>::SplitNonManifoldVertex(shell, 0.15)) > 0)
+               ;
         tri::UpdateTopology<Mesh>::FaceFace(shell);
         tri::UpdateTopology<Mesh>::VertexFace(shell);
     }
