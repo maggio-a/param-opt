@@ -615,8 +615,12 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
     std::deque<ParamTask> paramQueue;
     for (auto entry : graph->charts) {
         ChartHandle chart = entry.second;
-        if (chart->numMerges > 0)
+        Mesh probe;
+        MeshFromFacePointers(chart->fpVec, probe);
+        if (Parameterizable(probe))
             paramQueue.push_back(ParamTask{chart, false});
+        //if (chart->numMerges > 0)
+        //    paramQueue.push_back(ParamTask{chart, false});
     }
 
     int iter = 0;
@@ -627,6 +631,7 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
 
         ChartHandle chart = task.chart;
         std::cout << "Chart " << chart->id << " - FN=" << chart->FN() << ", FI=" << tri::Index(graph->mesh, chart->Fp()) << std::endl;
+        /*
         if (chart->numMerges == 0) {
             // restore the initial texture coordinates
             for (auto fptr : chart->fpVec) {
@@ -637,6 +642,7 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
             }
             continue;
         }
+        */
 
         ParameterizationStrategy strat = strategy;
         if (task.warmStart)
