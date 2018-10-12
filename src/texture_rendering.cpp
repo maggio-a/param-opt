@@ -231,13 +231,18 @@ static GeometryImageStats GetGeometryImageStats(Mesh& m, const std::vector<Mesh:
 
     //vcg::Box2d box = chart->UVBox();
 
+    vcg::Box2d box;
+    for (auto& fptr : faces)
+        for (int i = 0; i < 3; ++i)
+            box.Add(fptr->WT(i).P());
+
     glBindBuffer(GL_ARRAY_BUFFER, vertexbuf);
     glBufferData(GL_ARRAY_BUFFER, faces.size()*15*sizeof(float), NULL, GL_STATIC_DRAW);
     float *p = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
     for (auto fptr : faces) {
         for (int i = 0; i < 3; ++i) {
-            *p++ = (float) fptr->cWT(i).U();
-            *p++ = (float) fptr->cWT(i).V();
+            *p++ = (float) fptr->cWT(i).U() - box.min.X();
+            *p++ = (float) fptr->cWT(i).V() - box.min.Y();
             *p++ = (float) fptr->P(i).X();
             *p++ = (float) fptr->P(i).Y();
             *p++ = (float) fptr->P(i).Z();
@@ -632,7 +637,10 @@ static RasterizedParameterizationStats GetRasterizationStats(Mesh& m, const std:
     GLuint vertexbuf;
     glGenBuffers(1, &vertexbuf);
 
-    //vcg::Box2d box = chart->UVBox();
+    vcg::Box2d box;
+    for (auto& fptr : faces)
+        for (int i = 0; i < 3; ++i)
+            box.Add(fptr->WT(i).P());
 
     ensure_condition(HasConnectedComponentIDAttribute(m));
     auto CCIDh = GetConnectedComponentIDAttribute(m);
@@ -642,8 +650,8 @@ static RasterizedParameterizationStats GetRasterizationStats(Mesh& m, const std:
     float *p = (float *) glMapBuffer(GL_ARRAY_BUFFER, GL_WRITE_ONLY);
     for (auto fptr : faces) {
         for (int i = 0; i < 3; ++i) {
-            *p++ = fptr->cWT(i).U();
-            *p++ = fptr->cWT(i).V();
+            *p++ = fptr->cWT(i).U() - box.min.X();
+            *p++ = fptr->cWT(i).V() - box.min.Y();
 
             unsigned int *up = (unsigned int *) p;
             *up = (unsigned int) CCIDh[fptr] + 1;
