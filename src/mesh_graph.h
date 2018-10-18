@@ -37,57 +37,6 @@ void CopyToMesh(FaceGroup& fg, Mesh& m);
  * topology is computed on the mesh */
 void ComputeBoundaryInfo(Mesh& m);
 
-/* Closes the holes of a mesh using the vcg MinimumWeightEar strategy.
- * Hole-filling faces are marked by setting the holeFilling field to true */
-void CloseMeshHoles(Mesh& shell);
-
-/* This function synchronizes a shell with its UV coordinates, that is it
- * updates its vertex coordinates to match the parameter space configurations
- * (with z = 0). The operation is performed per-vertex. */
-void SyncShellWithUV(Mesh& shell);
-
-/* This function synchronizes a shell with the model space coordinates of its
- * chart. */
-void SyncShellWithModel(Mesh& shell, Mesh& baseMesh);
-
-/* Removes any hole-filling face from the shell and compacts its containers */
-void ClearHoleFillingFaces(Mesh& shell, bool holefill, bool scaffold);
-
-/* Closes shell holes, updating the shell attributes accordingly. Note that
- * faces that have a direct correspondence with the input mesh faces are not
- * touched by this procedure.
- * WARNING FIXME XXX as of now, this operation performed on the shell is not
- * guaranteed to always elect the same boundary as the one to be preserved
- * because it choses the longest one, but the boundary of the shell can change
- * during optimization */
-void CloseShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh &inputMesh);
-
-/* Remeshes the hole filling faces of the shell, which can get heavily distorted
- * during the optimization and lock the descent step-size. */
-void RemeshShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& inputMesh);
-
-/* Builds a shell for the given chart. A shell is a mesh object specifically
- * constructed to compute the parameterization of a chart. In order to support
- * the various operations that we need to perform on it, it is more convenient
- * to keep its shape as the current 2D parameter-space configuration (possibly
- * not updated). The shell has suitable attributes to retrieve information about
- * the shell-face to input mesh-face mappings, as well as the target shape
- * features of each face to guide the parameterization process. (See also the
- * comments in mesh_attribute.h).
- * The shell is initialized using Tutte's parameterization, and it is scaled so
- * that it matches the target area. */
-bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeometry, bool useExistingUV);
-
-void BuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh &inputMesh);
-
-void RebuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh &inputMesh);
-
-/* This function is used to 'correct' degenerate triangles (too small and/or
- * slivers), by assigning to the CoordStorage ref the shape of a equiareal
- * triangle of comparable area. This should prevent numerical issues during
- * the optimization process */
-void Stabilize(CoordStorage& cs);
-
 /* Computes the UV outline(s) of the given chart. If the chart has no outlines,
  * which can happen for some inputs on small closed components that are ignored
  * by the reparameterization procedure, it returns as outline the bounding box

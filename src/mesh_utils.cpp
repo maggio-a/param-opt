@@ -5,10 +5,90 @@
 #include <vcg/simplex/face/pos.h>
 #include <vcg/complex/algorithms/geodesic.h>
 
+#include <vcg/complex/algorithms/isotropic_remeshing.h>
+
 #include <vector>
 #include <algorithm>
 
 using namespace vcg;
+
+void CloseMeshHoles(Mesh& shell)
+{
+    int startFN = shell.FN();
+
+    // Get border info
+    ensure_condition(HasBoundaryInfoAttribute(shell));
+    BoundaryInfo& info = GetBoundaryInfoAttribute(shell)();
+
+    //vcg::tri::io::ExporterPLY<Mesh>::Save(shell, "original.ply", tri::io::Mask::IOM_FACECOLOR);
+    // Leave only the longest boundary
+    tri::UpdateFlags<Mesh>::FaceClearS(shell);
+    ensure_condition(info.vBoundaryFaces.size() > 0 && "Mesh has no boundaries");
+    if (info.vBoundaryFaces.size() > 1) {
+        std::size_t k = info.LongestBoundary();
+        // select all the boundary faces
+        for (std::size_t i = 0; i < info.vBoundaryFaces.size(); ++i) {
+            if (i == k) continue;
+            for (auto j : info.vBoundaryFaces[i]) {
+                ensure_condition(face::IsBorder(shell.face[j], 0) || face::IsBorder(shell.face[j], 1) || face::IsBorder(shell.face[j], 2));
+                shell.face[j].SetS();
+            }
+        }
+        tri::Hole<Mesh>::EarCuttingFill<tri::MinimumWeightEar<Mesh>>(shell, shell.FN(), true);
+    }
+
+    // Compute border info
+    double length = 0;
+    int count = 0;
+    for (std::size_t i = 0; i < info.vBoundaryFaces.size(); ++i) {
+        if (i == info.LongestBoundary())
+            continue;
+        length += info.vBoundaryLength[i];
+        count += (int) info.vBoundarySize[i];
+    }
+
+    // select the hole-filling faces that need to be remeshed
+    tri::UpdateFlags<Mesh>::FaceClearS(shell);
+    for (auto& sf : shell.face) {
+        if (sf.IsHoleFilling())
+            sf.SetS();
+    }
+
+    // Remesh filled hole
+    //ColorFace(shell);
+    IsotropicRemeshing<Mesh>::Params params;
+    //params.SetTargetLen(2.0*(totalBorderLen / totalBorderFaces));
+    //params.SetTargetLen(length / count);
+    params.SetTargetLen(length / (count));
+    params.SetFeatureAngleDeg(30);
+    params.selectedOnly = true;
+    //params.splitFlag = false;
+    //params.swapFlag = false;
+    //params.collapseFlag = false;
+    params.smoothFlag = false;
+    params.projectFlag = false;
+    params.iter = 3;
+    int iter = 0;
+    do {
+        IsotropicRemeshing<Mesh>::Do(shell, params);
+        std::cout << "Remeshing: " << params.stat.collapseNum << " " << params.stat.flipNum << " " << params.stat.splitNum << std::endl;
+        iter += params.iter;
+    } while (params.stat.collapseNum + params.stat.flipNum + params.stat.splitNum > 0 && iter < 3);
+
+    tri::Allocator<Mesh>::CompactEveryVector(shell);
+
+    auto ia = GetFaceIndexAttribute(shell);
+    tri::UpdateFlags<Mesh>::FaceClearS(shell);
+    for (auto& f: shell.face) {
+        if (int(tri::Index(shell, f)) >= startFN) {
+            f.SetHoleFilling();
+            ia[f] = -1;
+        }
+    }
+
+    tri::UpdateTopology<Mesh>::FaceFace(shell);
+    tri::UpdateTopology<Mesh>::VertexFace(shell);
+}
 
 void MarkInitialSeamsAsFaux(Mesh& shell, Mesh& baseMesh)
 {

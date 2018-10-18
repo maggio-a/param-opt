@@ -21,6 +21,10 @@ struct PosNode {
     bool operator<(const PosNode& other) const { return distance < other.distance; }
 };
 
+/* Closes the holes of a mesh using the vcg MinimumWeightEar strategy.
+ * Hole-filling faces are marked by setting the holeFilling field to true */
+void CloseMeshHoles(Mesh& mesh);
+
 /* Marks initial texture seam edges as faux */
 void MarkInitialSeamsAsFaux(Mesh& shell, Mesh& baseMesh);
 
