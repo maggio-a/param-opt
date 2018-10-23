@@ -1765,10 +1765,6 @@ void MeshViewer::ManageImGuiState()
             parameterizer->Parameterize();
             shellChanged = true;
         }
-        if (ImGui::Button("Reset")) {
-            parameterizer->Reset();
-            shellChanged = true;
-        }
         static int iternum = 0;
         ImGui::InputInt("##SelectId", &iternum, 1, 1);
         if (iternum < 1) iternum = 1;
@@ -1814,17 +1810,17 @@ void MeshViewer::ManageImGuiState()
                 std::cout << "Unable to fix uv for non-unique primary chart" << std::endl;
             } else {
                 parameterizer->SyncChart();
-                RegionID selId = primaryCharts.begin()->first;
-                ClearSelection();
-                Select(selId);
-                parameterizer->ForceWarmStart();
-                shellChanged = true;
+                //RegionID selId = primaryCharts.begin()->first;
+                //ClearSelection();
+                //Select(selId);
+                //parameterizer->ForceWarmStart();
+                //shellChanged = true;
             }
         }
 
         if (ImGui::Button("Split chart")) {
             if (primaryCharts.size() != 1) {
-                std::cout << "Unable to fix uv for non-unique primary chart" << std::endl;
+                std::cout << "Unable to split non-unique primary chart" << std::endl;
             } else {
                 auto id = primaryCharts.begin()->first;
                 ClearSelection();

@@ -14,6 +14,7 @@ using namespace vcg;
 
 void CloseMeshHoles(Mesh& shell)
 {
+    //ensure_condition(0 && "Cleanup this mess pls");
     int startFN = shell.FN();
 
     // Get border info
@@ -296,7 +297,7 @@ void SelectShortestSeamPathToPeak(Mesh& m, const PosF& pos)
  * clear the path. This allows to compute paths that join chart boundaries
  * without accidentally cutting away small shell faces that then remain isolated
  * in the parameterization */
-bool RectifyCut(Mesh& shell, PosF boundaryPos)
+void RectifyCut(Mesh& shell, PosF boundaryPos)
 {
     ensure_condition(boundaryPos.V()->IsB());
     tri::UpdateFlags<Mesh>::VertexClearV(shell);
@@ -335,7 +336,6 @@ bool RectifyCut(Mesh& shell, PosF boundaryPos)
         }
         if (!moved) break;
     }
-    return reachedFillArea;
 }
 
 void CleanupShell(Mesh& shell)

@@ -48,6 +48,157 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
     CopyToMesh(fg, shell);
 
     tri::Clean<Mesh>::RemoveDuplicateVertex(shell);
+    tri::UpdateBounding<Mesh>::Box(shell);
+    tri::UpdateTopology<Mesh>::FaceFace(shell);
+
+    int splitCount;
+    while ((splitCount = tri::Clean<Mesh>::SplitNonManifoldVertex(shell, 0.15)) > 0)
+        ;
+    tri::Allocator<Mesh>::CompactEveryVector(shell);
+
+    // First attempt, topological cut
+    if (!Parameterizable(shell)) {
+        Mesh cut;
+        std::srand(0);
+        tri::CutTree<Mesh> ct(shell);
+        ct.Build(cut, rand() % shell.FN());
+        tri::CoM<Mesh> cc(shell);
+        cc.Init();
+        bool ok = cc.TagFaceEdgeSelWithPolyLine(cut);
+        ensure_condition(ok && "topological cut failed");
+        tri::CutMeshAlongSelectedFaceEdges(shell);
+        tri::UpdateTopology<Mesh>::FaceFace(shell);
+    }
+
+    // Second attempt, pick a face and cut along two edges
+    if (!Parameterizable(shell)) {
+        tri::UpdateFlags<Mesh>::FaceClearFaceEdgeS(shell);
+        Mesh::FacePointer fp = &shell.face[0];
+        fp->SetFaceEdgeS(0);
+        fp->SetFaceEdgeS(1);
+        fp->FFp(0)->SetFaceEdgeS(fp->FFi(0));
+        fp->FFp(1)->SetFaceEdgeS(fp->FFi(1));
+        tri::CutMeshAlongSelectedFaceEdges(shell);
+        tri::UpdateTopology<Mesh>::FaceFace(shell);
+        ensure_condition(Parameterizable(shell));
+    }
+
+    // Failed to produce a parameterizable shell
+    if (!Parameterizable(shell))
+        return false;
+
+    ComputeBoundaryInfo(shell);
+    CloseMeshHoles(shell);
+
+    // Compute the target shapes for the shell faces
+    auto psi = GetParameterizationScaleInfoAttribute(m);
+    double avg3D = psi().surfaceArea / psi().numNonZero;
+    double avgUV = psi().parameterArea / psi().numNonZero;
+
+    double targetArea = 0;
+
+    auto sa = GetShell3DShapeAttribute(shell);
+    auto ia = GetFaceIndexAttribute(shell);
+    auto tsa = GetTargetShapeAttribute(shell);
+    auto wtcsa = GetWedgeTexCoordStorageAttribute(m);
+
+    for (auto& sf : shell.face) {
+        CoordStorage target;
+        // if the face is hole-filling the target triangle is its own shape, scaled according to the target geometry
+        if (sf.IsHoleFilling()) {
+            double scale = 1.0;
+            if (targetGeometry == Model)
+                scale = std::sqrt(avg3D / DistortionMetric::Area3D(sf));
+            else if (targetGeometry == Texture)
+                scale = std::sqrt(avgUV / DistortionMetric::Area3D(sf));
+            else
+                ensure_condition(0 && "Unexpected targetGeometry parameter value");
+            target.P[0] = sf.P(0) * scale;
+            target.P[1] = sf.P(1) * scale;
+            target.P[2] = sf.P(2) * scale;
+        } else if (sf.IsMesh()) {
+            auto& mf = m.face[ia[sf]];
+            if (targetGeometry == Model) {
+                target.P[0] = mf.P(0);
+                target.P[1] = mf.P(1);
+                target.P[2] = mf.P(2);
+            } else if (targetGeometry == Texture) {
+                // Interpolate between texture and mesh face shapes to mitigate distortion
+                const Point2d& u0 = wtcsa[mf].tc[0].P();
+                const Point2d& u1 = wtcsa[mf].tc[1].P();
+                const Point2d& u2 = wtcsa[mf].tc[2].P();
+                Point2d u10;
+                Point2d u20;
+                LocalIsometry(u1 - u0, u2 - u0, u10, u20);
+                double area = std::abs(u10 ^ u20) / 2.0;
+
+                if (area == 0) {
+                    // zero uv area face, target the 3d shape scaled according to the target geometry
+                    double scale = std::sqrt(avgUV / DistortionMetric::Area3D(mf));
+                    target.P[0] = mf.P(0) * scale;
+                    target.P[1] = mf.P(1) * scale;
+                    target.P[2] = mf.P(2) * scale;
+
+                } else {
+                    // Compute the isometry to the model coordinates and scale them to match the texture area
+                    Point2d x10;
+                    Point2d x20;
+                    LocalIsometry(mf.P(1) - mf.P(0), mf.P(2) - mf.P(0), x10, x20);
+
+                    // scale using the average scaling factor rather than the one of
+                    // the triangle, since heavily distorted triangle are likely to
+                    // have areas that are too small
+                    x10 *= psi().scale;
+                    x20 *= psi().scale;
+
+                    // compute the singular values of the transformation matrix, s2 > s1
+                    // ref for the formula: Smith&Schaefer 2015
+                    Eigen::Matrix2d phi = ComputeTransformationMatrix(x10, x20, u10, u20);
+
+                    double bcplus  = std::pow(phi(0, 1) + phi(1, 0), 2.0);
+                    double bcminus = std::pow(phi(0, 1) - phi(1, 0), 2.0);
+                    double adplus  = std::pow(phi(0, 0) + phi(1, 1), 2.0);
+                    double adminus = std::pow(phi(0, 0) - phi(1, 1), 2.0);
+                    double s_min = 0.5 * std::abs(std::sqrt(bcplus + adminus) - std::sqrt(bcminus + adplus));
+                    double s_max = 0.5 * (std::sqrt(bcplus + adminus) + std::sqrt(bcminus + adplus));
+
+                    double interpolationFactor = 1.0 - (s_min / s_max);
+                    ensure_condition(interpolationFactor >= 0);
+                    ensure_condition(interpolationFactor <= 1);
+                    ensure_condition(std::isfinite(interpolationFactor));
+
+                    Point2d v10 = (1.0 - interpolationFactor) * u10 + (interpolationFactor) * x10;
+                    Point2d v20 = (1.0 - interpolationFactor) * u20 + (interpolationFactor) * x20;
+
+                    target.P[0] = Point3d(0, 0, 0);
+                    target.P[1] = Point3d(v10[0], v10[1], 0);
+                    target.P[2] = Point3d(v20[0], v20[1], 0);
+                }
+            }
+        } else {
+            ensure_condition(0 && "Unexpected face type when building shell");
+        }
+        tsa[sf] = target;
+        targetArea += ((target.P[1] - target.P[0]) ^ (target.P[2] - target.P[0])).Norm() / 2.0;
+        ensure_condition(std::isfinite(targetArea));
+        ensure_condition(targetArea > 0);
+
+        sa[sf].P[0] = sf.P(0);
+        sa[sf].P[1] = sf.P(1);
+        sa[sf].P[2] = sf.P(2);
+    }
+
+    return true;
+}
+
+#if 0
+bool BuildShell2(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeometry, bool useExistingUV)
+{
+    Mesh& m = fg.mesh;
+
+    CopyToMesh(fg, shell);
+
+    tri::Clean<Mesh>::RemoveDuplicateVertex(shell);
 
     tri::UpdateBounding<Mesh>::Box(shell);
 
@@ -310,6 +461,7 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
 
     return init;
 }
+#endif
 
 void SyncShellWithUV(Mesh& shell)
 {
@@ -321,14 +473,13 @@ void SyncShellWithUV(Mesh& shell)
 }
 
 // TODO this method should CALL ClearHoleFillingFaces(shell, true, true) otherwise it's unsafe
-void SyncShellWithModel(Mesh& shell, Mesh& baseMesh)
+void SyncShellWith3D(Mesh& shell)
 {
-    auto ia = GetFaceIndexAttribute(shell);
+    auto sa = GetShell3DShapeAttribute(shell);
     for (auto& sf : shell.face) {
         ensure_condition(sf.IsMesh());
-        auto& f = baseMesh.face[ia[sf]];
         for (int i = 0; i < 3; ++i)
-            sf.P(i) = f.P(i);
+            sf.P(i) = sa[sf].P[i];
     }
 }
 
@@ -411,8 +562,6 @@ void CloseShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh&
             target.P[1] = fi->P(1) * scale;
             target.P[2] = fi->P(2) * scale;
             tsa[fi] = target;
-
-            Stabilize(tsa[fi]);
 
             fi++;
         }
@@ -504,8 +653,6 @@ void BuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh& i
         target.P[2] = fi->P(2);
         tsa[fi] = target;
 
-        Stabilize(tsa[fi]);
-
         fi++;
     }
 
@@ -528,34 +675,8 @@ void RebuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh&
 }
 
 
-/* This function is used to 'correct' degenerate triangles (too small and/or
- * slivers), by assigning to the CoordStorage ref the shape of a equiareal
- * triangle of comparable area. This should prevent numerical issues during
- * the optimization process */
-void Stabilize(CoordStorage& cs)
-{
-    /*
-    Point3d p10 = cs.P[1] - cs.P[0];
-    Point3d p20 = cs.P[2] - cs.P[0];
-    double targetArea = (p10 ^ p20).Norm() / 2.0;
-    double q = QualityRadii(Point3d::Zero(), Point3d::Zero() + p10, Point3d::Zero() + p20);
-    if (q < 0.1) {
-        p10 = Point3d(1, 0, 0);
-        p20 = Point3d(std::cos(M_PI / 3.0), std::sin(M_PI / 3.0), 0);
-        p10 *= std::sqrt(targetArea);
-        p20 *= std::sqrt(targetArea);
-    }
-    cs.P[1] = cs.P[0] + p10;
-    cs.P[2] = cs.P[0] + p20;
-    */
-}
-
-
-
-
-
-/* Constructor, destructor and utility methods
- * =========================================== */
+/* ParameterizerObject class implementation
+ * ======================================== */
 
 
 ParameterizerObject::ParameterizerObject(ChartHandle c, ParameterizationStrategy strat)
@@ -565,13 +686,22 @@ ParameterizerObject::ParameterizerObject(ChartHandle c, ParameterizationStrategy
       strategy(strat),
       energy{},
       opt{},
-      needsRemeshing{false},
       iterationCount{0},
       gradientNormTolerance{1e-3},
       energyDiffTolerance{1e-6},
-      state{ParameterizerState::OK}
+      conformalScalingThreshold{1.98},
+      targetArea{0},
+      status{NoInit}
 {
-    Reset();
+    shell.Clear();
+    energy = nullptr;
+    opt = nullptr;
+    iterationCount = 0;
+    gradientNormTolerance = 1e-3;
+    energyDiffTolerance = 1e-6;
+    conformalScalingThreshold = 1.98;
+    targetArea = 0;
+    SetStatus(NoInit);
 }
 
 ParameterizerObject::~ParameterizerObject()
@@ -579,12 +709,99 @@ ParameterizerObject::~ParameterizerObject()
     // empty
 }
 
+void ParameterizerObject::SetStatus(Status s)
+{
+    if (!ErrorState())
+        status = s;
+}
+
+bool ParameterizerObject::ErrorState()
+{
+    return (status == Error_InitFailed || status == Error_IterationFailed || status == Error_UnfeasibleShell);
+}
+
+void ParameterizerObject::PrintStatus()
+{
+    std::string str;
+    switch(status) {
+    case Status::OK:
+        str = "OK";
+        break;
+    case Status::Error_InitFailed:
+        str = "Err_InitFailed";
+        break;
+    case Status::Error_IterationFailed:
+        str = "Err_IterFailed";
+        break;
+    case Status::Error_UnfeasibleShell:
+        str = "Err_Unfeasible";
+        break;
+    case Status::Initialized:
+        str = "Initialized";
+        break;
+    case Status::NoInit:
+        str = "NoInit";
+        break;
+    }
+    std::cout << str << std::endl;
+}
+
+void ParameterizerObject::Initialize()
+{
+    if (status == Initialized)
+        return;
+
+    if (!BuildShell(shell, *chart, strategy.geometry, strategy.warmStart)) {
+        SetStatus(Error_UnfeasibleShell);
+        return;
+    }
+
+    MarkInitialSeamsAsFaux(shell, baseMesh);
+
+    bool cut = false;
+    // cut the mesh (if strategy allows) (3D)
+    if (strategy.applyCut) {
+        int nc = PlaceCutWithConesUntilThreshold_3D(conformalScalingThreshold);
+        std::cout << "Placed " << nc << " cuts" << std::endl;
+        if (nc) cut = true;
+    }
+
+    // initialize solution (3D)
+    if (!InitializeSolution()) {
+        SetStatus(Error_InitFailed);
+        return;
+    }
+
+    // clear hole-filling faces (3D)
+    ClearHoleFillingFaces(shell, true, true);
+
+    // sync shell with uv (3D -> 2D)
+    SyncShellWithUV(shell);
+
+    // close shell holes (2D)
+    if (strategy.padBoundaries)
+        CloseShellHoles(shell, strategy.geometry, baseMesh);
+
+    // build scaffold (2D)
+    if (strategy.scaffold)
+        BuildScaffold(shell, strategy.geometry, baseMesh);
+
+    auto tsa = GetTargetShapeAttribute(shell);
+    targetArea = 0;
+    for (auto& sf : shell.face) {
+        CoordStorage target = tsa[sf];
+        targetArea += ((target.P[1] - target.P[0]) ^ (target.P[2] - target.P[0])).Norm() / 2.0;
+    }
+
+    InitializeOptimizer();
+
+    SetStatus(Initialized);
+}
+
+#if 0
 void ParameterizerObject::Reset()
 {
-    energy = nullptr;
-    opt = nullptr;
-    iterationCount = 0;
-    shell.Clear();
+    /*
 
     if (strategy.warmStart)
         std::cout << "ParameterizerObject: Using warm start" << std::endl;
@@ -620,11 +837,13 @@ void ParameterizerObject::Reset()
 //    std::cout << "ENERGY WHEN CONSTRUCTED == " << energy->E() << std::endl;
 
     //tri::io::Exporter<Mesh>::Save(shell, "shell_init.obj", tri::io::Mask::IOM_ALL);
+    */
 }
+#endif
 
-bool ParameterizerObject::IsInitialized()
+ParameterizerObject::Status ParameterizerObject::GetStatus()
 {
-    return (state != ParameterizerState::InitializationFailed);
+    return status;
 }
 
 void ParameterizerObject::SyncChart()
@@ -797,46 +1016,48 @@ bool ParameterizerObject::InitializeSolution()
     if (!solved) {
         UniformSolver<Mesh> solver(shell);
         solved = solver.Solve();
+        if (!solved)
+            tri::io::Exporter<Mesh>::Save(shell, "error_tutte.obj", tri::io::Mask::IOM_ALL);
     }
     if (!solved) {
         UniformSolver<Mesh> solver(shell);
         solver.SetBoundaryMapProportional();
         solved = solver.Solve();
+        if (!solved)
+            tri::io::Exporter<Mesh>::Save(shell, "error_tutte_prop.obj", tri::io::Mask::IOM_ALL);
     }
-
     if (!solved) {
         MeanValueSolver<Mesh> mvs(shell);
         solved = mvs.Solve();
+        if (!solved)
+            tri::io::Exporter<Mesh>::Save(shell, "error_mvs.obj", tri::io::Mask::IOM_ALL);
     }
-
     if (!solved) {
         MeanValueSolver<Mesh> mvs(shell);
         mvs.UseCotangentWeights();
         solved = mvs.Solve();
+        if (!solved)
+            tri::io::Exporter<Mesh>::Save(shell, "error_cotan.obj", tri::io::Mask::IOM_ALL);
     }
 
+    // Scale the shell size to match the target shape area
     if (solved) {
-        // scale the parameterization
-        double uvArea = M_PI * 0.5 * 0.5;
-        double scale = std::sqrt(targetArea / uvArea);
-        for (auto& sv : shell.vert) {
-            sv.T().P() *= scale;
+        double shellUvArea = 0;
+        double shellTargetArea = 0;
+        auto tsa = GetTargetShapeAttribute(shell);
+        for (auto& sf : shell.face) {
+            shellUvArea += ((sf.V(1)->T().P() - sf.V(0)->T().P()) ^ (sf.V(2)->T().P() - sf.V(0)->T().P())) / 2.0;
+            shellTargetArea += ((tsa[sf].P[1] - tsa[sf].P[0]) ^ (tsa[sf].P[2] - tsa[sf].P[0])).Norm() / 2.0;
         }
-        SyncShellWithUV(shell);
-        state = ParameterizerState::OK;
-    } else {
-        std::cout << "WARNING: failed to initialize injective solution" << std::endl;
-        tri::io::Exporter<Mesh>::Save(shell, "error.obj", tri::io::Mask::IOM_ALL);
-        state = ParameterizerState::InitializationFailed;
+
+        double areaScaleFactor = std::sqrt(shellTargetArea / shellUvArea);
+        ensure_condition(areaScaleFactor > 0);
+
+        for (auto& v : shell.vert)
+            v.T().P() *= areaScaleFactor;
     }
 
     return solved;
-}
-
-void ParameterizerObject::ForceWarmStart()
-{
-    strategy.warmStart = true;
-    Reset();
 }
 
 #if 0
@@ -938,30 +1159,22 @@ bool ParameterizerObject::Parameterize()
 
 bool ParameterizerObject::Parameterize()
 {
-    constexpr double CONFORMAL_SCALING_THRESHOLD = 1.98;
-
-    if (state != ParameterizerState::OK) // bail out
+    if (status != Initialized)
         return false;
 
     if (!OptimizerIsInitialized())
         InitializeOptimizer();
 
-    if (strategy.applyCut) {
-        int nc = PlaceCutWithConesUntilThreshold(CONFORMAL_SCALING_THRESHOLD);
-        std::cout << "Placed " << nc << " cuts" << std::endl;
-    }
-
-    if (state != ParameterizerState::OK)
-        return false;
-
     // check if remeshing is required during iterations
-    needsRemeshing = false;
+    bool needsRemeshing = false;
     for (auto& sf : shell.face) {
         if (sf.IsHoleFilling()) {
             needsRemeshing = true;
             break;
         }
     }
+
+    SetStatus(OK);
 
     // parameterizer state
     Timer t;
@@ -970,10 +1183,10 @@ bool ParameterizerObject::Parameterize()
     double meshSurfaceArea = energy->SurfaceAreaNotHoleFilling();
     double meshCurrentEnergy = energy->E_IgnoreMarkedFaces();
     for (i = 0; i < strategy.optimizerIterations; ++i) {
-        ensure_condition(state == ParameterizerState::OK);
+        ensure_condition(status == OK);
 
         info = Iterate();
-        if (state == ParameterizerState::IterationFailed) {
+        if (status == Error_IterationFailed) {
             std::cout << "Warning: failed to compute descent direction" << std::endl;
             return false;
         }
@@ -1017,7 +1230,7 @@ IterationInfo ParameterizerObject::Iterate()
 
     if (!ok) {
         std::cout << "WARNING: Iteration failed" << std::endl;
-        state = ParameterizerState::IterationFailed;
+        SetStatus(Error_IterationFailed);
     } else {
         SyncShellWithUV(shell);
         iterationCount++;
@@ -1118,6 +1331,7 @@ void ParameterizerObject::PlaceCut()
 bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
 {
     ensure_condition(ncones > 0);
+    ensure_condition(0 && "This function is broken and not fixed yet");
 
     // sanity check
     ComputeDistanceFromBorderOnSeams(shell);
@@ -1134,7 +1348,7 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
     // Put the shell in a configuration suitable to compute the conformal scaling factors
     ClearHoleFillingFaces(shell, strategy.padBoundaries, strategy.scaffold);
 
-    SyncShellWithModel(shell, baseMesh);
+    SyncShellWith3D(shell);
 
     ComputeBoundaryInfo(shell);
     CloseMeshHoles(shell);
@@ -1169,7 +1383,7 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
         tri::UpdateFlags<Mesh>::FaceClearFaceEdgeS(shell);
         PosF boundaryPos = SelectShortestSeamPathToBoundary(shell, p);
         //SelectShortestSeamPathToPeak(shell, p);
-        bool corrected = RectifyCut(shell, boundaryPos);
+        RectifyCut(shell, boundaryPos);
         tri::CutMeshAlongSelectedFaceEdges(shell);
         CleanupShell(shell);
         tri::UpdateTopology<Mesh>::FaceFace(shell);
@@ -1190,77 +1404,19 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
     return true;
 }
 
-#include <wrap/io_trimesh/export.h>
-
-int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScalingThreshold)
+/* This function places the cuts with the shell is in its 3D configuration */
+int ParameterizerObject::PlaceCutWithConesUntilThreshold_3D(double cst)
 {
-    if (state != ParameterizerState::OK)
+    if (ErrorState())
         return 0;
-    /*
-    // sanity check
-    if (strategy.scaffold) {
-        ClearHoleFillingFaces(shell, false, true);
-    }
-    ComputeDistanceFromBorderOnSeams(shell);
-    bool seamsToBoundary = false;
-    for (auto& sv : shell.vert) {
-        if (!sv.IsB() && sv.Q() < INFINITY) {
-            seamsToBoundary = true;
-            break;
-        }
-    }
-    if (!seamsToBoundary) {
-        if (strategy.scaffold) {
-            BuildScaffold(shell, strategy.geometry, baseMesh);
-            if (OptimizerIsInitialized())
-                opt->UpdateCache();
 
-        }
-        return 0;
-    }
-    */
-
-    static int cut_shell = 0;
-
-    // Put the shell in a configuration suitable to compute the conformal scaling factors
-    ClearHoleFillingFaces(shell, true, true);
-
-    std::vector<double> savedUVs;
-    for (auto& sf : shell.face) {
-        for (int i = 0; i < 3; ++i) {
-            savedUVs.push_back(sf.P(i).X());
-            savedUVs.push_back(sf.P(i).Y());
-        }
-    }
-
-    SyncShellWithModel(shell, baseMesh);
-    for (auto& sf : shell.face) {
-        for (int i = 0; i < 3; ++i) {
-            if (sf.IsF(i)) {
-                sf.C() = vcg::Color4b::Blue;
-                sf.FFp(i)->C() = vcg::Color4b::Blue;
-            }
-        }
-    }
-
-    tri::Clean<Mesh>::RemoveDuplicateVertex(shell);
-    tri::UpdateTopology<Mesh>::FaceFace(shell);
-    int splitCount;
-    while ((splitCount = tri::Clean<Mesh>::SplitNonManifoldVertex(shell, 0.15)) > 0) {
-        tri::Allocator<Mesh>::CompactEveryVector(shell);
-    }
-    tri::Allocator<Mesh>::CompactEveryVector(shell);
-
-    ComputeBoundaryInfo(shell);
-    CloseMeshHoles(shell);
     MarkInitialSeamsAsFaux(shell, baseMesh);
 
     int numPlacedCones = 0;
 
-    static    int cut_id = 0;
     for (;;) {
         std::vector<int> coneIndices;
-        FindConesWithThreshold(conformalScalingThreshold, coneIndices);
+        FindConesWithThreshold(cst, coneIndices);
 
         if (coneIndices.size() > 0) {
             // Cone singularities were found, place the cut
@@ -1292,55 +1448,51 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScaling
                 tri::UpdateFlags<Mesh>::FaceClearFaceEdgeS(shell);
                 PosF boundaryPos = SelectShortestSeamPathToBoundary(shell, p);
                 //SelectShortestSeamPathToPeak(shell, p);
-                bool corrected = RectifyCut(shell, boundaryPos);
-
-                /*
-                {
-                    MyMesh em;
-
-                    for (auto& sf : shell.face) {
-                        for (int i = 0; i < 3; ++i) {
-                            if (sf.IsFaceEdgeS(i)) {
-                                tri::Allocator<MyMesh>::AddEdge(em, sf.P0(i), sf.P1(i));
-                            }
-                        }
-                    }
-                    tri::Clean<MyMesh>::RemoveDuplicateEdge(em);
-                    tri::Clean<MyMesh>::RemoveDuplicateVertex(em);
-                    tri::Allocator<MyMesh>::CompactEveryVector(em);
-
-                    stringstream ss;
-                    ss << "cut_" << cut_id++ << ".obj";
-                    tri::io::Exporter<MyMesh>::Save(em, ss.str().c_str());
-                }
-                */
-
+                RectifyCut(shell, boundaryPos);
                 tri::CutMeshAlongSelectedFaceEdges(shell);
                 CleanupShell(shell);
                 tri::UpdateTopology<Mesh>::FaceFace(shell);
+                tri::io::Exporter<Mesh>::Save(shell, "cut.obj", tri::io::Mask::IOM_ALL);
             }
-
             numPlacedCones += (int) coneIndices.size();
         } else {
             break;
         }
     }
 
+    MarkInitialSeamsAsFaux(shell, baseMesh);
+    ComputeBoundaryInfo(shell); // boundary changed after the cut
+
+    return numPlacedCones;
+}
+
+
+
+int ParameterizerObject::PlaceCutWithConesUntilThreshold(double cst)
+{
+    if (ErrorState())
+        return 0;
+
+    // Put the shell in a configuration suitable to compute the conformal scaling factors
+    ClearHoleFillingFaces(shell, true, true);
+
+    std::vector<double> savedUVs;
+    for (auto& sf : shell.face) {
+        for (int i = 0; i < 3; ++i) {
+            savedUVs.push_back(sf.P(i).X());
+            savedUVs.push_back(sf.P(i).Y());
+        }
+    }
+
+    SyncShellWith3D(shell);
+    tri::UpdateTopology<Mesh>::FaceFace(shell);
+
+    CloseMeshHoles(shell);
+
+    int numPlacedCones = PlaceCutWithConesUntilThreshold_3D(cst);
 
     // Cleanup (and restore hole-filling and scaffold faces if needed)
     ClearHoleFillingFaces(shell, true, true);
-
-    /*
-    auto ia = GetFaceIndexAttribute(shell);
-    for (auto& sf : shell.face) {
-        assert(ia[sf] != -1);
-        auto& mf = baseMesh.face[ia[sf]];
-        for (int i = 0; i < 3; ++i) {
-            sf.WT(i) = mf.WT(i);
-        }
-    }
-    tri::io::Exporter<Mesh>::Save(shell, "shell.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
-    */
 
     // restore the vertex texture coordinates
     ensure_condition(shell.FN() == ((int) savedUVs.size() / 6));
@@ -1352,13 +1504,11 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold(double conformalScaling
         }
     }
 
-    ComputeBoundaryInfo(shell); // boundary changed after the cut
     SyncShellWithUV(shell);
 
     if (strategy.padBoundaries) {
         CloseShellHoles(shell, strategy.geometry, baseMesh);
     }
-
 
     // Initialize solution if cones were placed
     if (numPlacedCones > 0)
@@ -1423,7 +1573,7 @@ void ParameterizerObject::FindCones(int ncones, std::vector<int>& coneIndices)
  * of cone vertices, but it makes little sense to me to treat a 'designated' cone
  * as boundary vertex without actually cutting the surface. So I restrict the number
  * of cones to 1, forcing to cut the surface repeatedly. */
-void ParameterizerObject::FindConesWithThreshold(double conformalScalingThreshold, std::vector<int>& coneIndices)
+void ParameterizerObject::FindConesWithThreshold(double cst, std::vector<int>& coneIndices)
 {
     constexpr int MAX_NUM_CONES = 1;
 
@@ -1476,7 +1626,7 @@ void ParameterizerObject::FindConesWithThreshold(double conformalScalingThreshol
 
         std::cout << "CONFORMAL SCALING FACTORS: max = " << maxscale << " | min = " << minscale <<  " | ratio = " << minscale / maxscale << std::endl;
 
-        if (maxscale > conformalScalingThreshold)
+        if (maxscale > cst)
             coneIndices.push_back(max_k);
         else
             break;

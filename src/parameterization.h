@@ -57,7 +57,7 @@ void SyncShellWithUV(Mesh& shell);
 
 /* This function synchronizes a shell with the model space coordinates of its
  * chart. */
-void SyncShellWithModel(Mesh& shell, Mesh& baseMesh);
+void SyncShellWith3D(Mesh& shell);
 
 /* Removes any hole-filling face from the shell and compacts its containers */
 void ClearHoleFillingFaces(Mesh& shell, bool holefill, bool scaffold);
@@ -74,12 +74,6 @@ void CloseShellHoles(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh 
 void BuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh &inputMesh);
 
 void RebuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh &inputMesh);
-
-/* This function is used to 'correct' degenerate triangles (too small and/or
- * slivers), by assigning to the CoordStorage ref the shape of a equiareal
- * triangle of comparable area. This should prevent numerical issues during
- * the optimization process */
-void Stabilize(CoordStorage& cs);
 
 inline ParameterizationStrategy DefaultStrategy()
 {
@@ -118,23 +112,28 @@ inline ParameterizationStrategy MakeStrategy(DirectParameterizer directParameter
 
 class ParameterizerObject {
 
+public:
+
+    enum Status { NoInit, Initialized, OK, Error_UnfeasibleShell, Error_InitFailed, Error_IterationFailed };
+
+private:
+
     Mesh shell;
     Mesh& baseMesh;
     ChartHandle chart;
     ParameterizationStrategy strategy;
     std::shared_ptr<Energy> energy;
     std::shared_ptr<DescentMethod> opt;
-    bool needsRemeshing;
+
     int iterationCount;
 
     double gradientNormTolerance;
     double energyDiffTolerance;
+    double conformalScalingThreshold;
 
     double targetArea;
 
-    enum ParameterizerState { OK, InitializationFailed, IterationFailed };
-
-    ParameterizerState state;
+    Status status;
 
 public:
 
@@ -151,9 +150,6 @@ public:
     /* Transfers the UV coordinates from the shell to the chart */
     void SyncChart();
 
-    void Reset();
-    bool InitializeSolution();
-
     Mesh& Shell();
     ChartHandle GetChart();
     int IterationCount();
@@ -165,20 +161,29 @@ public:
     void MapConformalScalingFactorsToShellVertexColor();
     void ClearShellFaceColor();
 
-    void ForceWarmStart();
-
     void SetGradientNormTolerance(double tol);
     void SetEnergyDiffTolerance(double tol);
+
 
     double GetGradientNormTolerance();
     double GetEnergyDiffTolerance();
 
-    bool IsInitialized();
+    void Initialize();
+
+    Status GetStatus();
+    bool ErrorState();
+    void PrintStatus();
 
 private:
 
+    bool InitializeSolution();
+
+    void SetStatus(Status s);
+
     void InitializeOptimizer();
     bool OptimizerIsInitialized();
+
+    int PlaceCutWithConesUntilThreshold_3D(double conformalScalingThreshold);
 
     bool ComputeConformalScalingFactors(Eigen::VectorXd& csf, const std::vector<int>& coneIndices);
     void FindCones(int ncones, std::vector<int>& coneIndices);

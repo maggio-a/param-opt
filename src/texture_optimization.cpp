@@ -279,29 +279,6 @@ void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, std::ve
             }
         }
     }
-
-    /*
-    static int n = 0;
-
-    for (std::size_t i = 0; i < chartVec.size(); ++i) {
-        std::stringstream ss;
-        ss.clear();
-        ss << "split_" << n << "_" << i << ".obj";
-        Mesh shell;
-        BuildShell(shell, *chartVec[i], ParameterizationGeometry::Texture, true);
-        MarkInitialSeamsAsFaux(shell, m);
-        for (auto& sf : shell.face) {
-            for (int i = 0; i < 3; ++i) {
-                if (sf.IsF(i)) {
-                    sf.C() = vcg::Color4b::Blue;
-                    sf.FFp(i)->C() = vcg::Color4b::Blue;
-                }
-            }
-        }
-        tri::io::Exporter<Mesh>::Save(shell, ss.str().c_str(), tri::io::Mask::IOM_ALL);
-    }
-    n++;
-    */
 }
 
 
@@ -501,22 +478,6 @@ int RemoveOutliers(GraphHandle& graph)
         }
     }
 
-    /*
-    std::vector<Mesh::FacePointer> toRemove;
-    for (auto& entry : graph->charts) {
-        ChartHandle c = entry.second;
-        //if ((c->NumAdj() == 0) && (c->Area3D() < 0.00001 * totalArea3D)) {
-        if ((c->NumAdj() == 0) && (c->FN() < 3)) {
-            toRemove.insert(toRemove.end(), c->fpVec.begin(), c->fpVec.end());
-        }
-    }
-
-    for (auto fptr : toRemove)
-        tri::Allocator<Mesh>::DeleteFace(graph->mesh, *fptr);
-
-    tri::Allocator<Mesh>::CompactEveryVector(graph->mesh);
-    */
-
     graph = nullptr;
 
     return count;
@@ -536,16 +497,12 @@ void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, double sma
 
     do {
         mergeCount = gm.CloseMacroRegions(smallRegionAreaThreshold);
-        //mergeCount = 0;
 
         while (gm.HasNextEdge()) {
             auto we = gm.PeekNextEdge();
             double minNextArea = std::min(we.first.a->Area3D(), we.first.b->Area3D());
             bool regionReached = (regionCount <= 0) || (gm.Graph()->Count() <= regionCount);
             bool sizeThresholdReached = minNextArea > minChartArea;
-            //if (!sizeThresholdReached) {
-            //    std::cout << "current area " << minNextArea << " , threshold = " << minChartArea << std::endl;
-            //}
             if (regionReached && sizeThresholdReached)
                 break;
             else {
@@ -564,15 +521,6 @@ void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, double sma
         numIter++;
 
     } while (mergeCount > 0);
-
-    /*
-    MyMesh edgeMesh;
-    gm.Graph()->ToEdgeMesh(edgeMesh);
-    std::stringstream ss;
-    ss << "charts_" << gm.Graph()->mesh.name;
-    tri::io::Exporter<MyMesh>::Save(edgeMesh, ss.str().c_str(), io::Mask::IOM_VERTCOORD);
-    ensure_condition(0);
-    */
 
     // Make sure the texcoords of each chart refer to the same texture unit, otherwise
     // it causes trouble when computing FaceFaceFromTexCoord adjancency
@@ -615,12 +563,14 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
     std::deque<ParamTask> paramQueue;
     for (auto entry : graph->charts) {
         ChartHandle chart = entry.second;
+        /*
         Mesh probe;
         MeshFromFacePointers(chart->fpVec, probe);
         if (Parameterizable(probe))
             paramQueue.push_back(ParamTask{chart, false});
-        //if (chart->numMerges > 0)
-        //    paramQueue.push_back(ParamTask{chart, false});
+        */
+        if (chart->numMerges > 0)
+            paramQueue.push_back(ParamTask{chart, false});
     }
 
     int iter = 0;
@@ -631,7 +581,7 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
 
         ChartHandle chart = task.chart;
         std::cout << "Chart " << chart->id << " - FN=" << chart->FN() << ", FI=" << tri::Index(graph->mesh, chart->Fp()) << std::endl;
-        /*
+
         if (chart->numMerges == 0) {
             // restore the initial texture coordinates
             for (auto fptr : chart->fpVec) {
@@ -642,7 +592,6 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
             }
             continue;
         }
-        */
 
         ParameterizationStrategy strat = strategy;
         if (task.warmStart)
@@ -651,8 +600,8 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
         bool parameterized = false;
 
         ParameterizerObject po{chart, strat};
-
-        if (po.IsInitialized())
+        po.Initialize();
+        if (po.GetStatus() == ParameterizerObject::Status::Initialized)
             parameterized = po.Parameterize();
 
         if (parameterized) {

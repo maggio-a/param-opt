@@ -48,6 +48,11 @@
  *   - FaceAttribute_FaceIndex (GetFaceIndexAttribute)
  *       The index of the input mesh face that corresponds to the shell face.
  *       For faces added to fill holes, the index is -1
+ *
+ *   - FaceAttribute_Shell3DShape (GetShell3DShapeAttribute)
+ *       This attribute is used to store the 3D coordinates of the shell after
+ *       it has been build, in order to easily convert back and forth between
+ *       its 3D and UV configuration when it is not 2-manfold
  * */
 
 struct TexCoordStorage {
@@ -174,6 +179,17 @@ inline bool HasFaceIndexAttribute(Mesh& shell)
 {
     return tri::Allocator<Mesh>::IsValidHandle<int>(
                 shell, tri::Allocator<Mesh>::FindPerFaceAttribute<int>(shell, "FaceAttribute_FaceIndex"));
+}
+
+inline Mesh::PerFaceAttributeHandle<CoordStorage> GetShell3DShapeAttribute(Mesh& shell)
+{
+    return tri::Allocator<Mesh>::GetPerFaceAttribute<CoordStorage>(shell, "FaceAttribute_Shell3DShape");
+}
+
+inline bool HasShell3DShapeAttribute(Mesh& shell)
+{
+    return tri::Allocator<Mesh>::IsValidHandle<CoordStorage>(
+                shell, tri::Allocator<Mesh>::FindPerFaceAttribute<CoordStorage>(shell, "FaceAttribute_Shell3DShape"));
 }
 
 #endif // MESH_ATTRIBUTE_H

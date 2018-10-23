@@ -53,7 +53,7 @@ void SelectShortestSeamPathToPeak(Mesh &m, const PosF& pos);
 /* If the path touches any hole-filling area, it leaves selected only the path
  * that joins the boundary with the nearest such area.
  * Returns whether or not the path reached a fill area */
-bool RectifyCut(Mesh& shell, PosF boundaryPos);
+void RectifyCut(Mesh& shell, PosF boundaryPos);
 
 /* To be called after a shell has been cut, removes any obsolete faux flag and
  * deletes any hole-filling region that is adjacent to the boundary after a cut
