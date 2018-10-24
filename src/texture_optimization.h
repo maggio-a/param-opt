@@ -53,6 +53,7 @@ void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, double sma
 /// TODO update distortion info if needed (this should also be done through the graph manager)
 int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, double injectivityTolerance);
 
+void RecoverFromFailedInit(std::vector<ChartHandle>& split, GraphManager& gm, std::vector<ChartHandle>& chartQueue);
 void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, std::vector<ChartHandle>& chartVec, bool binarySplit);
 
 /* Pack the texture atlas encoded in the graph. Assumes the segmentation

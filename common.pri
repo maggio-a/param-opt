@@ -75,10 +75,12 @@ win32 {
 }
 
 HEADERS += \
-    $$PWD/src/utils.h
+    $$PWD/src/utils.h \
+    $$PWD/src/parallel.h
 
 SOURCES += \
     $$VCGPATH/wrap/openfbx/src/ofbx.cpp \
-    $$VCGPATH/wrap/openfbx/src/miniz.c
+    $$VCGPATH/wrap/openfbx/src/miniz.c \
+    $$PWD/src/parallel.cpp
 
 

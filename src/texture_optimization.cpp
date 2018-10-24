@@ -12,6 +12,8 @@
 #include "packing_utils.h"
 #include "texture_rendering.h"
 
+#include "parallel.h"
+
 #include <vcg/complex/complex.h>
 #include <vcg/complex/algorithms/update/texture.h>
 #include <vcg/complex/algorithms/geodesic.h>
@@ -281,12 +283,7 @@ void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, std::ve
     }
 }
 
-
-
-/* Ugly function that tries to perform subsequent merges after a split. split is the vector of charts
- * that formed the aggregate, chartQueue is the queue were the newly merged charts must be inserted
- * */
-static void RecoverFromFailedInit(std::vector<ChartHandle>& split, GraphManager& gm, std::vector<ChartHandle>& chartQueue)
+void RecoverFromFailedInit(std::vector<ChartHandle>& split, GraphManager& gm, std::vector<ChartHandle>& chartQueue)
 {
     /* very simple heuristic, select the two largest charts in the split, and iteratively grow them
      * until all the charts in the split are covered, producing to 2 new aggregates that will be
@@ -301,8 +298,6 @@ static void RecoverFromFailedInit(std::vector<ChartHandle>& split, GraphManager&
     for (std::size_t i = 2; i < split.size(); ++i) {
         charts.insert(split[i]);
     }
-
-    std::cout << "Split contains " << split.size() << " charts" << std::endl;
 
     while (charts.size() > 0) {
 
@@ -357,11 +352,7 @@ static void RecoverFromFailedInit(std::vector<ChartHandle>& split, GraphManager&
 
     chartQueue.push_back(c1);
     chartQueue.push_back(c2);
-    std::cout << "Recovery produced two charts of sizes " << c1->numMerges + 1 << " " << c2->numMerges + 1 << std::endl;
 }
-
-
-
 
 void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
 {
@@ -534,7 +525,18 @@ void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, double sma
     std::cout << "Stopping after " << numIter << " passes and " << timer.TimeElapsed() << " seconds" << std::endl;
 }
 
+int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, double injectivityTolerance)
+{
+    parallel::Init();
 
+    Timer t;
+    parallel::WorkerPool pool(4, gm);
+    pool.Run(strategy, injectivityTolerance);
+    std::cout << "Multithreaded parameterization took " << t.TimeElapsed() << " seconds" << std::endl;
+    return 0;
+}
+
+#if 0
 int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, double injectivityTolerance)
 {
     struct ParamTask {
@@ -687,6 +689,7 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
 
     return numFailed;
 }
+#endif
 
 static std::vector<double> ComputeContainerRatios(TextureObjectHandle textureObject, bool oneContainer)
 {
