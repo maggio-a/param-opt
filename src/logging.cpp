@@ -9,6 +9,11 @@
 
 #include <string>
 #include <fstream>
+#include <sstream>
+#include <thread>
+#include <mutex>
+#include <unordered_map>
+#include <iomanip>
 
 void LogStrategy(const ParameterizationStrategy& strategy, double tol)
 {
@@ -430,6 +435,76 @@ void LogExecutionParameters(const Args& args, const ParameterizationStrategy& st
 }
 
 
+// Logger class and utilities implementation
+// =========================================
+
+namespace logging {
+
+Buffer::Buffer()
+    : os{}
+{
+}
+
+Buffer::~Buffer()
+{
+    Logger::Log(os.str());
+}
+
+int Logger::logLevel = 0;
+std::vector<std::ostream *> Logger::streamVec{};
+std::unordered_map<std::thread::id, std::string> Logger::threadNames{};
+std::mutex Logger::singletonLock{};
+
+void Logger::Init(int level)
+{
+    Logger::logLevel = level;
+    threadNames[std::this_thread::get_id()] = "main thread";
+}
+
+int Logger::GetLogLevel()
+{
+    return Logger::logLevel;
+}
+
+void Logger::RegisterStream(std::ostream *os)
+{
+    std::lock_guard<std::mutex>{Logger::singletonLock};
+    Logger::streamVec.push_back(os);
+}
+
+void Logger::RegisterName(const std::string& threadName)
+{
+    std::lock_guard<std::mutex>{Logger::singletonLock};
+    threadNames[std::this_thread::get_id()] = threadName;
+}
+
+std::string Logger::GetName()
+{
+    std::lock_guard<std::mutex>{Logger::singletonLock};
+    auto tid = std::this_thread::get_id();
+    if (threadNames.count(tid) > 0)
+        return threadNames[tid];
+    else {
+        std::stringstream ss;
+        ss << tid;
+        return ss.str();
+    }
+}
+
+void Logger::Log(const std::string& s)
+{
+    std::stringstream ss;
+    ss << std::setw(16) << Logger::GetName() << " | " << s << std::endl;
+
+    std::lock_guard<std::mutex>{Logger::singletonLock};
+
+    std::cout << ss.str();
+
+    for (auto os : streamVec)
+        (*os) << ss.str();
+}
+
+} // namespace logging
 
 
 

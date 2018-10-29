@@ -21,8 +21,9 @@ struct Args {
     bool gui;
     bool filter;
     bool fixContextCapture;
+    int logLevel;
 
-    Args() : filename{}, regionCount{20}, gui{false}, filter{true} {}
+    Args() : filename{}, regionCount{20}, gui{false}, filter{true}, logLevel{1} {}
 };
 
 /*
@@ -35,6 +36,8 @@ struct Args {
  *   --regioncount NUM     Use the integer value NUM as the target atlas size in the clustering procedure
  *                         Note that this value is summed to the number of connected components...
  *                         default for NUM is 20
+ *
+ *   --loglevel NUM        Verbosity (0 minimal, 2 debug) (default 1)
  *
  *   --fixcontextcapture   Use a simple topological filter to try to clean troublesome regions
  *
@@ -57,6 +60,11 @@ inline Args parse_args(int argc, char *argv[])
                 args.regionCount = count;
             } else if (arg == "fixcontextcapture") {
                 args.fixContextCapture = true;
+            } else if (arg == "loglevel") {
+                i++;
+                ensure_condition(i < argc);
+                int level = std::stoi(std::string(argv[i]));
+                args.logLevel = level;
             } else {
                 ensure_condition(0 && "Invalid command line argument");
             }
