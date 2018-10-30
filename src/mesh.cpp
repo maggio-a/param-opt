@@ -2,7 +2,6 @@
 #include <wrap/io_trimesh/import.h>
 #include <wrap/io_trimesh/export.h>
 
-#include <iostream>
 #include <string>
 
 #include <QFileInfo>
@@ -13,6 +12,7 @@
 #include "gl_utils.h"
 #include "timer.h"
 #include "utils.h"
+#include "logging.h"
 
 bool LoadMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject, int &loadMask)
 {
@@ -24,7 +24,7 @@ bool LoadMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject,
     fi.makeAbsolute();
 
     if (!fi.exists() || !fi.isReadable()) {
-        std::cout << "Unable to read " << fileName << std::endl;
+        LOG_ERR << "Unable to read " << fileName;
         return false;
     }
 
@@ -36,23 +36,23 @@ bool LoadMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject,
 
     int r = tri::io::Importer<Mesh>::Open(m, fi.fileName().toStdString().c_str(), loadMask);
     if (r) {
-        std::cout << tri::io::Importer<Mesh>::ErrorMsg(r) << std::endl;
+        LOG_ERR << tri::io::Importer<Mesh>::ErrorMsg(r);
         return false;
     }
 
-    std::cout << "[LOG] Loaded mesh " << fileName << " (VN " <<  m.VN() << ", FN " << m.FN() << ")" << std::endl;
+    LOG_INFO << "Loaded mesh " << fileName << " (VN " <<  m.VN() << ", FN " << m.FN() << ")";
 
     for (const string& textureName : m.textures) {
         QFileInfo textureFile(textureName.c_str());
         textureFile.makeAbsolute();
         if (!textureFile.exists() || !textureFile.isReadable()) {
-            std::cout << "Error: texture file " << textureName.c_str() << " does not exist or is not readable." << std::endl;
+            LOG_ERR << "Error: Texture file " << textureName.c_str() << " does not exist or is not readable.";
             return false;
         }
 
         auto imgptr = std::make_shared<QImage>(textureFile.absoluteFilePath());
         if (imgptr->isNull()) {
-            std::cout << "Error: failed to load texture file " << textureName.c_str() << std::endl;
+            LOG_ERR << "Error: failed to load texture file " << textureName.c_str();
             return false;
         }
         textureObject->AddImage(imgptr);
@@ -74,15 +74,15 @@ bool SaveMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject,
         m.textures[i] = s.substr(0, s.find_last_of('.')).append(suffix.str());
     }
 
-    std::cout << "Saving mesh file... ";
+    Timer t;
+    LOG_INFO << "Saving mesh file " << fileName;
     if (color) mask = mask | tri::io::Mask::IOM_FACEQUALITY | tri::io::Mask::IOM_FACECOLOR;
     int err;
     if ((err = tri::io::Exporter<Mesh>::Save(m, fileName, mask))) {
-        std::cout << "Error saving mesh file " << fileName << std::endl;
-        std::cout << tri::io::Exporter<Mesh>::ErrorMsg(err) << std::endl;
+        LOG_ERR << "Error: " << tri::io::Exporter<Mesh>::ErrorMsg(err);
         return false;
     }
-    std::cout << " done." << std::endl;
+    LOG_INFO << "Saving mesh took " << t.TimeElapsed() << " seconds";
 
     QFileInfo fi(fileName);
     ensure_condition (fi.exists());
@@ -90,16 +90,15 @@ bool SaveMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject,
     QString wd = QDir::currentPath();
     QDir::setCurrent(fi.absoluteDir().absolutePath());
 
-    std::cout << "Saving texture files... ";
-    Timer t;
+    t.Reset();
+    LOG_INFO << "Saving texture files... ";
     for (std::size_t i = 0; i < textureObject->imgVec.size(); ++i) {
         if (textureObject->imgVec[i]->save(m.textures[i].c_str(), "png", 66) == false) {
-            std::cout << "Error saving texture file " << m.textures[i] << std::endl;
+            LOG_ERR << "Error saving texture file " << m.textures[i];
             return false;
         }
     }
-    std::cout << " done." << std::endl;
-    std::cout << "Writing textures took " << t.TimeElapsed() << " seconds" << std::endl;
+    LOG_INFO << "Writing textures took " << t.TimeElapsed() << " seconds";
 
     QDir::setCurrent(wd);
     return true;
@@ -154,13 +153,9 @@ bool Parameterizable(Mesh &m)
     }
 
     if (!tri::Clean<Mesh>::IsCoherentlyOrientedMesh(m)) {
-        std::cout << "Attempting to reorient faces" << std::endl;
         bool p1, p2;
         tri::Clean<Mesh>::OrientCoherentlyMesh(m, p1, p2);
-        if (!p1)
-            std::cout << "Mesh is not coherently oriented" << std::endl;
-        if (!p2)
-            std::cout << "Mesh is non-orientable" << std::endl;
+            LOG_DEBUG << "Mesh is non-orientable";
         return p2;
     }
 

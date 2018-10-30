@@ -183,26 +183,18 @@ public:
         // Initialize matrix
         A.setFromTriplets(coeffList.begin(), coeffList.end());
 
-        //std::cout << Eigen::MatrixXd(A) << std::endl;
-        //std::cout << b << std::endl;
-        if (!A.isApprox(A.transpose(), 1e-3)) {
-            std::cout << "Matrix not symmetric" << std::endl;
-        }
-
         Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> solver;
 
         A.makeCompressed();
         solver.analyzePattern(A);
         solver.compute(A);
         if (solver.info() != Eigen::Success) {
-            std::cout << "Factorization failed" << std::endl;
             return false;
         }
 
         Eigen::VectorXd x = solver.solve(b);
 
         if (solver.info() != Eigen::Success) {
-            std::cout << "Solving failed" << std::endl;
             return false;
         }
 

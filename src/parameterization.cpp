@@ -7,8 +7,8 @@
 #include "timer.h"
 #include "uniform_solver.h"
 #include "mean_value_param.h"
-
 #include "polygon2_triangulator.h"
+#include "logging.h"
 
 #include <memory>
 
@@ -190,278 +190,6 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
 
     return true;
 }
-
-#if 0
-bool BuildShell2(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeometry, bool useExistingUV)
-{
-    Mesh& m = fg.mesh;
-
-    CopyToMesh(fg, shell);
-
-    tri::Clean<Mesh>::RemoveDuplicateVertex(shell);
-
-    tri::UpdateBounding<Mesh>::Box(shell);
-
-    tri::UpdateTopology<Mesh>::FaceFace(shell);
-
-    int splitCount;
-    while ((splitCount = tri::Clean<Mesh>::SplitNonManifoldVertex(shell, 0.15)) > 0) {
-        std::cout << "Mesh was not vertex-manifold, " << splitCount << " vertices split" << std::endl;
-        tri::Allocator<Mesh>::CompactEveryVector(shell);
-    }
-    //tri::io::Exporter<Mesh>::Save(shell, "shell.obj", tri::io::Mask::IOM_ALL);
-
-    auto ia = GetFaceIndexAttribute(shell);
-
-
-    bool init = true;
-
-    if (useExistingUV) {
-        // copy wedge texture data from the input mesh
-        for (auto& sf : shell.face) {
-            auto& f = m.face[ia[sf]];
-            for (int i = 0; i < 3; ++i) {
-                sf.WT(i).P() = f.WT(i).P();
-            }
-        }
-        // split vertices at seams
-        auto vExt = [](const Mesh& msrc, const MeshFace& f, int k, const Mesh& mdst, MeshVertex& v) {
-            (void) msrc;
-            (void) mdst;
-            v.ImportData(*(f.cV(k)));
-            v.T() = f.cWT(k);
-        };
-        auto vCmp = [](const Mesh& mdst, const MeshVertex& v1, const MeshVertex& v2) {
-            (void) mdst;
-            return v1.T() == v2.T();
-        };
-        tri::AttributeSeam::SplitVertex(shell, vExt, vCmp);
-        if (shell.VN() != (int) shell.vert.size()) {
-            tri::Allocator<Mesh>::CompactEveryVector(shell);
-            tri::UpdateTopology<Mesh>::FaceFace(shell);
-            tri::UpdateTopology<Mesh>::VertexFace(shell);
-        }
-
-        // sync shell
-        // FIXME (?) there is no guarantee that the 'outer' boundary is the same computed previously...
-        for (auto& sf : shell.face) {
-            for (int i = 0; i < 3; ++i) {
-                sf.V(i)->T() = sf.WT(i);
-            }
-        }
-        SyncShellWithUV(shell);
-        ComputeBoundaryInfo(shell);
-        CloseShellHoles(shell, targetGeometry, m);
-    } else {
-        if (!tri::Clean<Mesh>::IsCoherentlyOrientedMesh(shell)) {
-            std::cout << "Attempting to reorient faces" << std::endl;
-            bool p1, p2;
-            tri::Clean<Mesh>::OrientCoherentlyMesh(shell, p1, p2);
-            if (!p1)
-                std::cout << "Mesh is not coherently oriented" << std::endl;
-            if (!p2) {
-                std::cout << "Mesh is non-orientable" << std::endl;
-                tri::io::Exporter<Mesh>::Save(shell, "non_orientable.obj", tri::io::Mask::IOM_ALL);
-            }
-        }
-
-        if (!Parameterizable(shell)) {
-            Mesh cut;
-            std::srand(0);
-            tri::CutTree<Mesh> ct(shell);
-            ct.Build(cut, rand() % shell.FN());
-            tri::CoM<Mesh> cc(shell);
-            cc.Init();
-            bool ok = cc.TagFaceEdgeSelWithPolyLine(cut);
-            ensure_condition(ok && "topological cut failed");
-            tri::CutMeshAlongSelectedFaceEdges(shell);
-            tri::UpdateTopology<Mesh>::FaceFace(shell);
-
-            if (!Parameterizable(shell)) {
-                tri::UpdateFlags<Mesh>::FaceClearFaceEdgeS(shell);
-                Mesh::FacePointer fp = &shell.face[0];
-                fp->SetFaceEdgeS(0);
-                fp->SetFaceEdgeS(1);
-                fp->FFp(0)->SetFaceEdgeS(fp->FFi(0));
-                fp->FFp(1)->SetFaceEdgeS(fp->FFi(1));
-                tri::CutMeshAlongSelectedFaceEdges(shell);
-                tri::UpdateTopology<Mesh>::FaceFace(shell);
-                ensure_condition(Parameterizable(shell));
-            }
-        }
-
-        tri::io::Exporter<Mesh>::Save(shell, "shell_initial.obj", tri::io::Mask::IOM_ALL);
-
-        // Compute the initial configuration (Tutte's parameterization)
-        ComputeBoundaryInfo(shell);
-        CloseMeshHoles(shell);
-
-        bool solved = false;
-
-        if (!solved) {
-            UniformSolver<Mesh> solver(shell);
-            solved = solver.Solve();
-            if (!solved)
-                tri::io::Exporter<Mesh>::Save(shell, "error_tutte.obj", tri::io::Mask::IOM_ALL);
-        }
-
-        if (!solved) {
-            UniformSolver<Mesh> solver(shell);
-            solver.SetBoundaryMapProportional();
-            solved = solver.Solve();
-            if (!solved)
-                tri::io::Exporter<Mesh>::Save(shell, "error_tutte_prop.obj", tri::io::Mask::IOM_ALL);
-        }
-
-        if (!solved) {
-            MeanValueSolver<Mesh> mvs(shell);
-            solved = mvs.Solve();
-            if (!solved)
-                tri::io::Exporter<Mesh>::Save(shell, "error_mvs.obj", tri::io::Mask::IOM_ALL);
-        }
-
-        if (!solved) {
-            MeanValueSolver<Mesh> mvs(shell);
-            mvs.UseCotangentWeights();
-            solved = mvs.Solve();
-            if (!solved)
-                tri::io::Exporter<Mesh>::Save(shell, "error_cotan.obj", tri::io::Mask::IOM_ALL);
-        }
-
-        init = solved;
-    }
-
-    // if we reach this point, the shell is synced with its uv coordinates
-
-    // Compute average areas
-    auto psi = GetParameterizationScaleInfoAttribute(m);
-    double avg3D = psi().surfaceArea / psi().numNonZero;
-    double avgUV = psi().parameterArea / psi().numNonZero;
-
-    double targetArea = 0;
-
-    tri::io::Exporter<Mesh>::Save(shell, "shell_closed.obj", tri::io::Mask::IOM_ALL);
-
-    // Compute the target shapes
-    auto tsa = GetTargetShapeAttribute(shell);
-    auto wtcsa = GetWedgeTexCoordStorageAttribute(m);
-    for (auto& sf : shell.face) {
-        CoordStorage target;
-        // if the face is hole-filling the target triangle is its own shape, scaled according to the target geometry
-        if (sf.IsHoleFilling()) {
-            double scale = 1.0;
-            if (targetGeometry == Model)
-                scale = std::sqrt(avg3D / DistortionMetric::Area3D(sf));
-            else if (targetGeometry == Texture)
-                scale = std::sqrt(avgUV / DistortionMetric::Area3D(sf));
-            else
-                ensure_condition(0 && "Unexpected targetGeometry parameter value");
-            target.P[0] = sf.P(0) * scale;
-            target.P[1] = sf.P(1) * scale;
-            target.P[2] = sf.P(2) * scale;
-        } else {
-            auto& mf = m.face[ia[sf]];
-            if (targetGeometry == Model) {
-                /*
-                Point2d v10, v20;
-                LocalIsometry(mf.P(1) - mf.P(0), mf.P(2) - mf.P(0), v10, v20);
-
-                target.P[0] = Point3d(0, 0, 0);
-                target.P[1] = Point3d(v10.X(), v10.Y(), 0);
-                target.P[2] = Point3d(v20.X(), v20.Y(), 0);
-                */
-
-                target.P[0] = mf.P(0);
-                target.P[1] = mf.P(1);
-                target.P[2] = mf.P(2);
-
-            } else if (targetGeometry == Texture) {
-                const Point2d& u0 = wtcsa[mf].tc[0].P();
-                const Point2d& u1 = wtcsa[mf].tc[1].P();
-                const Point2d& u2 = wtcsa[mf].tc[2].P();
-                //Point2d u10 = u1 - u0;
-                //Point2d u20 = u2 - u0;
-                Point2d u10;
-                Point2d u20;
-                LocalIsometry(u1 - u0, u2 - u0, u10, u20);
-                double area = std::abs(u10 ^ u20) / 2.0;
-
-                if (area == 0) {
-                    // zero uv area face, target the 3d shape scaled according to the target geometry
-                    double scale = std::sqrt(avgUV / DistortionMetric::Area3D(mf));
-                    target.P[0] = mf.P(0) * scale;
-                    target.P[1] = mf.P(1) * scale;
-                    target.P[2] = mf.P(2) * scale;
-
-                } else {
-                    // Compute the isometry to the model coordinates and scale them to match the texture area
-                    Point2d x10;
-                    Point2d x20;
-                    LocalIsometry(mf.P(1) - mf.P(0), mf.P(2) - mf.P(0), x10, x20);
-
-                    //double areaModel = std::abs(x10 ^ x20) / 2.0;
-                    //x10 *= std::sqrt(area / areaModel);
-                    //x20 *= std::sqrt(area / areaModel);
-
-                    // scale using the average scaling factor rather than the one of
-                    // the triangle, since heavily distorted triangle are likely to
-                    // have areas that are too small
-                    x10 *= psi().scale;
-                    x20 *= psi().scale;
-
-                    // compute the singular values of the transformation matrix, s2 > s1
-                    // ref for the formula: smith&schaefer 2015 bijective,
-                    Eigen::Matrix2d phi = ComputeTransformationMatrix(x10, x20, u10, u20);
-
-                    double bcplus  = std::pow(phi(0, 1) + phi(1, 0), 2.0);
-                    double bcminus = std::pow(phi(0, 1) - phi(1, 0), 2.0);
-                    double adplus  = std::pow(phi(0, 0) + phi(1, 1), 2.0);
-                    double adminus = std::pow(phi(0, 0) - phi(1, 1), 2.0);
-                    double s_min = 0.5 * std::abs(std::sqrt(bcplus + adminus) - std::sqrt(bcminus + adplus));
-                    double s_max = 0.5 * (std::sqrt(bcplus + adminus) + std::sqrt(bcminus + adplus));
-
-                    double interpolationFactor = 1.0 - (s_min / s_max);
-                    ensure_condition(interpolationFactor >= 0);
-                    ensure_condition(interpolationFactor <= 1);
-                    ensure_condition(std::isfinite(interpolationFactor));
-
-                    Point2d v10 = (1.0 - interpolationFactor) * u10 + (interpolationFactor) * x10;
-                    Point2d v20 = (1.0 - interpolationFactor) * u20 + (interpolationFactor) * x20;
-
-                    target.P[0] = Point3d(0, 0, 0);
-                    target.P[1] = Point3d(v10[0], v10[1], 0);
-                    target.P[2] = Point3d(v20[0], v20[1], 0);
-                }
-            }
-        }
-        tsa[sf] = target;
-        targetArea += ((target.P[1] - target.P[0]) ^ (target.P[2] - target.P[0])).Norm() / 2.0;
-        ensure_condition(std::isfinite(targetArea));
-        ensure_condition(targetArea > 0);
-    }
-
-    for (auto& sf : shell.face) {
-        Stabilize(tsa[sf]);
-    }
-
-    double shellUvArea = 0;
-    for (auto& f : shell.face) {
-        double area = ((f.V(1)->T().P() - f.V(0)->T().P()) ^ (f.V(2)->T().P() - f.V(0)->T().P())) / 2.0;
-        shellUvArea += std::abs(area);
-    }
-
-    // Scale the shell size to match the target shape area
-    double areaScaleFactor = std::sqrt(targetArea / shellUvArea);
-    ensure_condition(areaScaleFactor > 0);
-
-    for (auto& v : shell.vert)
-        v.T().P() *= areaScaleFactor;
-
-    SyncShellWithUV(shell);
-
-    return init;
-}
-#endif
 
 void SyncShellWithUV(Mesh& shell)
 {
@@ -678,6 +406,32 @@ void RebuildScaffold(Mesh& shell, ParameterizationGeometry targetGeometry, Mesh&
 /* ParameterizerObject class implementation
  * ======================================== */
 
+std::ostream& operator<<(std::ostream& os, const ParameterizerObject::Status& status)
+{
+    std::string str;
+    switch(status) {
+    case ParameterizerObject::Status::OK:
+        str = "OK";
+        break;
+    case ParameterizerObject::Status::Error_InitFailed:
+        str = "Err_InitFailed";
+        break;
+    case ParameterizerObject::Status::Error_IterationFailed:
+        str = "Err_IterFailed";
+        break;
+    case ParameterizerObject::Status::Error_UnfeasibleShell:
+        str = "Err_Unfeasible";
+        break;
+    case ParameterizerObject::Status::Initialized:
+        str = "Initialized";
+        break;
+    case ParameterizerObject::Status::NoInit:
+        str = "NoInit";
+        break;
+    }
+    os << str;
+    return os;
+}
 
 ParameterizerObject::ParameterizerObject(ChartHandle c, ParameterizationStrategy strat)
     : shell{},
@@ -720,32 +474,6 @@ bool ParameterizerObject::ErrorState()
     return (status == Error_InitFailed || status == Error_IterationFailed || status == Error_UnfeasibleShell);
 }
 
-void ParameterizerObject::PrintStatus()
-{
-    std::string str;
-    switch(status) {
-    case Status::OK:
-        str = "OK";
-        break;
-    case Status::Error_InitFailed:
-        str = "Err_InitFailed";
-        break;
-    case Status::Error_IterationFailed:
-        str = "Err_IterFailed";
-        break;
-    case Status::Error_UnfeasibleShell:
-        str = "Err_Unfeasible";
-        break;
-    case Status::Initialized:
-        str = "Initialized";
-        break;
-    case Status::NoInit:
-        str = "NoInit";
-        break;
-    }
-    std::cout << str << std::endl;
-}
-
 void ParameterizerObject::Initialize()
 {
     if (status == Initialized)
@@ -762,7 +490,7 @@ void ParameterizerObject::Initialize()
     // cut the mesh (if strategy allows) (3D)
     if (strategy.applyCut) {
         int nc = PlaceCutWithConesUntilThreshold_3D(conformalScalingThreshold);
-        std::cout << "Placed " << nc << " cuts" << std::endl;
+        LOG_DEBUG << "Placed " << nc << " cuts";
         if (nc) cut = true;
     }
 
@@ -1187,22 +915,22 @@ bool ParameterizerObject::Parameterize()
 
         info = Iterate();
         if (status == Error_IterationFailed) {
-            std::cout << "Warning: failed to compute descent direction" << std::endl;
+            LOG_WARN << "Failed to compute descent direction";
             return false;
         }
 
         if (info.gradientNorm < gradientNormTolerance) {
-            std::cout << "Stopping because gradient magnitude is small enough (" << info.gradientNorm << ")" << std::endl;
+            LOG_VERBOSE << "Stopping because gradient magnitude is small enough (" << info.gradientNorm << ")";
             break;
         }
         double meshIterationEnergy = energy->E_IgnoreMarkedFaces();
         if (meshIterationEnergy >= meshCurrentEnergy) {
-            std::cout << "WARNING: Stopping because energy increased" << std::endl;
+            LOG_VERBOSE << "Stopping because energy increased";
             break;
         }
         double meshEnergyDiff = (meshCurrentEnergy - meshIterationEnergy);
         if (meshEnergyDiff < (energyDiffTolerance * meshSurfaceArea)) {
-            std::cout << "Stopping because energy improvement is too small (" << info.energyDiff << ")" << std::endl;
+            LOG_VERBOSE << "Stopping because energy improvement is too small (" << info.energyDiff << ")";
             break;
         }
         meshCurrentEnergy = meshIterationEnergy;
@@ -1211,10 +939,10 @@ bool ParameterizerObject::Parameterize()
             opt->UpdateCache();
         }
     }
-    std::cout << "Stopped after " << i << " iterations, gradient magnitude = " << info.gradientNorm
-              << ", energy value = " << energy->E_IgnoreMarkedFaces() << std::endl;
+    LOG_INFO << "Stopped after " << i << " iterations, gradient magnitude = " << info.gradientNorm
+             << ", normalized energy value = " << (energy->E_IgnoreMarkedFaces() / meshSurfaceArea);
 
-    std::cout << "Optimization took " << t.TimeSinceLastCheck() << " seconds" << std::endl;
+    LOG_INFO << "Optimization took " << t.TimeSinceLastCheck() << " seconds";
 
     return true;
 }
@@ -1229,7 +957,7 @@ IterationInfo ParameterizerObject::Iterate()
     bool ok = opt->Iterate(info.gradientNorm, info.energyDiff, info.energyVal);
 
     if (!ok) {
-        std::cout << "WARNING: Iteration failed" << std::endl;
+        LOG_WARN << "Iteration failed";
         SetStatus(Error_IterationFailed);
     } else {
         SyncShellWithUV(shell);
@@ -1379,7 +1107,7 @@ bool ParameterizerObject::PlaceCutWithConeSingularities(int ncones)
     }
 
     for (auto p : pv) {
-        std::cout << "Selected face " << tri::Index(shell, p.F()) << " edge " << p.E() << std::endl;
+        LOG_DEBUG << "Selected face " << tri::Index(shell, p.F()) << " edge " << p.E();
         tri::UpdateFlags<Mesh>::FaceClearFaceEdgeS(shell);
         PosF boundaryPos = SelectShortestSeamPathToBoundary(shell, p);
         //SelectShortestSeamPathToPeak(shell, p);
@@ -1444,7 +1172,7 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold_3D(double cst)
             }
             // Repeatedly cut starting from each pos
             for (auto p : pv) {
-                std::cout << "Selected face " << tri::Index(shell, p.F()) << " edge " << p.E() << std::endl;
+                LOG_DEBUG << "Selected face " << tri::Index(shell, p.F()) << " edge " << p.E();
                 tri::UpdateFlags<Mesh>::FaceClearFaceEdgeS(shell);
                 PosF boundaryPos = SelectShortestSeamPathToBoundary(shell, p);
                 //SelectShortestSeamPathToPeak(shell, p);
@@ -1534,7 +1262,7 @@ void ParameterizerObject::FindCones(int ncones, std::vector<int>& coneIndices)
     for (int i = 0; i < ncones; ++i) {
         Eigen::VectorXd csf;
         if (!ComputeConformalScalingFactors(csf, coneIndices)) {
-            std::cout << "Warning: scaling factors computation failed" << std::endl;
+            LOG_WARN << "Scaling factors computation failed";
             return;
         }
 
@@ -1563,7 +1291,7 @@ void ParameterizerObject::FindCones(int ncones, std::vector<int>& coneIndices)
             }
         }
 
-        std::cout << "CONFORMAL SCALING FACTORS: max = " << maxscale << " | min = " << minscale <<  " | ratio = " << minscale / maxscale << std::endl;
+        LOG_DEBUG << "CONFORMAL SCALING FACTORS: max = " << maxscale << " | min = " << minscale <<  " | ratio = " << minscale / maxscale;
 
         coneIndices.push_back(max_k);
     }
@@ -1595,7 +1323,7 @@ void ParameterizerObject::FindConesWithThreshold(double cst, std::vector<int>& c
     for (int i = 0; i < MAX_NUM_CONES; ++i) {
         Eigen::VectorXd csf;
         if(!ComputeConformalScalingFactors(csf, coneIndices)) {
-            std::cout << "Warning: scaling factors computation failed" << std::endl;
+            LOG_WARN << "Warning: scaling factors computation failed";
             return;
         }
 
@@ -1624,7 +1352,7 @@ void ParameterizerObject::FindConesWithThreshold(double cst, std::vector<int>& c
             }
         }
 
-        std::cout << "CONFORMAL SCALING FACTORS: max = " << maxscale << " | min = " << minscale <<  " | ratio = " << minscale / maxscale << std::endl;
+        LOG_DEBUG << "CONFORMAL SCALING FACTORS: max = " << maxscale << " | min = " << minscale <<  " | ratio = " << minscale / maxscale;
 
         if (maxscale > cst)
             coneIndices.push_back(max_k);
@@ -1712,7 +1440,7 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf, c
 
     Timer timer;
 
-    std::cout << "Computing conformal scaling factors..." << std::endl;
+    LOG_VERBOSE << "Computing conformal scaling factors...";
 
     // Permutate indices so that boundary vertices are the last ones
     SimpleTempData<Mesh::VertContainer, int> index{m.vert};
@@ -1764,7 +1492,7 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf, c
     Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> solverLDLT;
     solverLDLT.compute(M_internal);
     if (solverLDLT.info() != Eigen::Success) {
-        std::cout << "WARNING ComputeConformalScalingFactors(): preliminary factorization failed" << std::endl;
+        LOG_WARN << "ComputeConformalScalingFactors(): preliminary factorization failed";
         return false;
     }
 
@@ -1776,18 +1504,18 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf, c
     for (int i = 0; i < n_boundary; ++i) {
         G = solverLDLT.solve(-M.block(0, n_internal+i, n_internal, 1));
         if (solverLDLT.info() != Eigen::Success) {
-            std::cout << "WARNING ComputeConformalScalingFactors(): backward substitution to compute G(" << i << ") failed" << std::endl;
+            LOG_WARN << "ComputeConformalScalingFactors(): backward substitution to compute G(" << i << ") failed";
             return false;
         }
         Knew[n_internal+i] = Korig[n_internal+i] + G.dot(Korig.head(n_internal));
     }
 
     //std::cout << "Sum Knew = " << Knew.sum() << std::endl;
-    std::cout << "Computation of the target curvatures took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
+    LOG_DEBUG << "Computation of the target curvatures took " << timer.TimeSinceLastCheck() << " seconds";
 
     solverLDLT.compute(M);
     if (solverLDLT.info() != Eigen::Success) {
-        std::cout << "WARNING ComputeConformalScalingFactors(): factorization of the cotangent-weighted Laplacian failed" << std::endl;
+        LOG_WARN << "ComputeConformalScalingFactors(): factorization of the cotangent-weighted Laplacian failed";
         return false;
     }
 
@@ -1812,8 +1540,8 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf, c
         }
     }
 
-    std::cout << "Solution of the scaling factors system took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
-    std::cout << "Overall time: " << timer.TimeElapsed() << " seconds" << std::endl;
+    LOG_DEBUG << "Solution of the scaling factors system took " << timer.TimeSinceLastCheck() << " seconds";
+    LOG_DEBUG << "Overall time: " << timer.TimeElapsed() << " seconds";
 
     return true;
 }

@@ -3,6 +3,7 @@
 #include "timer.h"
 #include "texture_optimization.h"
 #include "texture_rendering.h"
+#include "logging.h"
 
 namespace parallel {
 
@@ -68,6 +69,10 @@ bool WorkerPool::Steal(TaskType& tv, int id)
 
 void WorkerPool::ParameterizationWorker(int id, ParameterizationStrategy strategy, double injectivityTolerance)
 {
+    std::stringstream ss;
+    ss << "Worker" << id;
+    LOG_SET_THREAD_NAME(ss.str());
+
     bool injectivityCheckRequired;
     if (strategy.scaffold || injectivityTolerance < 0)
         injectivityCheckRequired = false;
@@ -91,7 +96,7 @@ void WorkerPool::ParameterizationWorker(int id, ParameterizationStrategy strateg
 
             ChartHandle chart = task.chart;
 
-            //std::cout << "Chart " << chart->id << " - FN=" << chart->FN() << ", FI=" << tri::Index(graph->mesh, chart->Fp()) << std::endl;
+            LOG_INFO << "Chart " << chart->id << " - FN=" << chart->FN() << ", FI=" << tri::Index(chart->mesh, chart->Fp());
 
             ParameterizationStrategy strat = strategy;
             if (task.warmStart)
@@ -114,7 +119,7 @@ void WorkerPool::ParameterizationWorker(int id, ParameterizationStrategy strateg
                     RasterizedParameterizationStats stats = GetRasterizationStats(chart, 1024, 1024);
                     double fraction = stats.lostFragments / (double) stats.totalFragments;
                     if (fraction > injectivityTolerance) {
-                        //std::cout << "WARNING: REGION " << chart->id << " HAS OVERLAPS IN THE PARAMETERIZATION (overlap fraction = " << fraction << ")" << std::endl;
+                        LOG_VERBOSE << "Chart " << chart->id << " has uv overlaps (fraction = " << fraction << ")";
                         backtrack = true;
                     }
 
@@ -164,7 +169,7 @@ void WorkerPool::ParameterizationWorker(int id, ParameterizationStrategy strateg
                         workerQueue[id]->Put(TaskType{c, false});
                     }
                 } else {
-                    //std::cout << "Chart cannot be split, restoring uvs..." << std::endl;
+                    LOG_VERBOSE << "Chart " << chart->id << " cannot be split, restoring original uvs...";
                     for (auto split : splitCharts) {
                         for (auto fptr : split->fpVec) {
                             TexCoordStorage tcs = wtcsattr[fptr];
@@ -178,9 +183,6 @@ void WorkerPool::ParameterizationWorker(int id, ParameterizationStrategy strateg
             }
 
             numActiveTasks--;
-
-            std::cout << "Thread " << id << ": task took " << t.TimeElapsed() << " seconds" << std::endl;
-
         } else {
             noTaskIter++;
             if (numActiveTasks > 0)

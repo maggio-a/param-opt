@@ -319,7 +319,6 @@ public:
     {
         auto p = CollapseAllowed(first, last);
         if (p.first == Collapse_OK) {
-            std::cout << "Merging charts" << std::endl;
             std::queue<ChartHandle>& mergeQueue = p.second;
             ChartHandle chart = mergeQueue.front();
             mergeQueue.pop();

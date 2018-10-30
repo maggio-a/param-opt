@@ -9,6 +9,7 @@
 #include "pushpull.h"
 #include "uv.h"
 #include "mesh_attribute.h"
+#include "logging.h"
 
 #include <GL/glew.h>
 #include <GLFW/glfw3.h>
@@ -194,13 +195,11 @@ static GeometryImageStats GetGeometryImageStats(Mesh& m, const std::vector<Mesh:
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-    //glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE);
 
-    //GLFWwindow *window = glfwCreateWindow(width, height, "Window", nullptr, parentWindow);
     GLFWwindow *window = glfwCreateWindow(512, 512, "Window", nullptr, parentWindow);
     if (!window)
     {
-        cout << "Failed to create window or context" << endl;
+        LOG_ERR << "Failed to create window or context";
     }
     glfwMakeContextCurrent(window);
 
@@ -208,7 +207,7 @@ static GeometryImageStats GetGeometryImageStats(Mesh& m, const std::vector<Mesh:
     GLenum err = glewInit();
     if (err)
     {
-        cout << "glew init error " << glewGetErrorString(err) << endl;
+        LOG_ERR << "glew init error " << glewGetErrorString(err);
     }
     glGetError();
 
@@ -228,8 +227,6 @@ static GeometryImageStats GetGeometryImageStats(Mesh& m, const std::vector<Mesh:
 
 
     // TODO scale
-
-    //vcg::Box2d box = chart->UVBox();
 
     vcg::Box2d box;
     for (auto& fptr : faces)
@@ -312,8 +309,6 @@ static GeometryImageStats GetGeometryImageStats(Mesh& m, const std::vector<Mesh:
     glBindImageTexture(faultbuf_unit, tex_fault, 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32UI);
 
 
-    // bugfix (?) setup an offscreen context of the appropriate size to make sure
-    // the data is fully rendered
     GLuint fbo;
     glGenFramebuffers(1, &fbo);
     glBindFramebuffer(GL_FRAMEBUFFER, fbo);
@@ -344,47 +339,7 @@ static GeometryImageStats GetGeometryImageStats(Mesh& m, const std::vector<Mesh:
     glBindTexture(GL_TEXTURE_2D, tex_fault);
     glGetTexImage(GL_TEXTURE_2D, 0, GL_RED_INTEGER, GL_UNSIGNED_INT, sb);
 
-#if 0
-
-    float * x = new float[width * height]();
-    float * y = new float[width * height]();
-    float * z = new float[width * height]();
-    glBindTexture(GL_TEXTURE_2D, tex_p[0]);
-    glGetTexImage(GL_TEXTURE_2D, 0, GL_RED, GL_FLOAT, x);
-
-    glBindTexture(GL_TEXTURE_2D, tex_p[1]);
-    glGetTexImage(GL_TEXTURE_2D, 0, GL_RED, GL_FLOAT, y);
-
-    glBindTexture(GL_TEXTURE_2D, tex_p[2]);
-    glGetTexImage(GL_TEXTURE_2D, 0, GL_RED, GL_FLOAT, z);
-
-
-    std::cout << "REMOVE MEEEEEEEEEEEEEEEEEEEE" << std::endl;
-    Mesh pc;
-    Box3f bb2;
-    int u = 0;
-    for (int i = 0; i < height; ++i) {
-        for (int j =  0; j < width; ++j) {
-            int k = i * width + j;
-            if (x[k] != 0) {
-                u++;
-                Point3f pf(x[k], y[k], z[k]);
-                if(k%2) tri::Allocator<Mesh>::AddVertex(pc, Point3d(pf.X(), pf.Y(), pf.Z()));
-                bb2.Add(pf);
-            }
-        }
-    }
-    tri::io::Exporter<Mesh>::Save(pc, "pc.obj", tri::io::Mask::IOM_VERTCOORD);
-    std::cout << "############################### " << bb2.Diag() << "           " << u <<std::endl;
-    delete[] x;
-    delete[] y;
-    delete[] z;
-#endif
-
     CheckGLError();
-
-    //glReadBuffer(GL_BACK);
-    //glReadPixels(0, 0, width, height, GL_STENCIL_INDEX, GL_UNSIGNED_BYTE, sb);
 
     GeometryImageStats stats = {};
 
@@ -601,13 +556,11 @@ static RasterizedParameterizationStats GetRasterizationStats(Mesh& m, const std:
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
     glfwWindowHint(GLFW_OPENGL_FORWARD_COMPAT, GL_TRUE);
     glfwWindowHint(GLFW_VISIBLE, GLFW_FALSE);
-    //glfwWindowHint(GLFW_VISIBLE, GLFW_TRUE);
 
-    //GLFWwindow *window = glfwCreateWindow(width, height, "Window", nullptr, parentWindow);
     GLFWwindow *window = glfwCreateWindow(512, 512, "Window", nullptr, parentWindow);
     if (!window)
     {
-        cout << "Failed to create window or context" << endl;
+        LOG_ERR << "Failed to create window or context";
     }
     glfwMakeContextCurrent(window);
 
@@ -615,13 +568,12 @@ static RasterizedParameterizationStats GetRasterizationStats(Mesh& m, const std:
     GLenum err = glewInit();
     if (err)
     {
-        cout << "glew init error " << glewGetErrorString(err) << endl;
+        LOG_ERR << "glew init error " << glewGetErrorString(err);
     }
     glGetError();
 
     int fbw, fbh;
     glfwGetFramebufferSize(window, &fbw, &fbh);
-    //ensure_condition(fbw == width && fbh == height);
 
     // OpenGL setup
 
@@ -875,7 +827,7 @@ static std::shared_ptr<QImage> RenderTexture(std::vector<Mesh::FacePointer>& fve
     GLFWwindow *window = glfwCreateWindow(512, 512, "Window", NULL, parentWindow);
     if (!window)
     {
-        cout << "Failed to create window or context" << endl;
+        LOG_ERR << "Failed to create window or context";
     }
 
     glfwMakeContextCurrent(window);
@@ -883,7 +835,7 @@ static std::shared_ptr<QImage> RenderTexture(std::vector<Mesh::FacePointer>& fve
     glewExperimental = GL_TRUE;
     GLenum err = glewInit();
     if (err) {
-        cout << "glew init error " << glewGetErrorString(err) << endl;
+        LOG_ERR << "glew init error " << glewGetErrorString(err);
     }
 
     glGetError(); // suppress possible error on glew init
@@ -960,7 +912,7 @@ static std::shared_ptr<QImage> RenderTexture(std::vector<Mesh::FacePointer>& fve
     glBindTexture(GL_TEXTURE_2D, 0);
     CheckGLError();
 
-    std::cout << "[LOG] Using interpolation mode " << imode << std::endl;
+    LOG_VERBOSE << "Using texture interpolation mode " << imode;
 
     GLint loc_cubic_flag = glGetUniformLocation(program, "use_cubic_interpolation");
     glUniform1i(loc_cubic_flag, 0);
@@ -1000,7 +952,7 @@ static std::shared_ptr<QImage> RenderTexture(std::vector<Mesh::FacePointer>& fve
 
         // Load texture image
         glActiveTexture(GL_TEXTURE0);
-        std::cout << "Binding texture unit " << currTexIndex << std::endl;
+        LOG_DEBUG << "Binding texture unit " << currTexIndex;
         textureObject->Bind(currTexIndex);
 
         GLint loc_img0 = glGetUniformLocation(program, "img0");

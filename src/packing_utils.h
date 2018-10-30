@@ -7,6 +7,7 @@
 #include <fstream>
 
 #include "utils.h"
+#include "logging.h"
 
 using Outline2f = std::vector<vcg::Point2f>;
 
@@ -61,7 +62,7 @@ class PixelShiftingOptimizer
             //ensure_condition(!COLLIDE(buffer, row, col, k));
             bool collision = COLLIDE(buffer, row, col, k);
             if (collision) {
-                std::cout << "collision at " << col << " " << row << std::endl;
+                LOG_DEBUG << "collision at " << col << " " << row;
                 //ensure_condition(!collision);
             }
 
@@ -80,7 +81,7 @@ class PixelShiftingOptimizer
             //ensure_condition(!COLLIDE(buffer, row, col, k));
             bool collision = COLLIDE(buffer, row, col, k);
             if (collision) {
-                std::cout << "collision at " << col << " " << row << std::endl;
+                LOG_DEBUG << "collision at " << col << " " << row;
                 ensure_condition(!collision);
             }
             buffer[row][col] = PIXEL_CLEAR();
@@ -128,14 +129,14 @@ public:
 
     static vcg::Point2i Apply(std::vector<Poly>& polyVec, std::vector<Similarity2x>& trVec, const Parameters& param)
     {
-        std::cout << "=== Pixel shifting procedure ===" << std::endl;
+        LOG_INFO << "Applying pixel shifting";
         using vcg::Point2i;
 
         // compute scale factor that optimally fits the raster space
         ScalarType scale = std::min(ScalarType(param.w), ScalarType(param.h));
         ensure_condition(scale > 0);
 
-        std::cout << "Packing into a grid of size " << param.w << "x" << param.h << std::endl;
+        LOG_VERBOSE << "Grid size is" << param.w << "x" << param.h;
 
         // compute the initial offsets
         std::vector<Box2x> polyBoxes;
@@ -147,7 +148,7 @@ public:
         }
 
 
-        std::cout << "Rasterizing outlines... " << std::endl;
+        LOG_VERBOSE << "Rasterizing outlines... ";
 
         // initialize the boundary buffers
         std::vector<std::vector<Point2i>> boundaries(polyVec.size());
@@ -170,7 +171,7 @@ public:
         std::vector<int> xpos(polyVec.size(), -1);
         std::vector<int> ypos(polyVec.size(), -1);
 
-        std::cout << "Initializing buffer..." << std::endl;
+        LOG_VERBOSE << "Initializing buffer...";
         for (unsigned k = 0; k < polyVec.size(); ++k) {
             xpos[k] = std::max(int(std::round(polyBoxes[k].min.X() * scale)), 0);
             ypos[k] = std::max(int(std::round(polyBoxes[k].min.Y() * scale)), 0);
@@ -205,7 +206,7 @@ public:
         }
         */
 
-        std::cout << "Shifting charts..." << std::endl;
+        LOG_VERBOSE << "Shifting charts...";
 
         bool bufferChanged = true;
         int count = 0;
@@ -279,7 +280,7 @@ public:
         }
         */
 
-        std::cout << "=== Pixel shifting procedure finished ===" << std::endl;
+        LOG_INFO << "Pixel shifting finished";
 
         double aspectRatio;
         if (param.w == param.h) {

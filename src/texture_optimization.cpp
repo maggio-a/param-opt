@@ -11,6 +11,7 @@
 #include "mesh_utils.h"
 #include "packing_utils.h"
 #include "texture_rendering.h"
+#include "logging.h"
 
 #include "parallel.h"
 
@@ -115,41 +116,16 @@ bool ChartParameterizationHasOverlaps(Mesh& m, FaceGroup& chart)
                 if (SegmentSegmentIntersection(s1, s2, intersectionPoint)
                         && intersectionPoint != a1 && intersectionPoint != b1
                         && intersectionPoint != a2 && intersectionPoint != b2) {
-                    std::cout << "( " <<  a1[0] << " , " << a1[1] << " ) (" << b1[0] << " , " << b1[1] << " )" << std::endl;
-                    std::cout << "( " <<  a2[0] << " , " << a2[1] << " ) (" << b2[0] << " , " << b2[1] << " )" << std::endl;
-                    std::cout << intersectionPoint[0] << " , " << intersectionPoint[1] << std::endl;
+                    LOG_DEBUG << "( " <<  a1[0] << " , " << a1[1] << " ) (" << b1[0] << " , " << b1[1] << " )";
+                    LOG_DEBUG << "( " <<  a2[0] << " , " << a2[1] << " ) (" << b2[0] << " , " << b2[1] << " )";
+                    LOG_DEBUG << intersectionPoint[0] << " , " << intersectionPoint[1];
                     return true;
-                    //goto isec_detected;
                 }
             }
         }
     }
 
     return false;
-
-    isec_detected:
-
-    static int n = 0;
-
-    MyMesh edgeMesh;
-
-    std::vector<std::vector<Point3d>> outline3Vec;
-    for (auto& outline : outlines) {
-        std::vector<Point3d> vec;
-        for (auto& p : outline) {
-            vec.push_back(Point3d(p.X(), p.Y(), 0));
-        }
-        outline3Vec.push_back(vec);
-    }
-    tri::OutlineUtil<double>::ConvertOutline3VecToEdgeMesh(outline3Vec, edgeMesh);
-
-    std::stringstream ss;
-    ss << "outline_intersect_" << n++ << ".obj";
-
-    tri::io::Exporter<MyMesh>::Save(edgeMesh, ss.str().c_str(), io::Mask::IOM_VERTCOORD);
-
-    return true;
-
 }
 
 void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, std::vector<ChartHandle>& chartVec, bool binarySplit)
@@ -180,7 +156,6 @@ void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, std::ve
             std::unordered_set<Mesh::FacePointer> inStack;
             s.push(fptr);
             inStack.insert(fptr);
-            //std::cout << "Seed face " << tri::Index(m, fptr) << std::endl;
             while (!s.empty()) {
                 Mesh::FacePointer fp = s.top();
                 s.pop();
@@ -206,7 +181,6 @@ void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, std::ve
                     if (ChartParameterizationHasOverlaps(m, aggregate)) {
                         if (currentMerge.size() == 0) {
                             // handle special case where a single subchart is overlapping by removing it
-                            //std::cout << "single subchart overlaps " << id << std::endl;
                             ensure_condition(inStack.size() == 0 && s.size() == 0); // we detect this from the starting face
                             for (auto fptr : chfp->fpVec) {
                                 visited.insert(fptr); // set all the subchart faces as visited
@@ -247,15 +221,7 @@ void RecoverFromSplit(std::vector<ChartHandle>& split, GraphManager& gm, std::ve
 
     tri::UpdateTopology<Mesh>::FaceFace(m);
 
-    int k = 0;
     for (auto& set : mergeSets) {
-        /*
-        std::cout << "Merge set " << k++ << " = ";
-        for (auto ch : set) {
-            std::cout << ch->id << " ";
-        }
-        std::cout << endl;
-        */
         auto res = gm.Collapse(set.begin(), set.end());
         ensure_condition(res.first == GraphManager::Collapse_OK);
         chartVec.push_back(res.second);
@@ -394,7 +360,7 @@ void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
             continue;
         numNoParam++;
 
-        std::cout << "Parameterizing region of " << chart->FN() << " zero UV area faces" << std::endl;
+        LOG_DEBUG << "Parameterizing region of " << chart->FN() << " zero UV area faces";
 
         bool parameterized = false;
 
@@ -418,7 +384,7 @@ void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
             }
 
             if (!parameterized) {
-                std::cout << "Parameterization using CM failed, falling back to SLIM" << std::endl;
+                LOG_DEBUG << "Parameterization using CM failed, falling back to SLIM";
                 ParameterizerObject po{chart, strategy_slim};
                 po.SetEnergyDiffTolerance(0);
                 parameterized = po.Parameterize();
@@ -428,7 +394,7 @@ void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
         }
 
         if (!parameterized) {
-            std::cout << "WARNING: preliminary parameterization of chart " << chart->id << " failed" << std::endl;
+            LOG_ERR << "Preliminary parameterization of chart " << chart->id << " failed";
             ensure_condition(0 && "Failed to assign valid parameterization to null chart");
         } else {
             // As convenience to detect regions that originally did not have a parameterization, the texcoords
@@ -447,7 +413,7 @@ void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
         }
     }
 
-    std::cout << "[LOG] Newly parameterized regions: " << numParameterized << "/" << numNoParam << std::endl;
+    LOG_INFO << "Computed new parameterizations for " << numParameterized << " null charts";
 }
 
 int RemoveOutliers(GraphHandle& graph)
@@ -482,7 +448,7 @@ void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, double sma
 
     ensure_condition(regionCount > 0);
 
-    std::cout << "[LOG] Reduction strategy TargetRegionCount=" << regionCount << " (region threshold " << smallRegionAreaThreshold << ")" << std::endl;
+    LOG_INFO << "Clustering: TargetRegionCount=" << regionCount << " , regionThreshold=" << smallRegionAreaThreshold;
 
     double minChartArea = smallRegionAreaThreshold * gm.Graph()->Area3D();
 
@@ -501,20 +467,20 @@ void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, double sma
                 gm.Collapse(we.first);
                 mergeCount++;
                 if (mergeCount%50 == 0) {
-                    std::cout << "Merged " << mergeCount << " regions..." << std::endl;
+                    LOG_VERBOSE << "Merged " << mergeCount << " regions...";
                 }
             }
         }
 
-        std::cout << "Iteration "  << numIter << " took " << timer.TimeSinceLastCheck() << " seconds ("
-                  << mergeCount << " merges took place)" << std::endl;
+        LOG_INFO << "Iteration "  << numIter << " took " << timer.TimeSinceLastCheck()
+                 << " seconds (" << mergeCount << " merges took place)";
 
         numIter++;
 
     } while (mergeCount > 0);
 
-    // Make sure the texcoords of each chart refer to the same texture unit, otherwise
-    // it causes trouble when computing FaceFaceFromTexCoord adjancency
+    // Make sure the texcoords of each chart refer to the same texture unit,
+    // otherwise it causes trouble when computing FaceFaceFromTexCoord adjancency
     for (auto entry : gm.Graph()->charts) {
         ChartHandle chart = entry.second;
         for (auto fptr : chart->fpVec)
@@ -522,7 +488,7 @@ void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, double sma
                 fptr->WT(i).N() = 0;
     }
 
-    std::cout << "Stopping after " << numIter << " passes and " << timer.TimeElapsed() << " seconds" << std::endl;
+    LOG_INFO << "Stopping after " << numIter << " passes and " << timer.TimeElapsed() << " seconds";
 }
 
 int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, double injectivityTolerance)
@@ -532,7 +498,7 @@ int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, doubl
     Timer t;
     parallel::WorkerPool pool(4, gm);
     pool.Run(strategy, injectivityTolerance);
-    std::cout << "Multithreaded parameterization took " << t.TimeElapsed() << " seconds" << std::endl;
+    LOG_INFO << "Multithreaded parameterization took " << t.TimeElapsed() << " seconds";
     return 0;
 }
 
@@ -710,9 +676,11 @@ RasterizationBasedPacker::PackingStats Pack(GraphHandle graph, const PackingOpti
     std::vector<Outline2f> texOutlines;
     std::unordered_map<RegionID,std::size_t> outlineMap; // map each region to the index of its outline in texOutlines
 
+    LOG_VERBOSE << "Computing chart outlines...";
+
     for (auto entry : graph->charts) {
         GraphManager::ChartHandle chart = entry.second;
-        std::cout << "Chart " << chart->id << " - FN=" << chart->FN() << ", FI=" << tri::Index(graph->mesh, chart->Fp()) << std::endl;
+        LOG_DEBUG << "Chart " << chart->id << " - FN=" << chart->FN() << ", FI=" << tri::Index(graph->mesh, chart->Fp());
 
         chart->ParameterizationChanged(); // packing changes texture coords even for charts that are not reparameterized
 
@@ -729,7 +697,7 @@ RasterizationBasedPacker::PackingStats Pack(GraphHandle graph, const PackingOpti
 
     //tri::UpdateTopology<Mesh>::FaceFace(graph->mesh);
 
-    std::cout << "Packing the atlas..." << std::endl;
+    LOG_VERBOSE << "Packing charts...";
 
     Timer timer;
 
@@ -769,10 +737,10 @@ RasterizationBasedPacker::PackingStats Pack(GraphHandle graph, const PackingOpti
     RasterizationBasedPacker::PackingStats stats;
     RasterizationBasedPacker::Pack(texOutlines, containerVec, packingTransforms, containerIndices, packingParam, stats);
 
-    std::cout << "Packing took " << timer.TimeSinceLastCheck() << " seconds" << std::endl;
+    LOG_INFO << "Packing took " << timer.TimeSinceLastCheck() << " seconds";
 
     for (unsigned i = 0; i < containerIndices.size(); ++i)
-        std::cout << "Packed outline " << i << " into container " << containerIndices[i] << std::endl;
+        LOG_DEBUG << "Packed outline " << i << " into container " << containerIndices[i];
     for (auto entry : outlineMap) {
         for (auto fptr : graph->charts[entry.first]->fpVec) {
             int ic = containerIndices[entry.second];

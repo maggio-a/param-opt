@@ -10,6 +10,7 @@
 #include "mean_value_param.h"
 #include "timer.h"
 #include "utils.h"
+#include "logging.h"
 
 #include <vcg/complex/complex.h>
 #include <vcg/complex/algorithms/parametrization/distortion.h>
@@ -61,7 +62,7 @@ void ComputeBoundaryInfo(Mesh& m)
         }
     }
 
-    std::cout << "Mesh has " << info.N() << " boundaries" << std::endl;
+    LOG_DEBUG << "Mesh has " << info.N() << " boundaries";
 }
 
 
@@ -80,9 +81,9 @@ void ColorFace(Mesh& shell)
 
 void PrintParameterizationInfo(std::shared_ptr<MeshGraph> pdata)
 {
-    std::cout << "Parameterization Info (Charts, Area 3D, Area UV, Border UV) " << std::endl;
-    std::cout << pdata->charts.size() << " " << pdata->Area3D() << " "
-              << pdata->AreaUV() << " " << pdata->BorderUV() << std::endl;
+    LOG_INFO << "Parameterization Info (Charts, Area 3D, Area UV, Border UV) ";
+    LOG_INFO << pdata->charts.size() << " " << pdata->Area3D() << " "
+             << pdata->AreaUV() << " " << pdata->BorderUV();
 }
 
 std::shared_ptr<MeshGraph> ComputeParameterizationGraph(Mesh &m, TextureObjectHandle textureObject)
@@ -148,7 +149,7 @@ void CopyToMesh(FaceGroup& fg, Mesh& m)
         mfp->SetMesh();
     }
 
-    std::cout << "Built mesh has " << m.FN() << " faces" << std::endl;
+    LOG_DEBUG << "Built mesh has " << m.FN() << " faces";
 }
 
 void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2f>> &outline2Vec)
@@ -199,8 +200,8 @@ void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2d>
     for (std::size_t i = 0; i < outline2Vec.size(); ++i) {
         maxsz = std::max(maxsz, outline2Vec[i].size());
     }
-    if (maxsz == 0) {// fallback to uv box as outline
-        std::cout << "[LOG] Falling back to UVBox as outline for chart " << chart.id << std::endl;
+    if (maxsz == 0) {
+        LOG_WARN << "Failed to compute outline, falling back to uv bounding box for chart " << chart.id;
         vcg::Box2d box = chart.UVBox();
         outline.push_back(Point2d(box.min.X(), box.min.Y()));
         outline.push_back(Point2d(box.max.X(), box.min.Y()));
@@ -381,7 +382,7 @@ bool CleanSmallComponents(Mesh& m, GraphHandle graph, TextureObjectHandle texObj
     tri::UpdateTopology<Mesh>::FaceFace(m);
 
     ensure_condition(m.face.size() > oldFaces);
-    std::cout << "Added " << m.face.size() - oldFaces << " faces" << std::endl;
+    LOG_DEBUG << "CleanSmallComponents(): Added " << m.face.size() - oldFaces << " faces";
 
     for (std::size_t h = oldFaces; h < m.face.size(); ++h) {
         auto& f = m.face[h];
@@ -956,7 +957,7 @@ int GraphManager::CloseMacroRegions(double areaThreshold)
         MeshFromFacePointers(fpv, probe);
 
         if (Parameterizable(probe)) {
-            std::cout << "Merging " << entry.second.size() << " islands from macro region " << entry.first << std::endl;
+            LOG_VERBOSE << "Merging " << entry.second.size() << " islands from macro region " << entry.first;
             for (auto id : entry.second) {
                 // don't bother checking feasibility of each merge since we already know that the union of all the charts is
                 Merge(regions[entry.first], regions[id]);

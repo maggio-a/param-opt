@@ -1,4 +1,5 @@
 #include "gl_utils.h"
+#include "logging.h"
 
 #include <cassert>
 #include <iostream>
@@ -11,13 +12,13 @@
 
 static void ErrorCallback(int error, const char *message)
 {
-    std::cout << "GLFW error: " << message << " (code " << error << ")" << std::endl;
+    LOG_ERR << "GLFW error: " << message << " (code " << error << ")";
 }
 
 void GLInit()
 {
     if (!glfwInit()) {
-        std::cout << "Failed to initialize glfw" << std::endl;
+        LOG_ERR << "Failed to initialize GLFW";
         exit(-1);
     }
     glfwSetErrorCallback(ErrorCallback);
@@ -33,11 +34,11 @@ void CheckGLError()
     GLenum error = glGetError();
     if (error != GL_NO_ERROR)
     {
-        std::cout << "OpenGL error " << error  << " ";
-        if (error == GL_INVALID_VALUE) std::cout << "GL_INVALID_VALUE";
-        if (error == GL_INVALID_OPERATION) std::cout << "GL_INVALID_OPERATION";
-        std::cout << std::endl;
-        //assert(error == GL_NO_ERROR);
+        std::stringstream ss;
+        ss << "OpenGL error " << error  << " ";
+        if (error == GL_INVALID_VALUE) ss << "GL_INVALID_VALUE";
+        if (error == GL_INVALID_OPERATION) ss << "GL_INVALID_OPERATION";
+        LOG_ERR << ss.str();
     }
 }
 
@@ -51,12 +52,12 @@ GLuint CompileShaders(const GLchar **vs_text, const GLchar **fs_text)
     glCompileShader(vs);
     glGetShaderInfoLog(vs, 1024, NULL, infoLog);
     if (*infoLog) {
-        std::cout << infoLog << std::endl;
+        LOG_DEBUG << infoLog;
         memset(infoLog, 0, 1024);
     }
     glGetShaderiv(vs, GL_COMPILE_STATUS, &status);
     if (status == GL_FALSE) {
-        std::cout << "Vertex shader compilation failed" << std::endl;
+        LOG_ERR << "Vertex shader compilation failed";
     }
 
     GLuint fs = glCreateShader(GL_FRAGMENT_SHADER);
@@ -64,12 +65,12 @@ GLuint CompileShaders(const GLchar **vs_text, const GLchar **fs_text)
     glCompileShader(fs);
     glGetShaderInfoLog(fs, 1024, NULL, infoLog);
     if (*infoLog) {
-        std::cout << infoLog << std::endl;
+        LOG_DEBUG << infoLog;
         memset(infoLog, 0, 1024);
     }
     glGetShaderiv(fs, GL_COMPILE_STATUS, &status);
     if (status == GL_FALSE) {
-        std::cout << "Fragment shader compilation failed" << std::endl;
+        LOG_ERR << "Fragment shader compilation failed";
     }
 
     GLuint program = glCreateProgram();
@@ -79,11 +80,11 @@ GLuint CompileShaders(const GLchar **vs_text, const GLchar **fs_text)
     glValidateProgram(program);
     glGetProgramInfoLog(program, 1024, NULL, infoLog);
     if (*infoLog) {
-        std::cout << infoLog << std::endl;
+        LOG_DEBUG << infoLog;
     }
     glGetProgramiv(program, GL_LINK_STATUS, &status);
     if (status == GL_FALSE) {
-        std::cout << "Shader program link failed" << std::endl;
+        LOG_ERR << "Shader program link failed";
     }
 
     glDeleteShader(vs);
@@ -146,7 +147,8 @@ void TextureObject::Bind(int i)
         case QImage::Format_ARGB32:
             format = GL_RGBA8; channels = GL_BGRA; type = GL_UNSIGNED_BYTE; break;
         default:
-            std::cout << "Unsupported texture format" << std::endl; std::exit(-1);
+            LOG_ERR << "Unsupported texture format";
+            std::exit(-1);
         }
         Mirror(img);
         //QImage mirrored = img.mirrored(); // mirror to match opengl convention

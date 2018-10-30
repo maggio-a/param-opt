@@ -8,6 +8,7 @@
 
 #include <Eigen/Core>
 #include <memory>
+#include <iosfwd>
 
 
 struct IterationInfo {
@@ -172,7 +173,6 @@ public:
 
     Status GetStatus();
     bool ErrorState();
-    void PrintStatus();
 
 private:
 
@@ -189,6 +189,8 @@ private:
     void FindCones(int ncones, std::vector<int>& coneIndices);
     void FindConesWithThreshold(double conformalScalingThreshold, std::vector<int>& coneIndices);
 };
+
+std::ostream& operator<<(std::ostream&, const ParameterizerObject::Status&);
 
 #endif // PARAMETERIZATION_H
 

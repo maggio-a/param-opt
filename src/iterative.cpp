@@ -29,8 +29,8 @@
 #include "energy.h"
 #include "math_utils.h"
 #include "metric.h"
-
 #include "timer.h"
+#include "logging.h"
 
 
 using Eigen::MatrixXd;
@@ -127,29 +127,6 @@ double DescentMethod::SearchStrongWolfe(const MatrixXd& uv, const MatrixXd& grad
         double localStep = ComputeStepSizeNoFlip(uv.row(Index(m, f.V(0))), uv.row(Index(m, f.V(1))), uv.row(Index(m, f.V(2))),
                                                  dir.row(Index(m, f.V(0))), dir.row(Index(m, f.V(1))), dir.row(Index(m, f.V(2))));
         if (localStep < maxStepWithoutInversion) maxStepWithoutInversion = localStep;
-        /*float t = std::min(localStep, 10000.0); //std::min(0.8*localStep, 100000.0);
-        Vector2d a = uv.row(Index(m, f.V(0))) + t * dir.row(Index(m, f.V(0)));
-        Vector2d b = uv.row(Index(m, f.V(1))) + t * dir.row(Index(m, f.V(1)));
-        Vector2d c = uv.row(Index(m, f.V(2))) + t * dir.row(Index(m, f.V(2)));
-        Point2d d1{b[0] - a[0], b[1] - a[1]};
-        Point2d d2{c[0] - a[0], c[1] - a[1]};
-        double aaa = d1 ^ d2;
-        if (aaa <= 0) {
-            std::cout << t << "   " << aaa << std::endl;
-            Vector2d u0 = uv.row(Index(m, f.V(0)));
-            Vector2d u1 = uv.row(Index(m, f.V(1)));
-            Vector2d u2 = uv.row(Index(m, f.V(2)));
-
-            Vector2d d0 = dir.row(Index(m, f.V(0)));
-            Vector2d d1 = dir.row(Index(m, f.V(1)));
-            Vector2d d2 = dir.row(Index(m, f.V(2)));
-
-            std::cout << u0[0] << " " << u0[1] << " dir =  " << d0[0] << " " << d0[1] << std::endl;
-            std::cout << u1[0] << " " << u1[1] << " dir =  " << d1[0] << " " << d1[1] << std::endl;
-            std::cout << u2[0] << " " << u2[1] << " dir =  " << d2[0] << " " << d2[1] << std::endl;
-
-        }
-        ensure_condition ((d1^d2) >= 0);*/
     }
 
     double alpha_max = std::min(1.0 / 0.8, 0.99 * maxStepWithoutInversion);
@@ -232,7 +209,7 @@ double DescentMethod::Search(const MatrixXd& uv, const MatrixXd& grad, const Mat
 
     //ensure_condition(descentCoeff < 0); // otherwise dir is not a descent direction
     if (descentCoeff >= 0)
-        std::cout << "WARNING Not a descent direction" << std::endl;
+        LOG_WARN << "Search direction is not a descent direction";
 
     double t = std::numeric_limits<double>::max();
     for (auto& f : m.face) {
@@ -349,12 +326,6 @@ bool LBFGS::Iterate(double& gradientNorm, double& objValDiff, double& energyAfte
     if (!ComputeDescentDirection(dir))
         return false;
 
-    //MatrixXd sdir = ComputeScaleDirection();
-    //MatrixXd combined = dir + sdir;
-    //if (combined.cwiseProduct(grad).sum() < 0) {
-        //std::cout << "Using combined dir" << std::endl;
-    //    dir = combined;
-    //}
     SearchStrongWolfe(uv, grad, dir);
 
     double energyCurr = energy->E();
@@ -781,13 +752,13 @@ bool SLIM::MinimizeProxyEnergy(Eigen::MatrixXd& p_k)
 
     solver.factorize(L);
     if (!(solver.info() == Eigen::Success)) {
-        std::cout << "SLIM::MinimizeProxyEnergy factorization failed" << std::endl;
+        LOG_ERR << "SLIM factorization failed";
         return false;
     }
 
     sol = solver.solve(rhs);
     if (!(solver.info() == Eigen::Success)) {
-        std::cout << "SLIM::MinimizeProxyEnergy solve failed" << std::endl;
+        LOG_ERR << "SLIM solve failed";
         return false;
     }
 
@@ -1175,7 +1146,7 @@ bool CompMaj::ComputeDescentDirection(Eigen::MatrixXd& dir)
     solver.factorize(A);
 
     if (solver.info() != Eigen::Success) {
-        std::cout << "CompMaj factorization failed" << std::endl;
+        LOG_ERR << "CompMaj factorization failed";
         tri::io::Exporter<Mesh>::Save(m, "factorization_failed.obj", tri::io::Mask::IOM_ALL);
         return false;
     }
@@ -1183,7 +1154,7 @@ bool CompMaj::ComputeDescentDirection(Eigen::MatrixXd& dir)
     Eigen::VectorXd sol;
     sol = solver.solve(- Eigen::Map<Eigen::VectorXd>(grad.data(), 2 * vn));
     if (!(solver.info() == Eigen::Success)) {
-        std::cout << "CompMaj solve failed" << std::endl;
+        LOG_ERR << "CompMaj solve failed";
         return false;
     }
 

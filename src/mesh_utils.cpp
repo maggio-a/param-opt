@@ -1,5 +1,6 @@
 #include "mesh_utils.h"
 #include "mesh_attribute.h"
+#include "logging.h"
 
 #include <vcg/complex/complex.h>
 #include <vcg/simplex/face/pos.h>
@@ -72,7 +73,7 @@ void CloseMeshHoles(Mesh& shell)
     int iter = 0;
     do {
         IsotropicRemeshing<Mesh>::Do(shell, params);
-        std::cout << "Remeshing: " << params.stat.collapseNum << " " << params.stat.flipNum << " " << params.stat.splitNum << std::endl;
+        LOG_DEBUG << "Remeshing: " << params.stat.collapseNum << " " << params.stat.flipNum << " " << params.stat.splitNum;
         iter += params.iter;
     } while (params.stat.collapseNum + params.stat.flipNum + params.stat.splitNum > 0 && iter < 3);
 

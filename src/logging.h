@@ -35,20 +35,20 @@ void LogExecutionParameters(const Args& args, const ParameterizationStrategy& st
 #define LOG_SET_THREAD_NAME(name) (logging::Logger::RegisterName(name))
 #define LOG(level) (level > logging::Logger::GetLogLevel()) ? ((void) 0) : logging::V_() & logging::Buffer()
 
-#define LOG_ERR   LOG(logging::Level::Error)
-#define LOG_WARN  LOG(logging::Level::Warning)
-#define LOG_INFO  LOG(logging::Level::Info)
-#define LOG_VERB  LOG(logging::Level::Verbose)
-#define LOG_DEBUG LOG(logging::Level::Debug)
+#define LOG_ERR     LOG(logging::Level::Error)
+#define LOG_WARN    LOG(logging::Level::Warning)
+#define LOG_INFO    LOG(logging::Level::Info)
+#define LOG_VERBOSE LOG(logging::Level::Verbose)
+#define LOG_DEBUG   LOG(logging::Level::Debug)
 
 namespace logging {
 
 enum Level {
-    Error = -2
-    Warning = -1;
-    Info = 0;
-    Verbose = 1;
-    Debug = 2;
+    Error   = -2,
+    Warning = -1,
+    Info    =  0,
+    Verbose =  1,
+    Debug   =  2
 };
 
 class Buffer {
@@ -66,6 +66,14 @@ public:
         os << t;
         return *this;
     }
+
+    /*
+    Buffer& operator<<(std::ostream& (*f)(std::ostream&))
+    {
+        f(os);
+        return *this;
+    }
+    */
 
 };
 

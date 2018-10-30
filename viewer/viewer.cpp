@@ -43,48 +43,35 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject, Args 
 
     LogExecutionParameters(args, strategy);
 
-    /*
-    LogStrategy(strategy, tolerance);
-
-    std::vector<std::pair<int, Mesh::FacePointer>> cc;
-    tri::Clean<Mesh>::ConnectedComponents(m, cc);
-    int smallcomponents = 0;
-    for (auto p : cc) if (p.first < 100) smallcomponents++;
-
-    std::cout << "[LOG] " << cc.size() << " connected components (" << smallcomponents << " have less than 100 faces)" << std::endl;
-    */
-
     int cc = tri::Clean<Mesh>::CountConnectedComponents(m);
 
     Timer t;
 
     std::unique_ptr<EdgeWeightFunction> wfct(new W3D(m));
-    //std::unique_ptr<EdgeWeightFunction> wfct(new W_Geometry3D(m));
-    //std::unique_ptr<EdgeWeightFunction> wfct(new WFN(m));
-    //std::unique_ptr<EdgeWeightFunction> wfct(new WUV(m));
-    std::cout << "[LOG] Weight function " << wfct->Name() << std::endl;
+    LOG_DEBUG << "Weight function " << wfct->Name();
     GraphManager gm{graph, std::move(wfct)};
 
     double areaThreshold = 0.02;
 
-    std::cout << "Min allowed area percentage while merging = " << areaThreshold << std::endl;
+    LOG_DEBUG << "Min allowed area percentage while merging = " << areaThreshold;
 
     RecomputeSegmentation(gm, args.regionCount + (cc - 1), areaThreshold);
 
     int c = ParameterizeGraph(gm, strategy, tolerance);
-    if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
+    if (c > 0)
+        LOG_WARN << c << " Regions were not parameterized correctly";
 
     if (gm.Graph()->Count() < 500) {
-        std::cout << "Packing " << gm.Graph()->Count() << " regions in low resolution with permutations" << std::endl;
+        LOG_INFO << "Packing " << gm.Graph()->Count() << " regions in low resolution with permutations";
         PackingOptions opts = { RasterizationBasedPacker::Parameters::CostFuncEnum::MinWastedSpace, true, true, true, false };
         Pack(gm.Graph(), opts);
     } else {
-        std::cout << "Packing " << gm.Graph()->Count() << " regions in high resolution" << std::endl;
+        LOG_INFO << "Packing " << gm.Graph()->Count() << " regions in high resolution";
         PackingOptions opts = { RasterizationBasedPacker::Parameters::CostFuncEnum::MinWastedSpace, false, false, true, false };
         Pack(gm.Graph(), opts);
     }
 
-    std::cout << "Rendering texture..." << std::endl;
+    LOG_INFO << "Rendering texture...";
     TextureObjectHandle newTexture = RenderTexture(m, textureObject, args.filter, InterpolationMode::Linear, nullptr);
 
     graph->textureObject = newTexture;
@@ -92,22 +79,14 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject, Args 
     PrintParameterizationInfo(graph);
     LogAggregateStats("stats_output", graph, newTexture);
     std::vector<RasterizedParameterizationStats> after = GetRasterizationStats(m, newTexture);
-    std::cout << "[LOG] Raster stats after processing" << std::endl;
+    LOG_INFO << "Raster stats after processing";
     LogParameterizationStats(graph, after);
 
-
-    //ScaleTextureCoordinatesToImage(m, newTexture);
-    //LogDistortionStats(graph);
-
-    //ScaleTextureCoordinatesToParameterArea(m, newTexture);
-
-    //GenerateDistortionTextures(m, textureObject);
-
-    std::cout << "Processing took " << t.TimeElapsed() << " seconds" << std::endl;
+    LOG_VERBOSE << "Processing took " << t.TimeElapsed() << " seconds";
 
     std::string savename = "out_" + m.name;
     if (SaveMesh(m, savename.c_str(), newTexture, true) == false) {
-        std::cout << "Model not saved correctly" << std::endl;
+        LOG_ERR << "Model not saved correctly";
     }
 
     GLTerminate();
@@ -134,12 +113,14 @@ int main(int argc, char *argv[])
 
     Args args = parse_args(argc, argv);
 
+    LOG_INIT(args.logLevel);
+
     Mesh m;
     TextureObjectHandle textureObject;
     int loadMask;
 
     if (LoadMesh(m, args.filename.c_str(), textureObject, loadMask) == false) {
-        std::cout << "Failed to open mesh" << std::endl;
+        LOG_ERR << "Failed to open mesh";
         std::exit(-1);
     }
 
@@ -155,13 +136,13 @@ int main(int argc, char *argv[])
         PrintParameterizationInfo(dummyGraph);
         LogAggregateStats("stats_input", dummyGraph, textureObject);
         std::vector<RasterizedParameterizationStats> before = GetRasterizationStats(m, textureObject);
-        std::cout << "[LOG] Raster stats before processing" << std::endl;
+        LOG_INFO << "Raster stats before processing";
         LogParameterizationStats(dummyGraph, before);
     }
 
     // Preliminary cleaning
 
-    std::cout << "Cleaning mesh..." << std::endl;
+    LOG_INFO << "Cleaning mesh...";
 
     int dupVert = tri::Clean<Mesh>::RemoveDuplicateVertex(m);
     int zeroArea = tri::Clean<Mesh>::RemoveZeroAreaFace(m);
@@ -171,21 +152,21 @@ int main(int argc, char *argv[])
     tri::UpdateTopology<Mesh>::FaceFace(m);
 
     if (dupVert > 0)
-        std::cout << "Removed " << dupVert << " duplicate vertices" << std::endl;
+        LOG_VERBOSE << "Removed " << dupVert << " duplicate vertices";
 
     if (zeroArea > 0)
-        std::cout << "Removed " << zeroArea << " zero area faces" << std::endl;
+        LOG_VERBOSE << "Removed " << zeroArea << " zero area faces";
 
     int numVertexSplit = 0;
     int nv;
     while ((nv = tri::Clean<Mesh>::SplitNonManifoldVertex(m, 0)) > 0)
         numVertexSplit += nv;
     if (numVertexSplit > 0)
-        std::cout << "Mesh was not vertex manifold, split " << numVertexSplit << " vertices" << std::endl;
+        LOG_VERBOSE << "Mesh was not vertex manifold, split " << numVertexSplit << " vertices";
 
     int numRemovedFaces = tri::Clean<Mesh>::RemoveNonManifoldFace(m);
     if (numRemovedFaces > 0)
-        std::cout << "Mesh was not edge manifold, removed " << numRemovedFaces << " faces" << std::endl;
+        LOG_VERBOSE << "Mesh was not edge manifold, removed " << numRemovedFaces << " faces";
 
     tri::Allocator<Mesh>::CompactEveryVector(m);
 
@@ -195,7 +176,7 @@ int main(int argc, char *argv[])
         // Apply topological filter if requested
 
         if (args.fixContextCapture) {
-            std::cout << "WARNING: option --fixcontextcapture detected, attempting to remove topological noise" << std::endl;
+            LOG_WARN << "Option --fixcontextcapture detected, attempting to remove topological noise";
             CleanSmallComponents(m, dummyGraph, textureObject, 1e-4);
         }
 
@@ -203,7 +184,7 @@ int main(int argc, char *argv[])
 
         int outliers = RemoveOutliers(dummyGraph);
         if (outliers)
-            std::cout << "Removed " << outliers << " outlier charts" << std::endl;
+            LOG_VERBOSE << "Removed " << outliers << " outlier charts";
 
         dummyGraph = nullptr;
     }
