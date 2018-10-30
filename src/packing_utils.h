@@ -136,7 +136,7 @@ public:
         ScalarType scale = std::min(ScalarType(param.w), ScalarType(param.h));
         ensure_condition(scale > 0);
 
-        LOG_VERBOSE << "Grid size is" << param.w << "x" << param.h;
+        LOG_VERBOSE << "Grid size is " << param.w << "x" << param.h;
 
         // compute the initial offsets
         std::vector<Box2x> polyBoxes;

@@ -2,7 +2,7 @@
 #define TEXTURE_OPTIMIZATION_H
 
 #include "mesh_graph.h"
-#include "iterative.h"
+#include "iterative_solvers.h"
 #include "parameterization.h"
 
 #include <vcg/space/point2.h>

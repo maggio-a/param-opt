@@ -35,7 +35,7 @@ private:
 
 public:
 
-    ConcurrentQueue(std::size_t capacity=0) : _mtx{}, _deque{}, _capacity{capacity} { }
+    ConcurrentQueue(std::size_t capacity=0) : _capacity{capacity} { }
     ConcurrentQueue(const ConcurrentQueue<T>& other) = delete;
     ConcurrentQueue<T>& operator=(const ConcurrentQueue<T>& other) = delete;
 

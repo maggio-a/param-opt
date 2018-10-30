@@ -432,9 +432,22 @@ void LogExecutionParameters(const Args& args, const ParameterizationStrategy& st
 
 namespace logging {
 
-Buffer::Buffer()
+Buffer::Buffer(int level)
     : os{}
 {
+    switch(level) {
+    case -2:
+        os << setw(8);
+        os << " ERR| ";
+        break;
+    case -1:
+        os << setw(8);
+        os << "WARN| ";
+        break;
+    default:
+        os << setw(6);
+        os << level << "| ";
+    }
 }
 
 Buffer::~Buffer()
@@ -450,7 +463,7 @@ std::mutex Logger::singletonLock{};
 void Logger::Init(int level)
 {
     Logger::logLevel = level;
-    threadNames[std::this_thread::get_id()] = "main thread";
+    threadNames[std::this_thread::get_id()] = "MainThread";
 }
 
 int Logger::GetLogLevel()

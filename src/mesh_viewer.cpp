@@ -30,6 +30,7 @@
 #include "mesh_attribute.h"
 #include "mesh_utils.h"
 #include "parameterization.h"
+#include "logging.h"
 
 #include "linmath.h"
 
@@ -481,10 +482,7 @@ void MeshViewer::UpdateDetailBuffers()
             *buffptr++ = sf.P(i).Y();
             vcg::Color4b color = vcg::Color4b::Black;
             if (sf.IsMesh()) {
-                if (ia[sf] == -1) {
-                    std::cout << tri::Index<Mesh>(shell, sf) << std::endl;
-                    ensure_condition(ia[sf] != -1);
-                }
+                ensure_condition(ia[sf] != -1);
                 auto& f = m.face[ia[sf]];
                 *buffptr++ = wtcs[f].tc[i].U() / (double) _currentTexture->TextureWidth(0);
                 *buffptr++ = wtcs[f].tc[i].V() / (double) _currentTexture->TextureHeight(0);
@@ -807,11 +805,15 @@ void MeshViewer::UpdateSelection(const RegionID id)
         CheckGLError();
     } else {
         /// todo check error code
-        std::cout << "Warning: current selection cannot be parameterized: ";
-        if (status.first == gm->Collapse_ERR_DISCONNECTED) std::cout << "disconnected selection";
-        else if (status.first == gm->Collapse_ERR_UNFEASIBLE) std:: cout << "unfeasible selection";
-        else std::cout << "unhandled error code";
-        std::cout << std::endl;
+        std::stringstream ss;
+        ss << "Current selection cannot be parameterized: ";
+        if (status.first == gm->Collapse_ERR_DISCONNECTED)
+            ss << "disconnected selection";
+        else if (status.first == gm->Collapse_ERR_UNFEASIBLE)
+            ss << "unfeasible selection";
+        else
+            ss << "unhandled error code";
+        LOG_INFO << ss.str();
     }
 }
 
@@ -1039,8 +1041,6 @@ void MeshViewer::SetupDetailView(const Mesh& detailMesh)
 
     //_detailCamera.Reset();
     _detailView.uniforms.loc_projection = glGetUniformLocation(_detailView.program, "projectionMatrix");
-
-    //std::cout << "UVBox = " << bbox.DimX() << " by " << bbox.DimY() << std::endl;
 
     float scale = 1.0f / std::max(bbox.Dim().X(), bbox.Dim().Y());
 
@@ -1325,7 +1325,7 @@ void MeshViewer::Run()
 
     _window = glfwCreateWindow(1280, 720, "Mesh viewer", NULL, NULL);
     if (!_window) {
-        cout << "Failed to create window or context" << endl;
+        LOG_ERR << "Failed to create window or context";
         std::exit(-1);
     }
 
@@ -1348,7 +1348,7 @@ void MeshViewer::Run()
     glewExperimental = GL_TRUE;
     GLenum err = glewInit();
     if (err) {
-        cout << "Failed to initialize glew: " << glewGetErrorString(err) << endl;
+        LOG_ERR << "Failed to initialize glew: " << glewGetErrorString(err);
         std::exit(-1);
     }
 
@@ -1473,12 +1473,12 @@ void MeshViewer::ManageImGuiState()
             ClearSelection();
             if (gmHasNextEdge()) {
                 const auto& next = gmPeekNextEdge();
-                std::cout << "Next edge has weight " << next.second << std::endl;
+                LOG_INFO << "Next edge has weight " << next.second;
                 Select(next.first.a->id);
                 Select(next.first.b->id);
             }
             else {
-                std::cout << "No next edge available" << std::endl;
+                LOG_INFO << "No next edge available";
             }
         }
 
@@ -1489,7 +1489,7 @@ void MeshViewer::ManageImGuiState()
             disabled = true;
         }
         if (ImGui::Button("Merge current selection")) {
-            std::cout << "Merging selected charts" << std::endl;
+            LOG_INFO << "Merging selected charts";
             std::vector<ChartHandle> cm;
             for (auto& entry : primaryCharts) {
                 cm.push_back(graph->GetChart(entry.first));
@@ -1498,12 +1498,12 @@ void MeshViewer::ManageImGuiState()
             if (result.first == gm->Collapse_OK) {
                 ClearSelection();
                 Select(result.second->id);
-                std::cout << "Collapse succeeded" << std::endl;
+                LOG_INFO << "Collapse succeeded";
             } else {
                 if (result.first == gm->Collapse_ERR_DISCONNECTED) {
-                    std::cout << "Cannot merge, selected charts are disconnected" << std::endl;
+                    LOG_INFO << "Cannot merge, selected charts are disconnected";
                 } else if (result.first == gm->Collapse_ERR_UNFEASIBLE) {
-                    std::cout << "Cannot merge, result is unfeasible" << std::endl;
+                    LOG_INFO << "Cannot merge, result is unfeasible";
                 } else {
                     ensure_condition(0 && "GraphManager::Collapse() exit status");
                 }
@@ -1537,7 +1537,8 @@ void MeshViewer::ManageImGuiState()
             ClearSelection();
             if (graph->MergeCount() > 0) {
                 int c = ParameterizeGraph(*gm, strategy, retry ? tau : -1);
-                if (c > 0) std::cout << "WARNING: " << c << " regions were not parameterized correctly" << std::endl;
+                if (c > 0)
+                    LOG_WARN << c << " regions were not parameterized correctly";
                 PackingOptions opts = { RasterizationBasedPacker::Parameters::CostFuncEnum::MinWastedSpace, true, true, true, true };
                 Pack(gm->Graph(), opts);
                 _currentTexture->Release(0);
@@ -1551,7 +1552,7 @@ void MeshViewer::ManageImGuiState()
                 }
 
            } else {
-               std::cout << "No merges, nothing to do" << std::endl;
+               LOG_INFO << "No merges, nothing to do";
            }
         }
 
@@ -1601,7 +1602,7 @@ void MeshViewer::ManageImGuiState()
                 Mesh& m = graph->mesh;
                 ScaleTextureCoordinatesToParameterArea(m, _currentTexture);
                 if (SaveMesh(m, exportFileName, _currentTexture, true) == false) {
-                    std::cout << "Model not saved correctly" << std::endl;
+                    LOG_ERR << "Model not saved correctly";
                 }
                 ScaleTextureCoordinatesToImage(m, _currentTexture);
                 ImGui::CloseCurrentPopup();
@@ -1773,19 +1774,14 @@ void MeshViewer::ManageImGuiState()
         if (ImGui::Button("Iterate")) {
             IterationInfo info;
             for (int i = 0; i < iternum; ++i) {
-                std::cout << "Iteration " << i << std::endl;
+                LOG_INFO << "Iteration " << i;
                 info = parameterizer->Iterate();
             }
-            std::cout << "Energy = " << info.energyVal << ", DeltaE = " << info.energyDiff << ", Gradient norm = " << info.gradientNorm << std::endl;
+            LOG_INFO << "Energy = " << info.energyVal << ", DeltaE = " << info.energyDiff << ", Gradient norm = " << info.gradientNorm;
             shellChanged = true;
         }
         ImGui::SameLine();
         ImGui::Text("Iterations: %d", parameterizer->IterationCount());
-
-        if (ImGui::Button("Place cut")) {
-            parameterizer->PlaceCut();
-            shellChanged = true;
-        }
 
         ImGui::Separator();
         static int ncones = 0;
@@ -1800,14 +1796,14 @@ void MeshViewer::ManageImGuiState()
                 //parameterizer->InitializeSolution();
                 shellChanged = true;
             } else {
-                std::cout << "Unable to place cut" << std::endl;
+                LOG_INFO << "Unable to place cut";
             }
         }
         ImGui::Separator();
 
         if (ImGui::Button("Fix uvs")) {
             if (primaryCharts.size() != 1) {
-                std::cout << "Unable to fix uv for non-unique primary chart" << std::endl;
+                LOG_INFO << "Unable to fix uv for non-unique primary chart";
             } else {
                 parameterizer->SyncChart();
                 //RegionID selId = primaryCharts.begin()->first;
@@ -1820,7 +1816,7 @@ void MeshViewer::ManageImGuiState()
 
         if (ImGui::Button("Split chart")) {
             if (primaryCharts.size() != 1) {
-                std::cout << "Unable to split non-unique primary chart" << std::endl;
+                LOG_INFO << "Unable to split non-unique primary chart";
             } else {
                 auto id = primaryCharts.begin()->first;
                 ClearSelection();
@@ -1829,10 +1825,8 @@ void MeshViewer::ManageImGuiState()
                 std::vector<ChartHandle> newCharts;
                 RecoverFromSplit(splitCharts, *gm, newCharts, true);
                 for (auto& c : newCharts)
-                    std::cout << "Chart " << c->id << " is new" << std::endl;
+                    LOG_INFO << "Chart " << c->id << " is new";
             }
-
-
         }
 
         ImGui::End();
@@ -1904,7 +1898,8 @@ void MeshViewer::ManageImGuiState()
 void MeshViewer::gmClose()
 {
     int count = gm->CloseMacroRegions(0.02);
-    if (count > 0) std::cout << "Close operation merged " << count << " regions" << std::endl;
+    if (count > 0)
+        LOG_INFO << "Close operation merged " << count << " regions";
 }
 
 bool MeshViewer::gmHasNextEdge()

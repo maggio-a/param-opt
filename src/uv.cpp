@@ -124,3 +124,13 @@ void MarkSeamsAsFaux(Mesh& m)
         }
     }
 }
+
+bool CheckLocalInjectivity(Mesh& m)
+{
+    for (auto &f : m.face) {
+        if (DistortionMetric::AreaUV(f) <= 0) {
+            return false;
+        }
+    }
+    return true;
+}

@@ -24,21 +24,16 @@ HEADERS += \
     ../src/mesh_graph.h \
     ../src/vertex_position.h \
     ../src/texture_rendering.h \
-    ../src/iterative.h \
     ../src/energy.h \
     ../src/math_utils.h \
-    ../src/texture_optimization.h \
     ../src/metric.h \
     ../src/texture.h \
     ../src/pushpull.h \
     ../src/gl_utils.h \
-    ../src/uniform_solver.h \
-    ../src/dcp_solver.h \
     ../src/mesh_utils.h \
     ../src/mesh_attribute.h \
     ../src/polygon2_triangulator.h \
     ../src/parameterization.h \
-    ../src/mean_value_param.h \
     ../src/packing_utils.h \
     ../src/logging.h
 

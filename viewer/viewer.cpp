@@ -76,13 +76,12 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject, Args 
 
     graph->textureObject = newTexture;
 
-    PrintParameterizationInfo(graph);
     LogAggregateStats("stats_output", graph, newTexture);
     std::vector<RasterizedParameterizationStats> after = GetRasterizationStats(m, newTexture);
     LOG_INFO << "Raster stats after processing";
     LogParameterizationStats(graph, after);
 
-    LOG_VERBOSE << "Processing took " << t.TimeElapsed() << " seconds";
+    LOG_INFO << "Processing took " << t.TimeElapsed() << " seconds";
 
     std::string savename = "out_" + m.name;
     if (SaveMesh(m, savename.c_str(), newTexture, true) == false) {
@@ -133,7 +132,6 @@ int main(int argc, char *argv[])
 
     {
         auto dummyGraph = ComputeParameterizationGraph(m, textureObject);
-        PrintParameterizationInfo(dummyGraph);
         LogAggregateStats("stats_input", dummyGraph, textureObject);
         std::vector<RasterizedParameterizationStats> before = GetRasterizationStats(m, textureObject);
         LOG_INFO << "Raster stats before processing";

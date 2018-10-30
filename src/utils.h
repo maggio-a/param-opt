@@ -5,7 +5,7 @@
 #include <iostream>
 
 #define ensure_condition(expr) \
-    ((expr)\
+    ((expr) \
      ? (void) (0) \
      : ensure_condition_fail(#expr, __FILE__, __LINE__))
 
@@ -23,7 +23,7 @@ struct Args {
     bool fixContextCapture;
     int logLevel;
 
-    Args() : filename{}, regionCount{20}, gui{false}, filter{true}, logLevel{1} {}
+    Args() : filename{}, regionCount{20}, gui{false}, filter{true}, logLevel{0} {}
 };
 
 /*
@@ -37,7 +37,7 @@ struct Args {
  *                         Note that this value is summed to the number of connected components...
  *                         default for NUM is 20
  *
- *   --loglevel NUM        Verbosity (0 minimal, 2 debug) (default 1)
+ *   --loglevel NUM        Verbosity (0 minimal, 2 debug) (default 0)
  *
  *   --fixcontextcapture   Use a simple topological filter to try to clean troublesome regions
  *
@@ -63,7 +63,7 @@ inline Args parse_args(int argc, char *argv[])
             } else if (arg == "loglevel") {
                 i++;
                 ensure_condition(i < argc);
-                int level = std::stoi(std::string(argv[i]));
+                int level = std::max(0, std::stoi(std::string(argv[i])));
                 args.logLevel = level;
             } else {
                 ensure_condition(0 && "Invalid command line argument");

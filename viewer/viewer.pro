@@ -12,10 +12,11 @@ SOURCES += viewer.cpp \
     ../src/texture.cpp \
     ../src/mesh_viewer.cpp \
     ../src/mesh.cpp \
-    ../src/iterative.cpp \
     ../src/texture_rendering.cpp \
     ../src/packing_utils.cpp \
-    ../src/logging.cpp
+    ../src/logging.cpp \
+    ../src/iterative_solvers.cpp \
+    ../src/parallel.cpp
 
 SOURCES += \
     ../imgui/imgui_demo.cpp \
@@ -39,7 +40,6 @@ HEADERS += \
     ../src/mesh_viewer.h \
     ../src/vertex_position.h \
     ../src/texture_rendering.h \
-    ../src/iterative.h \
     ../src/energy.h \
     ../src/math_utils.h \
     ../src/texture_optimization.h \
@@ -47,15 +47,15 @@ HEADERS += \
     ../src/texture.h \
     ../src/pushpull.h \
     ../src/gl_utils.h \
-    ../src/uniform_solver.h \
-    ../src/dcp_solver.h \
     ../src/mesh_utils.h \
     ../src/mesh_attribute.h \
     ../src/polygon2_triangulator.h \
     ../src/parameterization.h \
-    ../src/mean_value_param.h \
     ../src/packing_utils.h \
-    ../src/logging.h
+    ../src/logging.h \
+    ../src/parallel.h \
+    ../src/linear_solvers.h \
+    ../src/iterative_solvers.h
 
 HEADERS += \
     ../imgui/imconfig.h \

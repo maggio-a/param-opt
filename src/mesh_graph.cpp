@@ -6,8 +6,6 @@
 #include "metric.h"
 #include "uv.h"
 #include "mesh_attribute.h"
-#include "uniform_solver.h"
-#include "mean_value_param.h"
 #include "timer.h"
 #include "utils.h"
 #include "logging.h"

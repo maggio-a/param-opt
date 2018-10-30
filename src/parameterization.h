@@ -4,7 +4,7 @@
 #include "mesh.h"
 #include "mesh_graph.h"
 #include "energy.h"
-#include "iterative.h"
+#include "iterative_solvers.h"
 
 #include <Eigen/Core>
 #include <memory>
@@ -143,7 +143,6 @@ public:
 
     bool Parameterize();
     IterationInfo Iterate();
-    void PlaceCut();
     bool PlaceCutWithConeSingularities(int ncones);
     int PlaceCutWithConesUntilThreshold(double conformalScalingThreshold);
     void RemeshHolefillingAreas();

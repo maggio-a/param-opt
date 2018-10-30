@@ -4,6 +4,7 @@
 #include "texture_optimization.h"
 #include "texture_rendering.h"
 #include "logging.h"
+#include "parameterization.h"
 
 namespace parallel {
 
@@ -81,7 +82,7 @@ void WorkerPool::ParameterizationWorker(int id, ParameterizationStrategy strateg
         injectivityCheckRequired = true;
     }
 
-    Timer timer;
+    double activeTime = 0;
 
     ensure_condition(HasWedgeTexCoordStorageAttribute(graphMgr.Graph()->mesh));
     auto wtcsattr = GetWedgeTexCoordStorageAttribute(graphMgr.Graph()->mesh);
@@ -104,7 +105,7 @@ void WorkerPool::ParameterizationWorker(int id, ParameterizationStrategy strateg
 
             bool parameterized = false;
 
-            Timer t;
+            Timer timer;
 
             ParameterizerObject po{chart, strat};
             po.Initialize();
@@ -183,13 +184,17 @@ void WorkerPool::ParameterizationWorker(int id, ParameterizationStrategy strateg
             }
 
             numActiveTasks--;
+            float taskTime = timer.TimeElapsed();
+            LOG_DEBUG << "Completing task took " << taskTime << " seconds";
+            activeTime += taskTime;
         } else {
             noTaskIter++;
-            if (numActiveTasks > 0)
-                //std::this_thread::yield();
-                std::this_thread::sleep_for(std::chrono::milliseconds(10) * std::min(noTaskIter, 10));
-            else
+            if (numActiveTasks > 0) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10) * std::min(noTaskIter, 20));
+            } else {
+                LOG_DEBUG << "Total active time: " << activeTime << " seconds";
                 return;
+            }
         }
     }
 }

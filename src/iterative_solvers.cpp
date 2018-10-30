@@ -24,7 +24,7 @@
 #include <Eigen/Core>
 #include <Eigen/Sparse>
 
-#include "iterative.h"
+#include "iterative_solvers.h"
 #include "mesh.h"
 #include "energy.h"
 #include "math_utils.h"
