@@ -747,8 +747,10 @@ bool ParameterizerObject::InitializeSolution()
 
 bool ParameterizerObject::Parameterize()
 {
-    if (status != Initialized)
+    if (status != Initialized) {
+        LOG_DEBUG << "ParameterizerObject not initialized";
         return false;
+    }
 
     if (!OptimizerIsInitialized())
         InitializeOptimizer();

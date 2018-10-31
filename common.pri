@@ -67,7 +67,7 @@ win32 {
 #### PLATFORM SPECIFIC FLAGS ###################################################
 
 unix {
-  CMAKE_CXXFLAGS += -g
+  QMAKE_CXXFLAGS += -g
 }
 
 win32 {

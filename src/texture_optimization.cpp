@@ -375,8 +375,9 @@ void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
         } else {
             {
                 ParameterizerObject po{chart, strategy_cm};
-                po.SetEnergyDiffTolerance(0);
-                parameterized = po.Parameterize();
+                po.Initialize();
+                if (po.GetStatus() == ParameterizerObject::Status::Initialized)
+                    parameterized = po.Parameterize();
                 if (parameterized)
                     po.SyncChart();
             }
@@ -384,8 +385,9 @@ void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
             if (!parameterized) {
                 LOG_DEBUG << "Parameterization using CM failed, falling back to SLIM";
                 ParameterizerObject po{chart, strategy_slim};
-                po.SetEnergyDiffTolerance(0);
-                parameterized = po.Parameterize();
+                po.Initialize();
+                if (po.GetStatus() == ParameterizerObject::Status::Initialized)
+                    parameterized = po.Parameterize();
                 if (parameterized)
                     po.SyncChart();
             }

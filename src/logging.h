@@ -87,7 +87,7 @@ class Logger {
     static std::vector<std::ostream *> streamVec;
     static std::unordered_map<std::thread::id, std::string> threadNames;
 
-    static std::mutex singletonLock;
+    static std::mutex singletonMtx;
 
 public:
 

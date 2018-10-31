@@ -97,6 +97,7 @@ void LogDistortionStats(std::shared_ptr<MeshGraph> graph)
 void LogParameterizationStats(std::shared_ptr<MeshGraph> graph, const std::vector<RasterizedParameterizationStats>& statsVec)
 {
     int boundaries;
+
     tri::UpdateTopology<Mesh>::FaceFaceFromTexCoord(graph->mesh);
     boundaries = tri::Clean<Mesh>::CountHoles(graph->mesh);
     tri::UpdateTopology<Mesh>::FaceFace(graph->mesh);
@@ -458,7 +459,7 @@ Buffer::~Buffer()
 int Logger::logLevel = 0;
 std::vector<std::ostream *> Logger::streamVec{};
 std::unordered_map<std::thread::id, std::string> Logger::threadNames{};
-std::mutex Logger::singletonLock{};
+std::mutex Logger::singletonMtx{};
 
 void Logger::Init(int level)
 {
@@ -473,19 +474,19 @@ int Logger::GetLogLevel()
 
 void Logger::RegisterStream(std::ostream *os)
 {
-    std::lock_guard<std::mutex>{Logger::singletonLock};
+    std::lock_guard<std::mutex> lock{Logger::singletonMtx};
     Logger::streamVec.push_back(os);
 }
 
 void Logger::RegisterName(const std::string& threadName)
 {
-    std::lock_guard<std::mutex>{Logger::singletonLock};
+    std::lock_guard<std::mutex> lock{Logger::singletonMtx};
     threadNames[std::this_thread::get_id()] = threadName;
 }
 
 std::string Logger::GetName()
 {
-    std::lock_guard<std::mutex>{Logger::singletonLock};
+    std::lock_guard<std::mutex> lock{Logger::singletonMtx};
     auto tid = std::this_thread::get_id();
     if (threadNames.count(tid) > 0)
         return threadNames[tid];
@@ -501,7 +502,7 @@ void Logger::Log(const std::string& s)
     std::stringstream ss;
     ss << std::setw(16) << Logger::GetName() << " | " << s << std::endl;
 
-    std::lock_guard<std::mutex>{Logger::singletonLock};
+    std::lock_guard<std::mutex> lock{Logger::singletonMtx};
 
     std::cout << ss.str();
 

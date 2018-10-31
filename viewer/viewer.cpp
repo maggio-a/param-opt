@@ -125,11 +125,9 @@ int main(int argc, char *argv[])
 
     ensure_condition(loadMask & tri::io::Mask::IOM_WEDGTEXCOORD);
 
-
     GLInit();
 
     // Log original info
-
     {
         auto dummyGraph = ComputeParameterizationGraph(m, textureObject);
         LogAggregateStats("stats_input", dummyGraph, textureObject);
