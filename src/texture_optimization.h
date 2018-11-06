@@ -37,6 +37,8 @@ struct PackingOptions {
     bool oneContainer; // only meaningful if the input model has multiple textures
 };
 
+void RemoveDegeneracies(Mesh& m);
+
 int RemoveOutliers(GraphHandle& graph);
 
 void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph);

@@ -25,10 +25,115 @@
 #include <vcg/space/segment2.h>
 #include <vcg/space/intersection2.h>
 
+#include <vcg/complex/algorithms/isotropic_remeshing.h>
+
 #include <wrap/io_trimesh/export.h>
 
 #include <vector>
 #include <algorithm>
+
+#include <vcg/complex/algorithms/update/color.h>
+
+
+// NOTE TODO FIXME
+// This
+void RemoveDegeneracies(Mesh& m)
+{
+    int dupVert = tri::Clean<Mesh>::RemoveDuplicateVertex(m);
+    //int zeroArea = tri::Clean<Mesh>::RemoveZeroAreaFace(m);
+
+    tri::Allocator<Mesh>::CompactEveryVector(m);
+
+    tri::UpdateTopology<Mesh>::FaceFace(m);
+
+    if (dupVert > 0)
+        LOG_VERBOSE << "Removed " << dupVert << " duplicate vertices";
+
+    //if (zeroArea > 0)
+    //    LOG_VERBOSE << "Removed " << zeroArea << " zero area faces";
+
+    int numVertexSplit = 0;
+    int nv;
+    while ((nv = tri::Clean<Mesh>::SplitNonManifoldVertex(m, 0)) > 0)
+        numVertexSplit += nv;
+    if (numVertexSplit > 0)
+        LOG_VERBOSE << "Mesh was not vertex manifold, split " << numVertexSplit << " vertices";
+    else
+        LOG_VERBOSE << "Mesh is vertex manifold";
+
+    int numRemovedFaces = tri::Clean<Mesh>::RemoveNonManifoldFace(m);
+    if (numRemovedFaces > 0)
+        LOG_VERBOSE << "Mesh was not edge manifold, removed " << numRemovedFaces << " faces";
+    else
+        LOG_VERBOSE << "Mesh is edge manifold";
+
+    tri::Allocator<Mesh>::CompactEveryVector(m);
+
+    // Handle zero area faces by selecting them, dilating the selation and remeshing
+    // the selected areas. Zero area holes are handles in the same way by being filled
+    // beforehand
+
+    LOG_INFO << "FIXME Remeshing does not guarantee that texture coordinates are preserved";
+
+    unsigned fn = m.face.size();
+    tri::Hole<Mesh>::EarCuttingFill<tri::MinimumWeightEar<Mesh>>(m, 4, false);
+    for (unsigned i = 0; i < m.face.size(); ++i) {
+        double farea = DoubleArea(m.face[i]) / 2.0;
+        if ((farea == 0) || ((i >= fn) && (farea < 1e-8))) {
+            m.face[i].SetS();
+        } else if (i >= fn) {
+            LOG_DEBUG << "Deleting hole face of area " << farea;
+            tri::Allocator<Mesh>::DeleteFace(m, m.face[i]);
+        }
+    }
+    tri::Clean<Mesh>::RemoveUnreferencedVertex(m);
+    tri::Allocator<Mesh>::CompactEveryVector(m);
+
+    // dilate selection
+    tri::UpdateSelection<Mesh>::VertexFromFaceLoose(m, true);
+    tri::UpdateSelection<Mesh>::FaceFromVertexLoose(m, true);
+
+    double avgEdgeLen = 0;
+    int selCount = 0;
+    for (auto& f : m.face) {
+        if (f.IsS()) {
+            for (int i = 0; i < 3; ++i) {
+                avgEdgeLen += EdgeLength(f, i);
+                selCount++;
+            }
+        }
+    }
+    avgEdgeLen /= selCount;
+
+    tri::UpdateColor<Mesh>::PerFaceConstant(m, vcg::Color4b::DarkGray);
+    for (auto& f : m.face)
+        if (f.IsS())
+            f.C() = vcg::Color4b::Cyan;
+
+    tri::io::Exporter<Mesh>::Save(m, "color.obj", tri::io::Mask::IOM_FACECOLOR | tri::io::Mask::IOM_WEDGTEXCOORD);
+
+    if (selCount > 0) {
+        LOG_DEBUG << "Detected zero area faces/holes";
+        IsotropicRemeshing<Mesh>::Params params;
+        params.stat.Reset();
+        params.SetTargetLen(avgEdgeLen);
+        params.SetFeatureAngleDeg(30);
+        params.splitFlag = true;
+        params.swapFlag = true;
+        params.collapseFlag = true;
+        params.selectedOnly = true;
+        params.smoothFlag = false;
+        params.projectFlag = false;
+        params.iter = 1;
+        IsotropicRemeshing<Mesh>::Do(m, params);
+        tri::Allocator<Mesh>::CompactEveryVector(m);
+        tri::UpdateTopology<Mesh>::FaceFace(m);
+        LOG_DEBUG << "Zero area face remeshing: " << params.stat.collapseNum << "c " << params.stat.flipNum << "f " << params.stat.splitNum << "s";
+        tri::io::Exporter<Mesh>::Save(m, "remesh.obj", tri::io::Mask::IOM_FACECOLOR | tri::io::Mask::IOM_WEDGTEXCOORD);
+    }
+
+    LOG_DEBUG << "Cleaning done";
+}
 
 static bool SegmentBoxIntersection(const Segment2<double>& seg, const Box2d& box)
 {

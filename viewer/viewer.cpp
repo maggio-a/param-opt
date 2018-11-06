@@ -140,31 +140,7 @@ int main(int argc, char *argv[])
 
     LOG_INFO << "Cleaning mesh...";
 
-    int dupVert = tri::Clean<Mesh>::RemoveDuplicateVertex(m);
-    int zeroArea = tri::Clean<Mesh>::RemoveZeroAreaFace(m);
-
-    tri::Allocator<Mesh>::CompactEveryVector(m);
-
-    tri::UpdateTopology<Mesh>::FaceFace(m);
-
-    if (dupVert > 0)
-        LOG_VERBOSE << "Removed " << dupVert << " duplicate vertices";
-
-    if (zeroArea > 0)
-        LOG_VERBOSE << "Removed " << zeroArea << " zero area faces";
-
-    int numVertexSplit = 0;
-    int nv;
-    while ((nv = tri::Clean<Mesh>::SplitNonManifoldVertex(m, 0)) > 0)
-        numVertexSplit += nv;
-    if (numVertexSplit > 0)
-        LOG_VERBOSE << "Mesh was not vertex manifold, split " << numVertexSplit << " vertices";
-
-    int numRemovedFaces = tri::Clean<Mesh>::RemoveNonManifoldFace(m);
-    if (numRemovedFaces > 0)
-        LOG_VERBOSE << "Mesh was not edge manifold, removed " << numRemovedFaces << " faces";
-
-    tri::Allocator<Mesh>::CompactEveryVector(m);
+    RemoveDegeneracies(m);
 
     {
         auto dummyGraph = ComputeParameterizationGraph(m, textureObject);
