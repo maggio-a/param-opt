@@ -43,6 +43,8 @@ void WorkerPool::Run(ParameterizationStrategy strategy, double injectivityTolera
         std::sort(tasks.begin(), tasks.end(), [](const TaskType& t1, const TaskType& t2) { return t1.chart->FN() > t2.chart->FN(); });
         for (auto& t : tasks)
             globalQueue->Put(t);
+
+        LOG_INFO << "Starting " << threadnum << " workers to compute " << tasks.size() << " parameterizations";
     }
 
     // start the threads

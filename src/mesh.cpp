@@ -155,6 +155,7 @@ bool Parameterizable(Mesh &m)
     if (!tri::Clean<Mesh>::IsCoherentlyOrientedMesh(m)) {
         bool p1, p2;
         tri::Clean<Mesh>::OrientCoherentlyMesh(m, p1, p2);
+        if (!p2)
             LOG_DEBUG << "Mesh is non-orientable";
         return p2;
     }

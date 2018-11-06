@@ -947,7 +947,24 @@ void CompMaj::UpdateJ()
         d(i) = D2d.col(i).transpose() * f_v;
     }
     detJuv = a.cwiseProduct(d) - b.cwiseProduct(c);
-    ensure_condition(!(detJuv.array() < 0).any());
+    for (int i = 0; i < fn; ++i) {
+        MeshFace& f = m.face[i];
+        if (detJuv[i] <= 0) {
+            std::stringstream ss;
+            ss << "Found negative determinant for ";
+            if (f.IsMesh())
+                ss << "mesh ";
+            else if (f.IsHoleFilling())
+                ss << " hole-filling ";
+            else if (f.IsScaffold())
+                ss << " scaffold ";
+            else
+                ensure_condition(0 && "impossible");
+            ss << "face " << i << ", value = " << detJuv[i];
+            LOG_ERR << ss.str();
+        }
+    }
+    ensure_condition(!(detJuv.array() <= 0).any());
 }
 
 static inline void SSVD2x2(const Eigen::Matrix2d& A, Eigen::Matrix2d& U, Eigen::Matrix2d& S, Eigen::Matrix2d& V)

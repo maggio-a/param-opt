@@ -33,6 +33,7 @@ void LogExecutionParameters(const Args& args, const ParameterizationStrategy& st
 
 #define LOG_INIT(level) (logging::Logger::Init(level))
 #define LOG_SET_THREAD_NAME(name) (logging::Logger::RegisterName(name))
+#define LOG_GET_THREAD_NAME (logging::Logger::GetName())
 #define LOG(level) (level > logging::Logger::GetLogLevel()) ? ((void) 0) : logging::V_() & logging::Buffer(level)
 
 #define LOG_ERR     LOG(logging::Level::Error)

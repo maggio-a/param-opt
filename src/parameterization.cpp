@@ -180,6 +180,12 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
         }
         tsa[sf] = target;
         targetArea += ((target.P[1] - target.P[0]) ^ (target.P[2] - target.P[0])).Norm() / 2.0;
+
+        bool ok = std::isfinite(targetArea) && (targetArea > 0);
+        if (!ok) {
+            LOG_DEBUG << "Problem with face " << tri::Index(shell, sf);
+            tri::io::Exporter<Mesh>::Save(shell, "non_finite_target_area.obj", tri::io::Mask::IOM_ALL);
+        }
         ensure_condition(std::isfinite(targetArea));
         ensure_condition(targetArea > 0);
 
@@ -486,12 +492,10 @@ void ParameterizerObject::Initialize()
 
     MarkInitialSeamsAsFaux(shell, baseMesh);
 
-    bool cut = false;
     // cut the mesh (if strategy allows) (3D)
     if (strategy.applyCut) {
         int nc = PlaceCutWithConesUntilThreshold_3D(conformalScalingThreshold);
         LOG_DEBUG << "Placed " << nc << " cuts";
-        if (nc) cut = true;
     }
 
     // initialize solution (3D)
@@ -505,6 +509,8 @@ void ParameterizerObject::Initialize()
 
     // sync shell with uv (3D -> 2D)
     SyncShellWithUV(shell);
+
+    ComputeBoundaryInfo(shell);
 
     // close shell holes (2D)
     if (strategy.padBoundaries)
@@ -520,6 +526,8 @@ void ParameterizerObject::Initialize()
         CoordStorage target = tsa[sf];
         targetArea += ((target.P[1] - target.P[0]) ^ (target.P[2] - target.P[0])).Norm() / 2.0;
     }
+
+    LOG_DEBUG << "Target surface area = " << targetArea;
 
     InitializeOptimizer();
 
@@ -748,7 +756,7 @@ bool ParameterizerObject::InitializeSolution()
 bool ParameterizerObject::Parameterize()
 {
     if (status != Initialized) {
-        LOG_DEBUG << "ParameterizerObject not initialized";
+        LOG_DEBUG << "ParameterizerObject is not initialized (" << GetStatus() << ")";
         return false;
     }
 
@@ -765,6 +773,11 @@ bool ParameterizerObject::Parameterize()
     }
 
     SetStatus(OK);
+
+    if (strategy.padBoundaries) {
+        int nh = tri::Clean<Mesh>::CountHoles(shell);
+        ensure_condition(nh == 1);
+    }
 
     // parameterizer state
     Timer t;
@@ -931,51 +944,40 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold(double cst)
     // Put the shell in a configuration suitable to compute the conformal scaling factors
     ClearHoleFillingFaces(shell, true, true);
 
-    std::vector<double> savedUVs;
-    for (auto& sf : shell.face) {
-        for (int i = 0; i < 3; ++i) {
-            savedUVs.push_back(sf.P(i).X());
-            savedUVs.push_back(sf.P(i).Y());
-        }
-    }
-
     SyncShellWith3D(shell);
     tri::UpdateTopology<Mesh>::FaceFace(shell);
 
+    ComputeBoundaryInfo(shell);
     CloseMeshHoles(shell);
 
     int numPlacedCones = PlaceCutWithConesUntilThreshold_3D(cst);
 
-    // Cleanup (and restore hole-filling and scaffold faces if needed)
-    ClearHoleFillingFaces(shell, true, true);
+    // if cones were found we reinitialize the solution, otherwise just leave
+    // everything as is. In this second case we can simply return the shell to
+    // the previous uv state, which is not changed.
 
-    // restore the vertex texture coordinates
-    ensure_condition(shell.FN() == ((int) savedUVs.size() / 6));
-    double *coordPtr = savedUVs.data();
-    for (auto& sf : shell.face) {
-        for (int i = 0; i < 3; ++i) {
-            sf.V(i)->T().P().X() = *coordPtr++;
-            sf.V(i)->T().P().Y() = *coordPtr++;
-        }
+    if (numPlacedCones > 0) {
+        InitializeSolution();
     }
 
+    // Cleanup (and restore hole-filling and scaffold faces if needed)
+    ClearHoleFillingFaces(shell, true, true);
     SyncShellWithUV(shell);
 
     if (strategy.padBoundaries) {
+        ComputeBoundaryInfo(shell);
         CloseShellHoles(shell, strategy.geometry, baseMesh);
     }
 
-    // Initialize solution if cones were placed
-    if (numPlacedCones > 0)
-        InitializeSolution();
-
-    if (strategy.scaffold)
+    if (strategy.scaffold) {
         BuildScaffold(shell, strategy.geometry, baseMesh);
+    }
 
     MarkInitialSeamsAsFaux(shell, baseMesh);
 
-    if (OptimizerIsInitialized())
+    if (OptimizerIsInitialized()) {
         opt->UpdateCache();
+    }
 
     return numPlacedCones;
 }

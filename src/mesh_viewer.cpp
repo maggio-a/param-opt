@@ -790,6 +790,8 @@ void MeshViewer::UpdateSelection(const RegionID id)
                 shellGroup->AddFace(fptr);
         // Parameterize the aggregate chart, build the vertex buffer and restore the original state
         parameterizer = std::make_shared<ParameterizerObject>(shellGroup, strategy);
+        parameterizer->Initialize();
+        LOG_INFO << "Parameterizer status: " << parameterizer->GetStatus();
 
         // if necessary, initialized detail vaos and buffers
         if (_detailView.vao == 0) {

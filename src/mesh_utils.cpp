@@ -15,7 +15,6 @@ using namespace vcg;
 
 void CloseMeshHoles(Mesh& shell)
 {
-    //ensure_condition(0 && "Cleanup this mess pls");
     int startFN = shell.FN();
 
     // Get border info
