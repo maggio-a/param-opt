@@ -57,7 +57,7 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject, Args 
 
     RecomputeSegmentation(gm, args.regionCount + (cc - 1), areaThreshold);
 
-    int c = ParameterizeGraph(gm, strategy, tolerance);
+    int c = ParameterizeGraph(gm, strategy, tolerance, args.nw);
     if (c > 0)
         LOG_WARN << c << " Regions were not parameterized correctly";
 

@@ -287,17 +287,14 @@ void LogAggregateStats(const std::string& filename, std::shared_ptr<MeshGraph> g
 
     double mapped_fraction = graph->MappedFraction();
 
-
     // number of chart
     int num_charts = graph->Count();
-
 
     // number of null chart
     int num_null_charts = 0;
     for (auto entry : graph->charts)
         if (entry.second->AreaUV() == 0)
             num_null_charts++;
-
 
     // angle distortion histogram
     ScaleTextureCoordinatesToImage(m, textureObject);

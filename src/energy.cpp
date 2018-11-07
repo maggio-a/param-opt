@@ -105,7 +105,6 @@ MatrixXd Energy::Grad()
         g.row(Index(m, f.V(2))) += gf[2];
     }
     return g;
-
 }
 
 void Energy::MapToFaceQuality(bool normalized)
@@ -168,19 +167,21 @@ double SymmetricDirichletEnergy::NormalizedMinValue()
 
 double SymmetricDirichletEnergy::E(const Mesh::FaceType& f)
 {
-    double o[3] = { // (opposite edge)^2
-        (   u1-u2).SquaredNorm(),
-        (u0   -u2).SquaredNorm(),
-        (u0-u1   ).SquaredNorm(),
-    };
-
-    double area3D = data[f][3];
     double areaUV = 0.5 * ((u1 - u0) ^ (u2 - u0));
-    double e_d = 0.5 * (data[f][0] * o[0] + data[f][1] * o[1] + data[f][2] * o[2]);
 
-    double energy = (1 + (area3D*area3D)/(areaUV*areaUV)) * (e_d);
-
-    return energy;
+    if (areaUV <= 0) {
+        return std::numeric_limits<double>::infinity();
+    } else {
+        double area3D = data[f][3];
+        double o[3] = { // (opposite edge)^2
+            (   u1-u2).SquaredNorm(),
+            (u0   -u2).SquaredNorm(),
+            (u0-u1   ).SquaredNorm(),
+        };
+        double e_d = 0.5 * (data[f][0] * o[0] + data[f][1] * o[1] + data[f][2] * o[2]);
+        double energy = (1 + (area3D*area3D)/(areaUV*areaUV)) * (e_d);
+        return energy;
+    }
 }
 
 void SymmetricDirichletEnergy::Grad(int faceIndex, Eigen::Vector2d& g0, Eigen::Vector2d& g1, Eigen::Vector2d& g2)

@@ -95,6 +95,7 @@ private:
 
 
     ParameterizationStrategy strategy;
+    int nw; // number of workers for the graph parameterization
 
 
     // TODO move the optimizer parameters somewhere else

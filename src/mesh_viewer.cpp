@@ -335,7 +335,8 @@ MeshViewer::MeshViewer(GraphHandle gh, const Args& args)
       regionCount{0},
       _textureCamera{},
       _detailCamera{},
-      strategy(DefaultStrategy())
+      strategy(DefaultStrategy()),
+      nw{args.nw}
 {
     ensure_condition(_currentTexture->ArraySize() == 1 && "Only single texture meshes are supported by the viewer");
     Mesh& m = graph->mesh;
@@ -1538,7 +1539,7 @@ void MeshViewer::ManageImGuiState()
         if (clickPack) {
             ClearSelection();
             if (graph->MergeCount() > 0) {
-                int c = ParameterizeGraph(*gm, strategy, retry ? tau : -1);
+                int c = ParameterizeGraph(*gm, strategy, retry ? tau : -1, nw);
                 if (c > 0)
                     LOG_WARN << c << " regions were not parameterized correctly";
                 PackingOptions opts = { RasterizationBasedPacker::Parameters::CostFuncEnum::MinWastedSpace, true, true, true, true };

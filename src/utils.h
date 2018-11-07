@@ -22,8 +22,9 @@ struct Args {
     bool filter;
     bool fixContextCapture;
     int logLevel;
+    int nw;
 
-    Args() : filename{}, regionCount{20}, gui{false}, filter{true}, logLevel{0} {}
+    Args() : filename{}, regionCount{20}, gui{false}, filter{true}, logLevel{0}, nw{1} {}
 };
 
 /*
@@ -38,6 +39,8 @@ struct Args {
  *                         default for NUM is 20
  *
  *   --loglevel NUM        Verbosity (0 minimal, 2 debug) (default 0)
+ *
+ *   --nw NUM              Set the number of worker threads during parameterization (default 1)
  *
  *   --fixcontextcapture   Use a simple topological filter to try to clean troublesome regions
  *
@@ -63,8 +66,15 @@ inline Args parse_args(int argc, char *argv[])
             } else if (arg == "loglevel") {
                 i++;
                 ensure_condition(i < argc);
-                int level = std::max(0, std::stoi(std::string(argv[i])));
-                args.logLevel = level;
+                int loglevel = std::stoi(std::string(argv[i]));
+                ensure_condition(loglevel >= 0);
+                args.logLevel = loglevel;
+            } else if (arg == "nw") {
+                i++;
+                ensure_condition(i < argc);
+                int nw = std::stoi(std::string(argv[i]));
+                ensure_condition(nw > 0);
+                args.nw = std::min(nw, 16); // no more than 16 workers
             } else {
                 ensure_condition(0 && "Invalid command line argument");
             }

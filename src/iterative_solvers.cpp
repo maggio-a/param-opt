@@ -40,10 +40,15 @@ using Eigen::Vector2d;
 // Quadratic equation solver
 static double QuadraticRoots(double a, double b, double c, double *x1, double *x2)
 {
-    double delta = b*b - 4.0f*a*c;
+    double delta = b*b - 4.0*a*c;
     if (delta >= 0) {
-        *x1 = (-b + std::sqrt(delta)) / (2*a);
-        *x2 = (-b - std::sqrt(delta)) / (2*a);
+        if (b >= 0) {
+            *x1 = (-b - std::sqrt(delta)) / (2*a);
+            *x2 = (2*c) / (-b - std::sqrt(delta));
+        } else {
+            *x1 = (2*c) / (-b + std::sqrt(delta));
+            *x2 = (-b + std::sqrt(delta)) / (2*a);
+        }
     }
     return delta;
 }
@@ -62,12 +67,17 @@ static double ComputeStepSizeNoFlip(const Vector2d& pi, const Vector2d& pj, cons
 
     double x1, x2;
     double delta = QuadraticRoots(a, b, c, &x1, &x2);
-    if (delta < 0) return std::numeric_limits<double>::max();
+    if (delta < 0)
+        return std::numeric_limits<double>::max();
     //ensure_condition(x1 != 0 && x2 != 0);
-    if (x2 < x1) std::swap(x1, x2);
-    if (x1 > 0) return x1;
-    else if (x2 > 0) return x2;
-    else return std::numeric_limits<double>::max();
+    if (x2 < x1)
+        std::swap(x1, x2);
+    if (x1 > 0)
+        return x1;
+    else if (x2 > 0)
+        return x2;
+    else
+        return std::numeric_limits<double>::max();
 }
 
 
@@ -89,7 +99,6 @@ DescentMethod::~DescentMethod()
 bool DescentMethod::Iterate(double& gradientNorm, double& objValDiff, double& energyAfterIter)
 {
     double energyPrev = energy->E();
-
     MatrixXd uv = X();
     MatrixXd grad = energy->Grad();
 
@@ -230,6 +239,8 @@ double DescentMethod::Search(const MatrixXd& uv, const MatrixXd& grad, const Mat
         E_t = energy->E();
         numIter++;
     }
+
+    ensure_condition(CheckLocalInjectivity(m) == true);
 
     return E_t;
 }
@@ -936,8 +947,32 @@ void CompMaj::UpdateCache()
 
 void CompMaj::UpdateJ()
 {
+    detJuv.resize(fn);
     for (auto& f : m.face) {
         int i = tri::Index(m, f);
+
+        Point3d p10 = energy->P1(&f) - energy->P0(&f);
+        Point3d p20 = energy->P2(&f) - energy->P0(&f);
+        Eigen::Matrix2d fm;
+        Eigen::Vector2d x1, x2;
+        LocalIsometry(p10, p20, x1, x2);
+        fm.col(0) = x1;
+        fm.col(1) = x2;
+        Point2d u10 = (f.V(1)->T().P() - f.V(0)->T().P());
+        Point2d u20 = (f.V(2)->T().P() - f.V(0)->T().P());
+        Eigen::Matrix2d fp;
+        fp << u10[0], u20[0], u10[1], u20[1];
+        Eigen::Matrix2d J = fp * fm.inverse();
+
+        double det = J.determinant();
+        ensure_condition(det > 0);
+        a(i) = J(0,0);
+        b(i) = J(0,1);
+        c(i) = J(1,0);
+        d(i) = J(1,1);
+        detJuv(i) = det;
+
+        /*
         Eigen::Vector3d f_u, f_v;
         f_u << f.cV(0)->T().U(), f.cV(1)->T().U(), f.cV(2)->T().U();
         f_v << f.cV(0)->T().V(), f.cV(1)->T().V(), f.cV(2)->T().V();
@@ -945,13 +980,34 @@ void CompMaj::UpdateJ()
         b(i) = D2d.col(i).transpose() * f_u;
         c(i) = D1d.col(i).transpose() * f_v;
         d(i) = D2d.col(i).transpose() * f_v;
+        */
     }
-    detJuv = a.cwiseProduct(d) - b.cwiseProduct(c);
+    //detJuv = a.cwiseProduct(d) - b.cwiseProduct(c);
+
+    /*
+    bool debug_save = false;
     for (int i = 0; i < fn; ++i) {
         MeshFace& f = m.face[i];
-        if (detJuv[i] <= 0) {
+        if (detJuv[i] <= 0 || !std::isfinite(detJuv[i])) {
+
+            Point3d p10 = energy->P1(&f) - energy->P0(&f);
+            Point3d p20 = energy->P2(&f) - energy->P0(&f);
+            Eigen::Matrix2d fm;
+            Eigen::Vector2d x1, x2;
+            LocalIsometry(p10, p20, x1, x2);
+            fm.col(0) = x1;
+            fm.col(1) = x2;
+
+            Point2d u10 = (f.V(1)->T().P() - f.V(0)->T().P());
+            Point2d u20 = (f.V(2)->T().P() - f.V(0)->T().P());
+            Eigen::Matrix2d fp;
+            fp << u10[0], u20[0], u10[1], u20[1];
+            Eigen::Matrix2d J = fp * fm.inverse();
+
+            double det = J.determinant();
+
             std::stringstream ss;
-            ss << "Found negative determinant for ";
+            ss << "Found invalid determinant for ";
             if (f.IsMesh())
                 ss << "mesh ";
             else if (f.IsHoleFilling())
@@ -961,43 +1017,45 @@ void CompMaj::UpdateJ()
             else
                 ensure_condition(0 && "impossible");
             ss << "face " << i << ", value = " << detJuv[i];
+
+            double uvArea = 0.5 * (f.V(1)->T().P() - f.V(0)->T().P()) ^ (f.V(2)->T().P() - f.V(0)->T().P());
+            ss << ", uv area = " << uvArea << ", alternative determinant = " << det;
+
+            LOG_DEBUG << "Jacobian1 " << a(i) << " " << b(i) << " " << c(i) << " " << d(i);
+            LOG_DEBUG << "Jacobian2 " << J(0,0) << " " << J(0,1) << " " << J(1,0) << " " << J(1,1);
+
             LOG_ERR << ss.str();
+            debug_save = true;
         }
     }
+
+    if (debug_save) {
+        SyncShellWithUV(m);
+        tri::io::Exporter<Mesh>::Save(m, "negative_det.obj", tri::io::Mask::IOM_VERTTEXCOORD);
+    }
+    */
     ensure_condition(!(detJuv.array() <= 0).any());
 }
 
 static inline void SSVD2x2(const Eigen::Matrix2d& A, Eigen::Matrix2d& U, Eigen::Matrix2d& S, Eigen::Matrix2d& V)
 {
-    double e = (A(0) + A(3))*0.5;
-    double f = (A(0) - A(3))*0.5;
-    double g = (A(1) + A(2))*0.5;
-    double h = (A(1) - A(2))*0.5;
-    double q = std::sqrt((e*e) + (h*h));
-    double r = std::sqrt((f*f) + (g*g));
-    double a1 = std::atan2(g, f);
-    double a2 = std::atan2(h, e);
-    double rho = (a2 - a1)*0.5;
-    double phi = (a2 + a1)*0.5;
+    Eigen::Vector2d sigma;
+    Eigen::JacobiSVD<Eigen::Matrix2d> svd;
+    svd.compute(A, Eigen::ComputeFullU | Eigen::ComputeFullV);
+    sigma = svd.singularValues();
+    S << sigma[0], 0, 0, sigma[1];
+    U = svd.matrixU();
+    V = svd.matrixV();
 
-    S(0) = q + r;
-    S(1) = 0;
-    S(2) = 0;
-    S(3) = q - r;
+    ensure_condition(std::isfinite(sigma[0]));
+    ensure_condition(sigma[0] > 0);
+    ensure_condition(std::isfinite(sigma[1]));
+    ensure_condition(sigma[1] > 0);
 
-    double c = std::cos(phi);
-    double s = std::sin(phi);
-    U(0) = c;
-    U(1) = s;
-    U(2) = -s;
-    U(3) = c;
-
-    c = std::cos(rho);
-    s = std::sin(rho);
-    V(0) = c;
-    V(1) = -s;
-    V(2) = s;
-    V(3) = c;
+    Eigen::Matrix2d R = U * V.transpose();
+    if (R.determinant() < 0) {
+        U.col(U.cols() - 1) *= -1;
+    }
 }
 
 void CompMaj::UpdateSSVDFunction()
@@ -1105,6 +1163,7 @@ inline Matrix66d CompMaj::ComputeFaceConeHessian(const Vector6d& A1, const Vecto
     double invf =  1.0 / std::sqrt(f2);
     double invf3 = invf * invf * invf;
 
+
     Matrix66d A1A1t = A1 * A1.transpose();
     Matrix66d A2A2t = A2 * A2.transpose();
     Matrix66d A1A2t = A1 * A2.transpose();
@@ -1154,6 +1213,20 @@ bool CompMaj::ComputeDescentDirection(Eigen::MatrixXd& dir)
         A.setFromTriplets(triplets.begin(), triplets.end());
     }
 
+#ifdef ENABLE_EXTRA_CHECKS
+
+    for (int k = 0; k < A.outerSize(); ++k) {
+        for (Eigen::SparseMatrix<double>::InnerIterator it(A, k); it; ++it) {
+            if (!std::isfinite(it.value())) {
+                LOG_ERR << "CompMaj: coefficient matrix contains non-finite value " << it.value()
+                        << " at entry " << it.row() << " " << it.col();
+                ensure_condition(0 && "CompMaj matrix coefficients non-finite");
+            }
+        }
+    }
+
+#endif
+
     Eigen::MatrixXd grad = energy->Grad();
 
     Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>, Eigen::Upper> solver;
@@ -1169,7 +1242,7 @@ bool CompMaj::ComputeDescentDirection(Eigen::MatrixXd& dir)
     }
 
     Eigen::VectorXd sol;
-    sol = solver.solve(- Eigen::Map<Eigen::VectorXd>(grad.data(), 2 * vn));
+    sol = solver.solve(-Eigen::Map<Eigen::VectorXd>(grad.data(), 2 * vn));
     if (!(solver.info() == Eigen::Success)) {
         LOG_ERR << "CompMaj solve failed";
         return false;

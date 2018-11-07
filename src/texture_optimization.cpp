@@ -74,6 +74,7 @@ void RemoveDegeneracies(Mesh& m)
     // beforehand
 
     LOG_INFO << "FIXME Remeshing does not guarantee that texture coordinates are preserved";
+    tri::UpdateSelection<Mesh>::Clear(m);
 
     unsigned fn = m.face.size();
     tri::Hole<Mesh>::EarCuttingFill<tri::MinimumWeightEar<Mesh>>(m, 4, false);
@@ -105,13 +106,6 @@ void RemoveDegeneracies(Mesh& m)
     }
     avgEdgeLen /= selCount;
 
-    tri::UpdateColor<Mesh>::PerFaceConstant(m, vcg::Color4b::DarkGray);
-    for (auto& f : m.face)
-        if (f.IsS())
-            f.C() = vcg::Color4b::Cyan;
-
-    tri::io::Exporter<Mesh>::Save(m, "color.obj", tri::io::Mask::IOM_FACECOLOR | tri::io::Mask::IOM_WEDGTEXCOORD);
-
     if (selCount > 0) {
         LOG_DEBUG << "Detected zero area faces/holes";
         IsotropicRemeshing<Mesh>::Params params;
@@ -129,7 +123,6 @@ void RemoveDegeneracies(Mesh& m)
         tri::Allocator<Mesh>::CompactEveryVector(m);
         tri::UpdateTopology<Mesh>::FaceFace(m);
         LOG_DEBUG << "Zero area face remeshing: " << params.stat.collapseNum << "c " << params.stat.flipNum << "f " << params.stat.splitNum << "s";
-        tri::io::Exporter<Mesh>::Save(m, "remesh.obj", tri::io::Mask::IOM_FACECOLOR | tri::io::Mask::IOM_WEDGTEXCOORD);
     }
 
     LOG_DEBUG << "Cleaning done";
@@ -596,12 +589,12 @@ void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, double sma
     LOG_INFO << "Stopping after " << numIter << " passes and " << timer.TimeElapsed() << " seconds";
 }
 
-int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, double injectivityTolerance)
+int ParameterizeGraph(GraphManager& gm, ParameterizationStrategy strategy, double injectivityTolerance, int numWorkers)
 {
     parallel::Init();
 
     Timer t;
-    parallel::WorkerPool pool(4, gm);
+    parallel::WorkerPool pool(numWorkers, gm);
     pool.Run(strategy, injectivityTolerance);
     LOG_INFO << "Multithreaded parameterization took " << t.TimeElapsed() << " seconds";
     return 0;
