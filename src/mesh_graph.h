@@ -335,6 +335,8 @@ public:
 
     double EdgeWeight(GraphManager::Edge e);
 
+    void Debug_PrintGraphState();
+
 private:
 
     std::shared_ptr<MeshGraph> g;

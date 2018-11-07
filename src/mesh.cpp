@@ -138,7 +138,12 @@ void MeshFromFacePointers(const std::vector<Mesh::FacePointer>& vfp, Mesh& out)
 
 bool Parameterizable(Mesh &m)
 {
+
     tri::UpdateTopology<Mesh>::FaceFace(m);
+    int splitCount;
+    while ((splitCount = tri::Clean<Mesh>::SplitNonManifoldVertex(m, 0)) > 0)
+        ;
+    tri::Allocator<Mesh>::CompactEveryVector(m);
 
     if (tri::Clean<Mesh>::CountNonManifoldEdgeFF(m) > 0) {
         return false;

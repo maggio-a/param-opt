@@ -1527,6 +1527,10 @@ void MeshViewer::ManageImGuiState()
             RecomputeSegmentation(*gm, regionCount, 0.02);
         }
 
+        if (ImGui::Button("Dump gm state")) {
+            gm->Debug_PrintGraphState();
+        }
+
         static bool retry = true;
         static float tau = 0.0f;
         //bool clickPack = ImGui::Button("Parameterize graph");

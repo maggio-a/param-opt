@@ -753,16 +753,17 @@ bool GraphManager::HasNextEdge()
             }
             else {
                 GraphManager::Edge e = we.first;
+
                 std::vector<Mesh::FacePointer> fpv;
                 fpv.reserve(e.a->FN() + e.b->FN());
                 fpv.insert(fpv.end(), e.a->fpVec.begin(), e.a->fpVec.end());
                 fpv.insert(fpv.end(), e.b->fpVec.begin(), e.b->fpVec.end());
                 Mesh test;
                 MeshFromFacePointers(fpv, test);
+
                 if (Parameterizable(test)) {
                     return true;
-                }
-                else { // Cannot collapse the edge, reinsert with infinite weight
+                } else { // Cannot collapse the edge, reinsert with infinite weight
                     queue.pop();
                     we.second = infinity;
                     edges[we.first] = infinity;
@@ -808,7 +809,8 @@ bool GraphManager::AddEdge(ChartHandle c1, ChartHandle c2, bool replace)
 {
      GraphManager::Edge e{c1, c2};
 
-     if (replace) edges.erase(e);
+     if (replace)
+         edges.erase(e);
 
      if (edges.find(e) == edges.end()) {
          auto weightedEdge = std::make_pair(e, (*wfct)(e));
@@ -967,4 +969,13 @@ int GraphManager::CloseMacroRegions(double areaThreshold)
     }
 
     return mergeCount;
+}
+
+void GraphManager::Debug_PrintGraphState()
+{
+    LOG_DEBUG << "Graph manager state dump";
+    LOG_DEBUG << "Number of edges: " << edges.size() << " (edge list follows)";
+    for (const auto& entry : edges) {
+        LOG_DEBUG << entry.first.a->id << " " << entry.first.b->id << " | w = " << entry.second;
+    }
 }
