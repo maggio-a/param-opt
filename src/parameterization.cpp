@@ -911,7 +911,6 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold_3D(double cst)
                 tri::CutMeshAlongSelectedFaceEdges(shell);
                 CleanupShell(shell);
                 tri::UpdateTopology<Mesh>::FaceFace(shell);
-                tri::io::Exporter<Mesh>::Save(shell, "cut.obj", tri::io::Mask::IOM_ALL);
             }
             numPlacedCones += (int) coneIndices.size();
         } else {
