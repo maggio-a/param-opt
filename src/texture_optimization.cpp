@@ -558,9 +558,9 @@ void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, double sma
             double minNextArea = std::min(we.first.a->Area3D(), we.first.b->Area3D());
             bool regionReached = (regionCount <= 0) || (gm.Graph()->Count() <= regionCount);
             bool sizeThresholdReached = minNextArea > minChartArea;
-            if (regionReached && sizeThresholdReached)
+            if (regionReached && sizeThresholdReached) {
                 break;
-            else {
+            } else {
                 gm.RemoveNextEdge();
                 gm.Collapse(we.first);
                 mergeCount++;

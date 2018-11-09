@@ -743,15 +743,26 @@ void GraphManager::RemoveNextEdge()
 
 bool GraphManager::HasNextEdge()
 {
-    constexpr double infinity = std::numeric_limits<double>::infinity();
     while (queue.size() > 0)
     {
         auto we = queue.top();
         if (Valid(we)) {
-            if (we.second == infinity) { // The remaining edges cannot be collapsed due to infeasibility
+            if (we.second == Infinity()) { // The remaining edges cannot be collapsed due to infeasibility
                 return false;
             }
             else {
+                std::vector<ChartHandle> v = {we.first.a, we.first.b};
+                auto status = CollapseAllowed(v.begin(), v.end());
+                if (status.first == Collapse_OK) {
+                    return true;
+                } else {
+                    queue.pop();
+                    we.second = Infinity();
+                    edges[we.first] = Infinity();
+                    queue.push(we);
+
+                }
+                /*
                 GraphManager::Edge e = we.first;
 
                 std::vector<Mesh::FacePointer> fpv;
@@ -769,6 +780,7 @@ bool GraphManager::HasNextEdge()
                     edges[we.first] = infinity;
                     queue.push(we);
                 }
+                */
             }
         }
         else { // Invalid edge, throw it away
@@ -807,10 +819,10 @@ ChartHandle GraphManager::Collapse(const GraphManager::Edge& e)
 
 bool GraphManager::AddEdge(ChartHandle c1, ChartHandle c2, bool replace)
 {
-     GraphManager::Edge e{c1, c2};
+    if (replace)
+         RemoveEdge(c1, c2);
 
-     if (replace)
-         edges.erase(e);
+     GraphManager::Edge e{c1, c2};
 
      if (edges.find(e) == edges.end()) {
          auto weightedEdge = std::make_pair(e, (*wfct)(e));
@@ -821,6 +833,11 @@ bool GraphManager::AddEdge(ChartHandle c1, ChartHandle c2, bool replace)
      else {
          return false;
      }
+}
+
+void GraphManager::RemoveEdge(ChartHandle c1, ChartHandle c2)
+{
+    edges.erase(GraphManager::Edge{c1, c2});
 }
 
 void GraphManager::Merge(ChartHandle c1, ChartHandle c2)
@@ -836,27 +853,20 @@ void GraphManager::Merge(ChartHandle c1, ChartHandle c2)
         c1->AddFace(fp);
     }
 
-    // Update adjacencies - Note that obsolete edges remain in the priority queue
+    // Update adjacencies (note that obsolete edges remain in the priority queue)
     c1->adj.erase(c2);
     for (auto cn : c2->adj) {
-        GraphManager::Edge e2{c2, cn};
-        edges.erase(e2);
+        RemoveEdge(c2, cn);
         if (cn != c1) { // c1 is now (if it wasn't already) adjacent to cn
             cn->adj.erase(c2);
             cn->adj.insert(c1);
             c1->adj.insert(cn);
-
-            // Manage queue and edge map state
-            AddEdge(c1, cn, true); // replace edge
-            /*
-            GraphManager::Edge e1{c1, cn};
-            edges.erase(e1); // delete the edge if it already exists so it can be reweighted
-            auto weighted = std::make_pair(e1, wfct(e1));
-            edges.insert(weighted);
-            queue.push(weighted);
-            */
         }
     }
+
+    // reweight the edges incident on c1
+    for (auto cn : c1->adj)
+        AddEdge(c1, cn, true); // replace if exists
 
     c1->numMerges += c2->numMerges + 1;
 
@@ -883,7 +893,7 @@ void GraphManager::Split(const RegionID id, std::vector<ChartHandle>& splitChart
     g->charts.erase(chart->id);
     for (auto cn : chart->adj) {
         cn->adj.erase(chart); // remove reference in the neighbor
-        edges.erase(GraphManager::Edge{chart, cn}); // remove edge from support list
+        RemoveEdge(chart, cn); // remove edge from support list
     }
 
     // restore original ids
@@ -946,28 +956,19 @@ int GraphManager::CloseMacroRegions(double areaThreshold)
     }
 
     for (auto& entry : mergeLists) {
-
-        std::vector<Mesh::FacePointer> fpv;
-
-        fpv.insert(fpv.end(), regions[entry.first]->fpVec.begin(), regions[entry.first]->fpVec.end());
+        std::vector<ChartHandle> chartVec;
+        chartVec.push_back(regions[entry.first]);
         for (auto id : entry.second)
-            fpv.insert(fpv.end(), regions[id]->fpVec.begin(), regions[id]->fpVec.end());
+            chartVec.push_back(regions[id]);
 
-        Mesh probe;
-        MeshFromFacePointers(fpv, probe);
-
-        if (Parameterizable(probe)) {
-            LOG_VERBOSE << "Merging " << entry.second.size() << " islands from macro region " << entry.first;
-            for (auto id : entry.second) {
-                // don't bother checking feasibility of each merge since we already know that the union of all the charts is
-                Merge(regions[entry.first], regions[id]);
-                mergeCount++;
-            }
+        auto status = Collapse(chartVec.begin(), chartVec.end());
+        if (status.first == Collapse_OK) {
+            LOG_VERBOSE << "Merged " << entry.second.size() << " islands from macro region " << entry.first;
+            mergeCount += entry.second.size();
         } else {
             //tri::io::ExporterOBJ<PMesh>::Save(probe, "fail.obj", tri::io::Mask::IOM_WEDGTEXCOORD);
         }
     }
-
     return mergeCount;
 }
 

@@ -997,12 +997,12 @@ void ParameterizerObject::FindCones(int ncones, std::vector<int>& coneIndices)
         // Select seam vertices
         tri::UpdateFlags<Mesh>::VertexClearS(shell);
         for (auto& sv : shell.vert)
-            if (sv.Q() < INFINITY)
+            if (sv.Q() < Infinity())
                 sv.SetS();
 
         // Find the max scale factor at seam vertices
         double maxscale = 0.0;
-        double minscale = std::numeric_limits<double>::infinity();
+        double minscale = Infinity();
         int max_k = -1;
         int min_k = -1;
         for (int k = 0; k < shell.VN(); ++k) {
@@ -1038,7 +1038,7 @@ void ParameterizerObject::FindConesWithThreshold(double cst, std::vector<int>& c
     ComputeDistanceFromBorderOnSeams(shell);
     bool seamsToBoundary = false;
     for (auto& sv : shell.vert) {
-        if (!sv.IsB() && sv.Q() < INFINITY) {
+        if (!sv.IsB() && sv.Q() < Infinity()) {
             seamsToBoundary = true;
             break;
         }
@@ -1058,12 +1058,12 @@ void ParameterizerObject::FindConesWithThreshold(double cst, std::vector<int>& c
         // Select seam vertices that reach the boundary
         tri::UpdateFlags<Mesh>::VertexClearS(shell);
         for (auto& sv : shell.vert)
-            if (sv.Q() > 0 && sv.Q() < INFINITY)
+            if (sv.Q() > 0 && sv.Q() < Infinity())
                 sv.SetS();
 
         // Find the max scale factor at seam vertices
         double maxscale = 0.0;
-        double minscale = std::numeric_limits<double>::infinity();
+        double minscale = Infinity();
         int max_k = -1;
         int min_k = -1;
         for (int k = 0; k < shell.VN(); ++k) {
@@ -1253,7 +1253,7 @@ bool ParameterizerObject::ComputeConformalScalingFactors(Eigen::VectorXd& csf, c
     }
 
     double maxscale = 0.0;
-    double minscale = std::numeric_limits<double>::infinity();
+    double minscale = Infinity();
     for (int i = 0; i < m.VN(); ++i) {
         double s = std::abs(csf[i]);
         //ensure_condition(scalingFactors[i] > 0.0);

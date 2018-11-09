@@ -328,7 +328,9 @@ public:
             }
             return std::make_pair(Collapse_OK, chart);
 
-        } else return std::make_pair(p.first, nullptr);
+        } else {
+            return std::make_pair(p.first, nullptr);
+        }
     }
 
     bool ExistsEdge(GraphManager::Edge e);
@@ -354,6 +356,7 @@ private:
     std::unique_ptr<EdgeWeightFunction> wfct;
 
     bool AddEdge(ChartHandle c1, ChartHandle c2, bool replace = false);
+    void RemoveEdge(ChartHandle c1, ChartHandle c2);
     void Merge(ChartHandle c1, ChartHandle c2);
 };
 
@@ -374,7 +377,6 @@ struct W3D : EdgeWeightFunction {
 
     double operator()(GraphManager::Edge& e) const
     {
-        constexpr double infinity = std::numeric_limits<double>::infinity();
         constexpr int FACE_THRESHOLD = 100000;
 
         bool islandEdge = ((e.a->NumAdj() == 1) || (e.b->NumAdj() == 1));
@@ -409,7 +411,7 @@ struct W3D : EdgeWeightFunction {
             ensure_condition(std::isfinite(w));
             return w;
         } else {
-            return infinity;
+            return Infinity();
         }
 
     }

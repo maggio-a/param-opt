@@ -34,7 +34,7 @@ std::vector<PosF> GetFauxPosFan(PosF& startPos);
 
 /* Computes vertices distances to the boundary (restricted only to vertices that
  * lie on a seam) as vertex quality. The distance of vertices that are not
- * incident to seam edges is INFINITY. Assumes the seams are marked as faux.
+ * incident to seam edges is Infinity(). Assumes the seams are marked as faux.
  * NOTE (FIXME?) as of now distances are computed according to the target shape
  * attribute (does it make sense?) */
 void ComputeDistanceFromBorderOnSeams(Mesh& m);

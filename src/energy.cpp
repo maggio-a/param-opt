@@ -170,7 +170,7 @@ double SymmetricDirichletEnergy::E(const Mesh::FaceType& f)
     double areaUV = 0.5 * ((u1 - u0) ^ (u2 - u0));
 
     if (areaUV <= 0) {
-        return std::numeric_limits<double>::infinity();
+        return Infinity();
     } else {
         double area3D = data[f][3];
         double o[3] = { // (opposite edge)^2

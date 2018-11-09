@@ -11,6 +11,11 @@
   #define M_PI_2 1.5707963267948966192313216916398
 #endif
 
+constexpr double Infinity()
+{
+    return std::numeric_limits<double>::infinity();
+}
+
 template <typename FaceType>
 inline double EdgeLength(const FaceType& f, int i)
 {

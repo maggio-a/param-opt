@@ -1,4 +1,5 @@
 #include "mesh_utils.h"
+#include "math_utils.h"
 #include "mesh_attribute.h"
 #include "logging.h"
 
@@ -170,7 +171,7 @@ void ComputeDistanceFromBorderOnSeams(Mesh& m)
 {
     tri::UpdateTopology<Mesh>::FaceFace(m);
     tri::UpdateFlags<Mesh>::VertexBorderFromFaceAdj(m);
-    tri::UpdateQuality<Mesh>::VertexConstant(m, INFINITY);
+    tri::UpdateQuality<Mesh>::VertexConstant(m, Infinity());
 
     // initialize the frontier as a sequence of PosNode objects pointing to boundary vertices along texture seams
     std::vector<PosNode> probes;
@@ -178,12 +179,12 @@ void ComputeDistanceFromBorderOnSeams(Mesh& m)
         for (int i = 0; i < 3; ++i) {
             if (f.IsF(i)) {
                 PosF p{&f, i};
-                if (p.V()->IsB() && p.V()->Q() == INFINITY) {
+                if (p.V()->IsB() && p.V()->Q() == Infinity()) {
                     probes.push_back(PosNode{p, 0});
                     p.V()->Q() = 0;
                 }
                 p.FlipV();
-                if (p.V()->IsB() && p.V()->Q() == INFINITY) {
+                if (p.V()->IsB() && p.V()->Q() == Infinity()) {
                     probes.push_back(PosNode{p, 0});
                     p.V()->Q() = 0;
                 }
