@@ -25,6 +25,7 @@
 #include <vcg/space/segment2.h>
 #include <vcg/space/intersection2.h>
 
+#include <vcg/complex/algorithms/hole.h>
 #include <vcg/complex/algorithms/isotropic_remeshing.h>
 
 #include <wrap/io_trimesh/export.h>
@@ -35,8 +36,6 @@
 #include <vcg/complex/algorithms/update/color.h>
 
 
-// NOTE TODO FIXME
-// This
 void RemoveDegeneracies(Mesh& m)
 {
     int dupVert = tri::Clean<Mesh>::RemoveDuplicateVertex(m);
@@ -78,13 +77,20 @@ void RemoveDegeneracies(Mesh& m)
 
     unsigned fn = m.face.size();
     tri::Hole<Mesh>::EarCuttingFill<tri::MinimumWeightEar<Mesh>>(m, 4, false);
+
+    // If there are isolated tris, the hole-filling algorithm adds degenerate faces, so remove them
+    // before iterating
+    tri::Clean<Mesh>::RemoveDegenerateFace(m);
+
     for (unsigned i = 0; i < m.face.size(); ++i) {
-        double farea = DoubleArea(m.face[i]) / 2.0;
-        if ((farea == 0) || ((i >= fn) && (farea < 1e-8))) {
-            m.face[i].SetS();
-        } else if (i >= fn) {
-            LOG_DEBUG << "Deleting hole face of area " << farea;
-            tri::Allocator<Mesh>::DeleteFace(m, m.face[i]);
+        if (!m.face[i].IsD()) {
+            double farea = DoubleArea(m.face[i]) / 2.0;
+            if ((farea == 0) || ((i >= fn) && (farea < 1e-8))) {
+                m.face[i].SetS();
+            } else if (i >= fn) {
+                LOG_DEBUG << "Deleting hole face of area " << farea;
+                tri::Allocator<Mesh>::DeleteFace(m, m.face[i]);
+            }
         }
     }
     tri::Clean<Mesh>::RemoveUnreferencedVertex(m);
@@ -805,7 +811,8 @@ RasterizationBasedPacker::PackingStats Pack(GraphHandle graph, const PackingOpti
     packingParam.innerHorizon = options.useInnerHorizons;
     packingParam.permutations = options.usePermutations;
     packingParam.cellSize = 1;
-    packingParam.rotationNum = 16; //number of rasterizations in 90°
+    packingParam.rotationNum = 16; //number of rasterizations in 360°
+    //packingParam.rotationTicksHalfPi = 4; //number of rasterizations in 90°
 
     // TODO padding computation should depend on the destination size and should be handled better, really...
     std::vector<double> containerRatios = ComputeContainerRatios(graph->textureObject, options.oneContainer);
