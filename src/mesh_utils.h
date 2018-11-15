@@ -21,6 +21,10 @@ struct PosNode {
     bool operator<(const PosNode& other) const { return distance < other.distance; }
 };
 
+/* Computes the boundary info attribute for the mesh m, assumes FaceFace
+ * topology is computed on the mesh */
+void ComputeBoundaryInfo(Mesh& m);
+
 /* Closes the holes of a mesh using the vcg MinimumWeightEar strategy.
  * Hole-filling faces are marked by setting the holeFilling field to true */
 void CloseMeshHoles(Mesh& mesh);

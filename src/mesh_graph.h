@@ -33,10 +33,6 @@ std::shared_ptr<MeshGraph> ComputeParameterizationGraph(Mesh &m, TextureObjectHa
  * attribute defined (see mesh_attribute.h) */
 void CopyToMesh(FaceGroup& fg, Mesh& m);
 
-/* Computes the boundary info attribute for the mesh m, assumes FaceFace
- * topology is computed on the mesh */
-void ComputeBoundaryInfo(Mesh& m);
-
 /* Computes the UV outline(s) of the given chart. If the chart has no outlines,
  * which can happen for some inputs on small closed components that are ignored
  * by the reparameterization procedure, it returns as outline the bounding box

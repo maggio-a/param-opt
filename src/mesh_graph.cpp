@@ -28,44 +28,6 @@
 #include <QImage>
 
 
-// assumes topology is correct
-void ComputeBoundaryInfo(Mesh& m)
-{
-    BoundaryInfo& info = GetBoundaryInfoAttribute(m)();
-    info.Clear();
-    tri::UpdateFlags<Mesh>::FaceClearV(m);
-    for (auto& f : m.face) {
-        for (int i = 0; i < 3; ++i) {
-            if (!f.IsV() && face::IsBorder(f, i)) {
-                double totalBorderLength = 0;
-                std::vector<std::size_t> borderFaces;
-                std::vector<int> vi;
-
-                face::Pos<Mesh::FaceType> p(&f, i);
-                face::Pos<Mesh::FaceType> startPos = p;
-                ensure_condition(p.IsBorder());
-                do {
-                    ensure_condition(p.IsManifold());
-                    p.F()->SetV();
-                    borderFaces.push_back(tri::Index(m, p.F()));
-                    vi.push_back(p.VInd());
-                    totalBorderLength += EdgeLength(*p.F(), p.VInd());
-                    p.NextB();
-                } while (p != startPos);
-                info.vBoundaryLength.push_back(totalBorderLength);
-                info.vBoundarySize.push_back(borderFaces.size());
-                info.vBoundaryFaces.push_back(borderFaces);
-                info.vVi.push_back(vi);
-            }
-        }
-    }
-
-    LOG_DEBUG << "Mesh has " << info.N() << " boundaries";
-}
-
-
-
-
 void ColorFace(Mesh& shell)
 {
     for (auto& sf : shell.face) {

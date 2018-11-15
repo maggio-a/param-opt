@@ -34,10 +34,9 @@
  *
  *   - BoundaryInfo (GetBoundaryInfoAttribute)
  *       The BoundaryInfo structure holds information about the boundary of the
- *       shell in 3D, this is computed when the shell is created, and then is
- *       never updated after the shell shape is projected to parameter space. In
- *       doing so the boundary information is 'fixed' and not influenced by the
- *       shell parameterization/syncing operations.
+ *       then is never updated after the shell shape is projected to parameter
+ *       space. In doing so the boundary information is 'fixed' and not
+ *       influenced by the shell parameterization/syncing operations.
  *
  * PER FACE
  *

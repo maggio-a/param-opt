@@ -87,7 +87,6 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
     if (!Parameterizable(shell))
         return false;
 
-    ComputeBoundaryInfo(shell);
     CloseMeshHoles(shell);
 
     // Compute the target shapes for the shell faces
@@ -510,8 +509,6 @@ void ParameterizerObject::Initialize()
     // sync shell with uv (3D -> 2D)
     SyncShellWithUV(shell);
 
-    ComputeBoundaryInfo(shell);
-
     // close shell holes (2D)
     if (strategy.padBoundaries)
         CloseShellHoles(shell, strategy.geometry, baseMesh);
@@ -919,7 +916,12 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold_3D(double cst)
     }
 
     MarkInitialSeamsAsFaux(shell, baseMesh);
-    ComputeBoundaryInfo(shell); // boundary changed after the cut
+    if (numPlacedCones > 0) {
+        // need to update the boundary information, which is implicitly computed
+        // by the hole filling function (ugly...)
+        ClearHoleFillingFaces(shell, true, true);
+        CloseMeshHoles(shell);
+    }
 
     return numPlacedCones;
 }
@@ -946,7 +948,6 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold(double cst)
     SyncShellWith3D(shell);
     tri::UpdateTopology<Mesh>::FaceFace(shell);
 
-    ComputeBoundaryInfo(shell);
     CloseMeshHoles(shell);
 
     int numPlacedCones = PlaceCutWithConesUntilThreshold_3D(cst);
@@ -963,10 +964,8 @@ int ParameterizerObject::PlaceCutWithConesUntilThreshold(double cst)
     ClearHoleFillingFaces(shell, true, true);
     SyncShellWithUV(shell);
 
-    if (strategy.padBoundaries) {
-        ComputeBoundaryInfo(shell);
+    if (strategy.padBoundaries)
         CloseShellHoles(shell, strategy.geometry, baseMesh);
-    }
 
     if (strategy.scaffold) {
         BuildScaffold(shell, strategy.geometry, baseMesh);

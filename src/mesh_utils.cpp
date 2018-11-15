@@ -12,14 +12,51 @@
 #include <vector>
 #include <algorithm>
 
+
 using namespace vcg;
+
+
+// assumes topology is updated (FaceFace)
+void ComputeBoundaryInfo(Mesh& m)
+{
+    BoundaryInfo& info = GetBoundaryInfoAttribute(m)();
+    info.Clear();
+    tri::UpdateFlags<Mesh>::FaceClearV(m);
+    for (auto& f : m.face) {
+        for (int i = 0; i < 3; ++i) {
+            if (!f.IsV() && face::IsBorder(f, i)) {
+                double totalBorderLength = 0;
+                std::vector<std::size_t> borderFaces;
+                std::vector<int> vi;
+
+                face::Pos<Mesh::FaceType> p(&f, i);
+                face::Pos<Mesh::FaceType> startPos = p;
+                ensure_condition(p.IsBorder());
+                do {
+                    ensure_condition(p.IsManifold());
+                    p.F()->SetV();
+                    borderFaces.push_back(tri::Index(m, p.F()));
+                    vi.push_back(p.VInd());
+                    totalBorderLength += EdgeLength(*p.F(), p.VInd());
+                    p.NextB();
+                } while (p != startPos);
+                info.vBoundaryLength.push_back(totalBorderLength);
+                info.vBoundarySize.push_back(borderFaces.size());
+                info.vBoundaryFaces.push_back(borderFaces);
+                info.vVi.push_back(vi);
+            }
+        }
+    }
+
+    LOG_DEBUG << "Mesh has " << info.N() << " boundaries";
+}
 
 void CloseMeshHoles(Mesh& shell)
 {
     int startFN = shell.FN();
 
     // Get border info
-    ensure_condition(HasBoundaryInfoAttribute(shell));
+    ComputeBoundaryInfo(shell);
     BoundaryInfo& info = GetBoundaryInfoAttribute(shell)();
 
     //vcg::tri::io::ExporterPLY<Mesh>::Save(shell, "original.ply", tri::io::Mask::IOM_FACECOLOR);
