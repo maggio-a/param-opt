@@ -74,8 +74,8 @@ void RenderStills(Mesh &m, TextureObjectHandle textureObject)
         tri::UpdateBounding<Mesh>::Box(m);
     }
 
-    int w = 1024;
-    int h = 1024;
+    int w = 2048;
+    int h = 2048;
     float aspect = w / (float) h;
 
     int ntex = textureObject->ArraySize();
@@ -184,18 +184,14 @@ void RenderStills(Mesh &m, TextureObjectHandle textureObject)
 
     CheckGLError();
 
-    // set filtering
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
 
     /* To compute the viewpoints distance we take the radius of the bounding
      * sphere incremented by a small amount */
 
     vcg::Point3d center = m.bbox.Center();
     double radius = 0;
-    for (int i = 0; i < 8; ++i)
-        radius = std::max(radius, vcg::Distance(center, m.bbox.P(i)));
+    for (auto& v : m.vert)
+        radius = std::max(radius, vcg::Distance(center, v.P()));
 
     mat4x4 model;
     {
@@ -215,7 +211,7 @@ void RenderStills(Mesh &m, TextureObjectHandle textureObject)
     }
 
     mat4x4 proj;
-    mat4x4_perspective(proj, 60.0f * M_PI / 180.0f, aspect, 0.001f, 2000.0f);
+    mat4x4_perspective(proj, 40.0f * M_PI / 180.0f, aspect, 0.001f, 2000.0f);
 
     // projection matrix is fixed
     GLint loc_projectionMatrix = glGetUniformLocation(program, "projectionMatrix");
@@ -226,7 +222,7 @@ void RenderStills(Mesh &m, TextureObjectHandle textureObject)
 
     Mesh viewPoints;
     tri::Icosahedron(viewPoints);
-    tri::UpdatePosition<Mesh>::Scale(viewPoints, radius * 1.02);
+    tri::UpdatePosition<Mesh>::Scale(viewPoints, radius);
     int n = 0;
     for (const auto& vp : viewPoints.vert) {
 
@@ -263,6 +259,14 @@ void RenderStills(Mesh &m, TextureObjectHandle textureObject)
             // Load texture image
             glActiveTexture(GL_TEXTURE0);
             textureObject->Bind(i);
+
+            // set filtering
+            glGenerateMipmap(GL_TEXTURE_2D);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
             GLint loc_tex0 = glGetUniformLocation(program, "tex0");
             glUniform1i(loc_tex0, 0);
 
@@ -318,23 +322,37 @@ int main(int argc, char *argv[])
         QCoreApplication::addLibraryPath(executableInfo.dir().absolutePath());
     }
 
-    Args args = parse_args(argc, argv);
-
-    LOG_INIT(args.logLevel);
-    ensure_condition(argc > 1);
+    ensure_condition(argc > 1 && "Mesh argument missing");
+    bool downsample = false;
+    if (argc > 2 && std::string(argv[2]) == "--downsample")
+        downsample = true;
 
     Mesh m;
     TextureObjectHandle textureObject;
     int loadMask;
-    if (LoadMesh(m, args.filename.c_str(), textureObject, loadMask) == false) {
+    if (LoadMesh(m, argv[1], textureObject, loadMask) == false) {
         LOG_ERR << "Failed to open mesh";
         std::exit(-1);
+    }
+
+    tri::Clean<Mesh>::RemoveUnreferencedVertex(m);
+    tri::Allocator<Mesh>::CompactEveryVector(m);
+
+    if (downsample) {
+        LOG_INFO << "Downsampling textures...";
+        for (auto &qimg : textureObject->imgVec) {
+            int div = qimg->height() / 1024;
+            std::shared_ptr<QImage> qimgdown = std::make_shared<QImage>();
+            *qimgdown = qimg->scaledToHeight(qimg->height() / div, Qt::SmoothTransformation);
+            *qimg = qimgdown->convertToFormat(QImage::Format_ARGB32); // required because scaled() can change the internal format of the QImage...
+        }
     }
 
     ensure_condition(loadMask & tri::io::Mask::IOM_WEDGTEXCOORD);
 
     GLInit();
 
+    LOG_INFO << "Rendering images...";
     RenderStills(m, textureObject);
 
     GLTerminate();
