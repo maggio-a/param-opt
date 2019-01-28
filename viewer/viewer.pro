@@ -1,6 +1,9 @@
 
 include(../common.pri)
 
+#QMAKE_CXXFLAGS += -fsanitize=address -fno-omit-frame-pointer
+#QMAKE_LFLAGS += -fsanitize=address
+
 SOURCES += viewer.cpp \
     ../src/energy.cpp \
     ../src/texture_optimization.cpp \
@@ -16,7 +19,8 @@ SOURCES += viewer.cpp \
     ../src/packing_utils.cpp \
     ../src/logging.cpp \
     ../src/iterative_solvers.cpp \
-    ../src/parallel.cpp
+    ../src/parallel.cpp \
+    ../src/cones.cpp
 
 SOURCES += \
     ../imgui/imgui_demo.cpp \
@@ -55,7 +59,8 @@ HEADERS += \
     ../src/logging.h \
     ../src/parallel.h \
     ../src/linear_solvers.h \
-    ../src/iterative_solvers.h
+    ../src/iterative_solvers.h \
+    ../src/cones.h
 
 HEADERS += \
     ../imgui/imconfig.h \
