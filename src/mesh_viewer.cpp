@@ -34,6 +34,10 @@
 
 #include "linmath.h"
 
+static float texture_lod_bias = 0.0f;
+static float texture_max_anisotropy = 1.0f;
+static int texture_base_level = 0;
+
 static vcg::Trackball trackball;
 
 const char *vs_text_3D[] = {
@@ -1060,6 +1064,8 @@ void MeshViewer::SetupDetailView(const Mesh& detailMesh)
 void MeshViewer::UpdateTransforms()
 {
     // Copy current state to the trackball
+
+    // TODO is the following really needed?
     Matrix44f proj;
     memcpy(&proj, &_meshTransform.projectionMatrix, 16*sizeof(float));
     proj.transposeInPlace();
@@ -1069,7 +1075,7 @@ void MeshViewer::UpdateTransforms()
     int windowView[] = {0, 0, info.width, info.height};
     trackball.camera.SetView(proj.V(), mv.V(), windowView);
 
-    // set the tracball transform
+    // set the trackball transform
     Matrix44f trackballMatrix = trackball.Matrix().transpose();
     memcpy(&_meshTransform.trackballMatrix, trackballMatrix.V(), 16*sizeof(float));
 
@@ -1103,7 +1109,7 @@ void MeshViewer::Draw3DView()
 
 
 
-   // mat4x4_mul(modelView, _meshTransform.viewMatrix, model);
+    // mat4x4_mul(modelView, _meshTransform.viewMatrix, model);
     mat4x4_mul(modelView, _meshTransform.viewMatrix, _meshTransform.trackballMatrix);
 
     mat4x4_perspective(_meshTransform.projectionMatrix, 60.0f * M_PI / 180.0f, info.perspectiveViewAspect,
@@ -1119,6 +1125,12 @@ void MeshViewer::Draw3DView()
 
     glActiveTexture(GL_TEXTURE0);
     _currentTexture->Bind(0);
+
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, texture_base_level);
+    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_LOD_BIAS, texture_lod_bias);
+    glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, texture_max_anisotropy);
 
     glEnable(GL_DEPTH_TEST);
 
@@ -1701,6 +1713,12 @@ void MeshViewer::ManageImGuiState()
         if (mixCheckboard) colorMask |= ColorMask_CHECKBOARD;
         _perspectiveView.colorMask = colorMask;
 
+        ImGui::Separator();
+
+        ImGui::InputInt("base_level", &texture_base_level, 1, 1);
+        ImGui::InputFloat("lodbias", &texture_lod_bias, 0.1, 1);
+        ImGui::InputFloat("anisotropy", &texture_max_anisotropy, 0.1, 1);
+
         ImGui::End();
     }
 
@@ -1806,6 +1824,16 @@ void MeshViewer::ManageImGuiState()
                 LOG_INFO << "Unable to place cut";
             }
         }
+
+       if (ImGui::Button("Place cut with approximate cone")) {
+            if (parameterizer->PlaceCutWithApproximateCone()) {
+                //parameterizer->InitializeSolution();
+                shellChanged = true;
+            } else {
+                LOG_INFO << "Unable to place cut";
+            }
+        }
+
         ImGui::Separator();
 
         if (ImGui::Button("Fix uvs")) {
