@@ -13,6 +13,7 @@
 #include "gl_utils.h"
 #include "math_utils.h"
 #include "metric.h"
+#include "packing_utils.h"
 
 
 struct MeshGraph;
@@ -32,6 +33,8 @@ std::shared_ptr<MeshGraph> ComputeParameterizationGraph(Mesh &m, TextureObjectHa
 /* Constructs a mesh from a FaceGroup, the created mesh has the FaceIndex
  * attribute defined (see mesh_attribute.h) */
 void CopyToMesh(FaceGroup& fg, Mesh& m);
+
+void ExtractOutlines(GraphHandle graph, std::vector<Outline2f>& texOutlines, std::unordered_map<RegionID,std::size_t>& outlineIndex);
 
 /* Computes the UV outline(s) of the given chart. If the chart has no outlines,
  * which can happen for some inputs on small closed components that are ignored

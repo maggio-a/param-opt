@@ -9,6 +9,7 @@
 #include "timer.h"
 #include "utils.h"
 #include "logging.h"
+#include "packing_utils.h"
 
 #include <vcg/complex/complex.h>
 #include <vcg/complex/algorithms/parametrization/distortion.h>
@@ -111,6 +112,38 @@ void CopyToMesh(FaceGroup& fg, Mesh& m)
 
     LOG_DEBUG << "Built mesh has " << m.FN() << " faces";
 }
+
+void ExtractOutlines(GraphHandle graph, std::vector<Outline2f>& texOutlines, std::unordered_map<RegionID,std::size_t>& outlineIndex)
+{
+    typedef std::pair<Mesh::FacePointer,int> FFAdjInfo;
+
+    Mesh& m = graph->mesh;
+
+    tri::UpdateTopology<Mesh>::FaceFaceFromTexCoord(m);
+
+    texOutlines.clear();
+    outlineIndex.clear();
+
+    for (auto entry : graph->charts) {
+        GraphManager::ChartHandle chart = entry.second;
+
+        LOG_DEBUG << "Chart " << chart->id << " - FN=" << chart->FN() << ", FI=" << tri::Index(graph->mesh, chart->Fp());
+
+        // Save the outline of the parameterization for this portion of the mesh
+        std::vector<Outline2f> uvOutlines;
+        ChartOutlinesUV(graph->mesh, *chart, uvOutlines);
+        int i = tri::OutlineUtil<float>::LargestOutline2(uvOutlines);
+        if (tri::OutlineUtil<float>::Outline2Area(uvOutlines[i]) < 0)
+            tri::OutlineUtil<float>::ReverseOutline2(uvOutlines[i]);
+
+        outlineIndex[chart->id] = texOutlines.size();
+        texOutlines.push_back(uvOutlines[i]);
+    }
+
+    tri::UpdateTopology<Mesh>::FaceFace(m);
+}
+
+
 
 void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2f>> &outline2Vec)
 {
@@ -937,6 +970,10 @@ int GraphManager::CloseMacroRegions(double areaThreshold)
 void GraphManager::Debug_PrintGraphState()
 {
     LOG_DEBUG << "Graph manager state dump";
+    LOG_DEBUG << "Number of nodes: " << g->charts.size() << " (node list follows)";
+    for (auto& entry : g->charts) {
+        LOG_DEBUG << "Chart " << entry.first << " (FN = " << entry.second->FN() << ")";
+    }
     LOG_DEBUG << "Number of edges: " << edges.size() << " (edge list follows)";
     for (const auto& entry : edges) {
         LOG_DEBUG << entry.first.a->id << " " << entry.first.b->id << " | w = " << entry.second;

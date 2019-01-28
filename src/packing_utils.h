@@ -9,8 +9,18 @@
 #include "utils.h"
 #include "logging.h"
 
+
+class Mesh;
+
 using Outline2f = std::vector<vcg::Point2f>;
 
+enum PackingScore {
+    HorizonBased,
+    VoidBased,
+    PerimeterAreaRatio
+};
+
+float ComputeAtlasScore(const std::vector<Outline2f>& outlines, PackingScore ps);
 
 float EvaluatePackingQuality_Horizon(const Outline2f& outline);
 float EvaluatePackingQuality_VoidArea(const Outline2f& outline);
@@ -160,6 +170,12 @@ public:
             RasterizerType::rasterize(rasterization, scale, 0, 4, 1, param.gutter); // needs 4 rot for compatibility with the outline2_rasterizer
             ComputeBoundaryFromGrid(rasterization.getGrids(0), boundaries[k]);
             extents[k] = Point2i(rasterization.gridWidth(0), rasterization.gridHeight(0));
+            /*
+            std::vector<std::vector<int>> grid;
+            RasterizerType::rasterize(polyVec[k], scale, 0, param.gutter, grid);
+            ComputeBoundaryFromGrid(grid, boundaries[k]);
+            extents[k] = Point2i(grid[0].size(), grid.size());
+            */
         }
 
         // initialize the raster buffer with the object outlines
