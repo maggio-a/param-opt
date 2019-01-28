@@ -137,6 +137,40 @@ void TextureObject::Bind(int i)
     assert(i >= 0 && i < (int)imgVec.size());
     // load texture from qimage on first use
     if (texNameVec[i] == 0) {
+
+        /*
+        glGenTextures(1, &texNameVec[i]);
+
+        // generate 3 mip levels
+        std::vector<unsigned> l0(64*64, 0xffffffff);
+        std::vector<unsigned> l1(1024 , 0xff0000ff);
+        std::vector<unsigned> l2(256  , 0xffff0000);
+        std::vector<unsigned> l3(64   , 0xff00ff00);
+        std::vector<unsigned> l4(16   , 0xffff00ff);
+        std::vector<unsigned> l5(4    , 0xff00ffff);
+        std::vector<unsigned> l6(1    , 0xffffff00);
+
+
+        GLenum format, channels, type;
+        format = GL_RGBA8; channels = GL_BGRA; type = GL_UNSIGNED_BYTE;
+        glBindTexture(GL_TEXTURE_2D, texNameVec[i]);
+        glTexStorage2D(GL_TEXTURE_2D, 7, format, 64, 64);
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 64, 64, channels, type, l0.data());
+        glTexSubImage2D(GL_TEXTURE_2D, 1, 0, 0, 32, 32, channels, type, l1.data());
+        glTexSubImage2D(GL_TEXTURE_2D, 2, 0, 0, 16, 16, channels, type, l2.data());
+        glTexSubImage2D(GL_TEXTURE_2D, 3, 0, 0, 8, 8, channels, type, l3.data());
+        glTexSubImage2D(GL_TEXTURE_2D, 4, 0, 0, 4, 4, channels, type, l4.data());
+        glTexSubImage2D(GL_TEXTURE_2D, 5, 0, 0, 2, 2, channels, type, l5.data());
+        glTexSubImage2D(GL_TEXTURE_2D, 6, 0, 0, 1, 1, channels, type, l6.data());
+
+
+        CheckGLError();
+        */
+
+
+
+
+
         QImage& img = *imgVec[i];
         glGenTextures(1, &texNameVec[i]);
 
@@ -147,14 +181,16 @@ void TextureObject::Bind(int i)
         case QImage::Format_ARGB32:
             format = GL_RGBA8; channels = GL_BGRA; type = GL_UNSIGNED_BYTE; break;
         default:
-            LOG_ERR << "Unsupported texture format";
+            LOG_ERR << "Unsupported texture format " << img.format();
             std::exit(-1);
         }
         Mirror(img);
         //QImage mirrored = img.mirrored(); // mirror to match opengl convention
+        int miplevels = std::log2((float) img.width());
         glBindTexture(GL_TEXTURE_2D, texNameVec[i]);
-        glTexStorage2D(GL_TEXTURE_2D, 1, format, img.width(), img.height());
+        glTexStorage2D(GL_TEXTURE_2D, miplevels, format, img.width(), img.height());
         glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, img.width(), img.height(), channels, type, img.constBits());
+        glGenerateMipmap(GL_TEXTURE_2D);
         CheckGLError();
         Mirror(img); // Mirror the QImage back so that its data view remains consistent
     }
