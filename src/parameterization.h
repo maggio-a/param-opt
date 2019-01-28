@@ -147,6 +147,10 @@ public:
     int PlaceCutWithConesUntilThreshold(double conformalScalingThreshold);
     void RemeshHolefillingAreas();
 
+
+    int PlaceCutWithApproximateCone();
+
+
     /* Transfers the UV coordinates from the shell to the chart */
     void SyncChart();
 

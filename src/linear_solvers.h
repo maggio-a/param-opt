@@ -2,6 +2,7 @@
 #define LINEAR_SOLVERS_H
 
 #include "mesh_attribute.h"
+#include "vertex_position.h"
 
 #include <vector>
 #include <unordered_map>
@@ -75,6 +76,14 @@ public:
 
     bool Solve() override
     {
+        return Solve(DefaultVertexPosition<MeshType>{});
+    }
+
+private:
+
+    template <typename VertexPosFct>
+    bool Solve(VertexPosFct VertPos)
+    {
         assert(HasTargetShapeAttribute(mesh));
         auto targetShape = GetTargetShapeAttribute(mesh);
         using namespace vcg;
@@ -119,13 +128,13 @@ public:
             for (int i = 0; i < 3; ++i) if (constraints.find(f.V(i)) == constraints.end()) {
                 // indices are given clockwise to avoid flipped parameterizations
                 VertexPointer vi = f.V(i);
-                Coord3D pi = targetShape[f][i];
+                Coord3D pi = targetShape[f].P[i];
 
                 VertexPointer vj = f.V((i+2)%3);
-                Coord3D pj = targetShape[f][(i+2)%3];
+                Coord3D pj = targetShape[f].P[(i+2)%3];
 
                 VertexPointer vk = f.V((i+1)%3);
-                Coord3D pk = targetShape[f][(i+1)%3];
+                Coord3D pk = targetShape[f].P[(i+1)%3];
 
                 ScalarType alpha_ij = std::max(vcg::Angle(pi - pk, pj - pk), eps); // angle at k
                 ScalarType alpha_ik = std::max(vcg::Angle(pi - pj, pk - pj), eps); // angle at j

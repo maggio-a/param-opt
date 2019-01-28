@@ -493,10 +493,12 @@ void ParameterizerObject::Initialize()
 
     // cut the mesh (if strategy allows) (3D)
     if (strategy.applyCut) {
+        LOG_DEBUG << "Cutting chart...";
         int nc = PlaceCutWithConesUntilThreshold_3D(conformalScalingThreshold);
         LOG_DEBUG << "Placed " << nc << " cuts";
     }
 
+    LOG_DEBUG << "Computing initial solution";
     // initialize solution (3D)
     if (!InitializeSolution()) {
         SetStatus(Error_InitFailed);
@@ -510,12 +512,16 @@ void ParameterizerObject::Initialize()
     SyncShellWithUV(shell);
 
     // close shell holes (2D)
-    if (strategy.padBoundaries)
+    if (strategy.padBoundaries) {
+        LOG_DEBUG << "Closing UV holes";
         CloseShellHoles(shell, strategy.geometry, baseMesh);
+    }
 
     // build scaffold (2D)
-    if (strategy.scaffold)
+    if (strategy.scaffold) {
+        LOG_DEBUG << "Building initial scaffold";
         BuildScaffold(shell, strategy.geometry, baseMesh);
+    }
 
     auto tsa = GetTargetShapeAttribute(shell);
     targetArea = 0;
@@ -526,9 +532,11 @@ void ParameterizerObject::Initialize()
 
     LOG_DEBUG << "Target surface area = " << targetArea;
 
+    LOG_DEBUG << "Initializing optimizer";
     InitializeOptimizer();
 
     SetStatus(Initialized);
+    LOG_DEBUG << "Initialization of ParameterizerObject complete";
 }
 
 ParameterizerObject::Status ParameterizerObject::GetStatus()
@@ -859,6 +867,122 @@ void ParameterizerObject::RemeshHolefillingAreas()
     CloseShellHoles(shell, strategy.geometry, baseMesh);
     MarkInitialSeamsAsFaux(shell, baseMesh);
 }
+
+
+
+
+
+
+
+
+
+
+
+#include "cones.h"
+int ParameterizerObject::PlaceCutWithApproximateCone()
+{
+    if (ErrorState())
+        return 0;
+
+    // Put the shell in a configuration suitable to compute the conformal scaling factors
+    ClearHoleFillingFaces(shell, true, true);
+
+    SyncShellWith3D(shell);
+    tri::UpdateTopology<Mesh>::FaceFace(shell);
+
+    CloseMeshHoles(shell);
+
+
+    MarkInitialSeamsAsFaux(shell, baseMesh);
+
+    {
+        unsigned cone = FindApproximateCone(shell, true);
+
+        LOG_DEBUG << "Cone at vertex " << cone;
+
+        ComputeDistanceFromBorderOnSeams(shell);
+
+        // Select cone vertices
+        tri::UpdateFlags<Mesh>::VertexClearS(shell);
+        shell.vert[cone].SetS();
+        // Store Pos objects that lie on seams and point to cone vertices (1 pos per cone)
+        std::vector<PosF> pv;
+        for (auto& sf : shell.face) {
+            if (sf.IsMesh()) {
+                for (int i = 0; i < 3; ++i) {
+                    if (sf.IsF(i) && (sf.V0(i)->IsS() || sf.V1(i)->IsS())) {
+                        PosF p(&sf, i);
+                        p.V()->ClearS();
+                        p.VFlip()->ClearS();
+                        pv.push_back(p);
+                    }
+                }
+            }
+        }
+        // Repeatedly cut starting from each pos
+        for (auto p : pv) {
+            LOG_DEBUG << "Selected face " << tri::Index(shell, p.F()) << " edge " << p.E();
+            tri::UpdateFlags<Mesh>::FaceClearFaceEdgeS(shell);
+            PosF boundaryPos = SelectShortestSeamPathToBoundary(shell, p);
+            //SelectShortestSeamPathToPeak(shell, p);
+            RectifyCut(shell, boundaryPos);
+            tri::CutMeshAlongSelectedFaceEdges(shell);
+            CleanupShell(shell);
+            tri::UpdateTopology<Mesh>::FaceFace(shell);
+        }
+    }
+
+    MarkInitialSeamsAsFaux(shell, baseMesh);
+
+    // need to update the boundary information, which is implicitly computed
+    // by the hole filling function (ugly...)
+    ClearHoleFillingFaces(shell, true, true);
+    CloseMeshHoles(shell);
+
+    int numPlacedCones = 1;
+
+    // if cones were found we reinitialize the solution, otherwise just leave
+    // everything as is. In this second case we can simply return the shell to
+    // the previous uv state, which is not changed.
+
+    if (numPlacedCones > 0) {
+        InitializeSolution();
+    }
+
+    // Cleanup (and restore hole-filling and scaffold faces if needed)
+    ClearHoleFillingFaces(shell, true, true);
+    SyncShellWithUV(shell);
+
+    if (strategy.padBoundaries)
+        CloseShellHoles(shell, strategy.geometry, baseMesh);
+
+    if (strategy.scaffold) {
+        BuildScaffold(shell, strategy.geometry, baseMesh);
+    }
+
+    MarkInitialSeamsAsFaux(shell, baseMesh);
+
+    if (OptimizerIsInitialized()) {
+        opt->UpdateCache();
+    }
+
+    return numPlacedCones;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /* This function places the cuts with the shell is in its 3D configuration */
 int ParameterizerObject::PlaceCutWithConesUntilThreshold_3D(double cst)
