@@ -41,6 +41,8 @@ std::vector<TextureSize> ComputeSizes(int nTex, TextureObjectHandle inputTexture
 
 TextureObjectHandle RenderTexture(Mesh &m, TextureObjectHandle textureObject, bool filter, InterpolationMode imode, GLFWwindow *parentWindow);
 
+TextureObjectHandle RenderTexture(Mesh& m, TextureObjectHandle textureObject, const std::vector<TextureSize> &texSizes, bool filter, InterpolationMode imode, GLFWwindow *parentWindow);
+
 RasterizedParameterizationStats GetRasterizationStats(ChartHandle chart, int width, int height);
 
 std::vector<RasterizedParameterizationStats> GetRasterizationStats(Mesh& m, TextureObjectHandle textureObject);

@@ -114,7 +114,7 @@ static const char *fs_text_checker[] = {
     "    imageAtomicExchange(idbuf, ivec2(gl_FragCoord.xy), chartId);                 \n"
     #if 0
     "    uint val = imageAtomicCompSwap(idbuf, ivec2(gl_FragCoord.xy), 0, chartId);   \n"
-    "    if (val == 0 || val == 0xffffffff)                                           \n" // no one set the vat for this fragment yet
+    "    if (val == 0 || val == 0xffffffff)                                           \n" // no one set the val for this fragment yet
     "        return;                                                                  \n" // or its a 'marked' pixel already
     "    else if (val != chartId)                                                     \n"
     "        imageAtomicExchange(idbuf, ivec2(gl_FragCoord.xy), 0xffffffff);          \n" // pixel was set to a different chart, mark it
@@ -802,6 +802,23 @@ TextureObjectHandle RenderTexture(Mesh &m, TextureObjectHandle textureObject, bo
     return newTexture;
 }
 
+TextureObjectHandle RenderTexture(Mesh& m, TextureObjectHandle textureObject, const std::vector<TextureSize> &texSizes, bool filter,
+                                  InterpolationMode imode, GLFWwindow *parentWindow)
+{
+    std::vector<std::vector<Mesh::FacePointer>> facesByTexture;
+    int nTex = FacesByTextureIndex(m, facesByTexture);
+
+    ensure_condition(nTex == (int) texSizes.size());
+
+    TextureObjectHandle newTexture = std::make_shared<TextureObject>();
+    for (int i = 0; i < nTex; ++i) {
+        std::shared_ptr<QImage> teximg = RenderTexture(facesByTexture[i], m, textureObject, filter, imode, texSizes[i].w, texSizes[i].h, parentWindow);
+        newTexture->AddImage(teximg);
+    }
+
+    return newTexture;
+}
+
 static std::shared_ptr<QImage> RenderTexture(std::vector<Mesh::FacePointer>& fvec,
                                       Mesh &m, TextureObjectHandle textureObject,
                                       bool filter, InterpolationMode imode,
@@ -914,23 +931,6 @@ static std::shared_ptr<QImage> RenderTexture(std::vector<Mesh::FacePointer>& fve
 
     LOG_VERBOSE << "Using texture interpolation mode " << imode;
 
-    GLint loc_cubic_flag = glGetUniformLocation(program, "use_cubic_interpolation");
-    glUniform1i(loc_cubic_flag, 0);
-    switch (imode) {
-    case Cubic:
-        glUniform1i(loc_cubic_flag, 1);
-        // fall through
-    case Linear:
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        break;
-    case Nearest:
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-    }
-    CheckGLError();
-
     std::shared_ptr<QImage> textureImage = std::make_shared<QImage>(renderedTexWidth, renderedTexHeight, QImage::Format_ARGB32);
 
     // disable depth and stencil test (if they were enabled) as the render target does not have the buffers attached
@@ -959,6 +959,33 @@ static std::shared_ptr<QImage> RenderTexture(std::vector<Mesh::FacePointer>& fve
         glUniform1i(loc_img0, 0);
         GLint loc_texture_size = glGetUniformLocation(program, "texture_size");
         glUniform2f(loc_texture_size, float(textureObject->TextureWidth(currTexIndex)), float(textureObject->TextureHeight(currTexIndex)));
+
+
+        GLint loc_cubic_flag = glGetUniformLocation(program, "use_cubic_interpolation");
+        glUniform1i(loc_cubic_flag, 0);
+        switch (imode) {
+        case Cubic:
+            glUniform1i(loc_cubic_flag, 1);
+            // fall through
+        case Linear:
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, 16.0f);
+
+            /*
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, 1.0f);
+            */
+
+            break;
+        case Nearest:
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+        }
+
+
 
         glDrawArrays(GL_TRIANGLES, baseIndex, count);
         CheckGLError();
