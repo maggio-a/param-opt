@@ -3,7 +3,6 @@
 
 #include <vcg/space/box2.h>
 
-#include "mesh_graph.h"
 #include "gl_utils.h"
 
 class Mesh;

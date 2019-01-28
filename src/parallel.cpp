@@ -159,6 +159,10 @@ void WorkerPool::ParameterizationWorker(int id, ParameterizationStrategy strateg
             } else {
                 // split the aggregate and restore the original uvs
 
+                RegionID baseId = chart->id;
+
+                LOG_WARN << "Parameterization failed (chart " << baseId << ", " << po.GetStatus() << "). Splitting.";
+
                 std::lock_guard<std::mutex> gmLock{gmMutex};
 
                 bool recover = (chart->numMerges > 0);
@@ -168,6 +172,7 @@ void WorkerPool::ParameterizationWorker(int id, ParameterizationStrategy strateg
                     std::vector<ChartHandle> newCharts;
                     RecoverFromFailedInit(splitCharts, graphMgr, newCharts);
                     for (auto& c : newCharts) {
+                        LOG_VERBOSE << "Chart " << c->id << " generated from splitting " << baseId;
                         numActiveTasks++;
                         workerQueue[id]->Put(TaskType{c, false});
                     }

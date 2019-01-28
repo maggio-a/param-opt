@@ -786,8 +786,6 @@ RasterizationBasedPacker::PackingStats Pack(GraphHandle graph, const PackingOpti
         GraphManager::ChartHandle chart = entry.second;
         LOG_DEBUG << "Chart " << chart->id << " - FN=" << chart->FN() << ", FI=" << tri::Index(graph->mesh, chart->Fp());
 
-        chart->ParameterizationChanged(); // packing changes texture coords even for charts that are not reparameterized
-
         // Save the outline of the parameterization for this portion of the mesh
         std::vector<Outline2f> uvOutlines;
         ChartOutlinesUV(graph->mesh, *chart, uvOutlines);
@@ -844,8 +842,6 @@ RasterizationBasedPacker::PackingStats Pack(GraphHandle graph, const PackingOpti
 
     LOG_INFO << "Packing took " << timer.TimeSinceLastCheck() << " seconds";
 
-    for (unsigned i = 0; i < containerIndices.size(); ++i)
-        LOG_DEBUG << "Packed outline " << i << " into container " << containerIndices[i];
     for (auto entry : outlineMap) {
         for (auto fptr : graph->charts[entry.first]->fpVec) {
             int ic = containerIndices[entry.second];
@@ -933,11 +929,12 @@ RasterizationBasedPacker::PackingStats Pack(GraphHandle graph, const PackingOpti
                 }
             }
         }
-
-        stats.efficiency = graph->AreaUV();
-        return stats;
-    } else {
-        return stats;
     }
+
+    for (auto& entry : graph->charts)
+        entry.second->ParameterizationChanged(); // packing changes texture coords even for charts that are not reparameterized
+
+    stats.efficiency = graph->AreaUV();
+    return stats;
 }
 

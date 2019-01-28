@@ -3,7 +3,6 @@
 #include "metric.h"
 #include "math_utils.h"
 #include "mesh_attribute.h"
-#include "mesh_graph.h"
 
 using namespace vcg;
 
