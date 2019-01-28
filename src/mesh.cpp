@@ -40,6 +40,9 @@ bool LoadMesh(Mesh &m, const char *fileName, TextureObjectHandle& textureObject,
         return false;
     }
 
+    for (auto& f : m.face)
+        f.SetMesh();
+
     LOG_INFO << "Loaded mesh " << fileName << " (VN " <<  m.VN() << ", FN " << m.FN() << ")";
 
     for (const string& textureName : m.textures) {
