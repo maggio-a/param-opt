@@ -83,7 +83,15 @@ int MainCmd(Mesh& m, GraphHandle graph, TextureObjectHandle textureObject, Args 
 
     LOG_INFO << "Processing took " << t.TimeElapsed() << " seconds";
 
-    std::string savename = "out_" + m.name;
+    std::string savename;
+    if (strategy.geometry == ParameterizationGeometry::Texture)
+        savename = "out_" + m.name;
+    else
+        savename = "out_3D_" + m.name;
+
+    if (savename.substr(savename.size() - 3, 3) == "fbx")
+        savename.append(".obj");
+
     if (SaveMesh(m, savename.c_str(), newTexture, true) == false) {
         LOG_ERR << "Model not saved correctly";
     }
@@ -127,6 +135,7 @@ int main(int argc, char *argv[])
 
     GLInit();
 
+    /*
     // Log original info
     {
         auto dummyGraph = ComputeParameterizationGraph(m, textureObject);
@@ -135,6 +144,7 @@ int main(int argc, char *argv[])
         LOG_INFO << "Raster stats before processing";
         LogParameterizationStats(dummyGraph, before);
     }
+    */
 
     // Preliminary cleaning
 
