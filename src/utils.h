@@ -24,7 +24,7 @@ struct Args {
     int logLevel;
     int nw;
 
-    Args() : filename{}, regionCount{20}, gui{false}, filter{true}, logLevel{0}, nw{1} {}
+    Args() : filename{}, regionCount{20}, gui{false}, filter{true}, fixContextCapture{false}, logLevel{0}, nw{1} {}
 };
 
 /*
