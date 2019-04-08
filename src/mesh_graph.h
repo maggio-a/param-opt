@@ -20,7 +20,6 @@ struct MeshGraph;
 struct FaceGroup;
 struct EdgeWeightFunction;
 
-
 using ChartHandle = std::shared_ptr<FaceGroup>;
 using GraphHandle = std::shared_ptr<MeshGraph>;
 
@@ -72,9 +71,6 @@ struct FaceGroup {
         vcg::Point3d weightedSumNormal;
     };
 
-    mutable bool dirty;
-    mutable Cache cache;
-
     void UpdateCache() const;
 
     Mesh& mesh;
@@ -86,6 +82,11 @@ struct FaceGroup {
 
     float minMappedFaceValue;
     float maxMappedFaceValue;
+
+    double error;
+
+    mutable bool dirty;
+    mutable Cache cache;
 
     FaceGroup(Mesh& m, const RegionID id_);
 
@@ -126,6 +127,7 @@ struct MeshGraph {
     TextureObjectHandle textureObject;
 
     MeshGraph(Mesh& m);
+    ~MeshGraph();
 
     /* Map distortion values to the mesh graph, this essentially computes the distortion
      * for each face of the mesh, and then computes the minmax pair at each chart
@@ -552,8 +554,5 @@ struct WUV : EdgeWeightFunction {
         return w;
     }
 };
-
-
-
 
 #endif // MESH_GRAPH_H

@@ -161,7 +161,7 @@ void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2f>
 
 void ChartOutlinesUV(Mesh& m, FaceGroup& chart, std::vector<std::vector<Point2d>> &outline2Vec)
 {
-    ensure_condition(chart.numMerges == 0);
+    //ensure_condition(chart.numMerges == 0);
 
     outline2Vec.clear();
     std::vector<Point2d> outline;
@@ -407,7 +407,6 @@ bool CleanSmallComponents(Mesh& m, GraphHandle graph, TextureObjectHandle texObj
     return true;
 }
 
-
 // FaceGroup class implementation
 // ==============================
 
@@ -417,9 +416,11 @@ FaceGroup::FaceGroup(Mesh& m, const RegionID id_)
       fpVec{},
       adj{},
       numMerges{0},
-      cache{},
       minMappedFaceValue{-1},
-      maxMappedFaceValue{-1}
+      maxMappedFaceValue{-1},
+      error{0},
+      dirty{false},
+      cache{}
 {
 }
 
@@ -431,8 +432,9 @@ void FaceGroup::Clear()
     numMerges = 0;
     minMappedFaceValue = -1;
     maxMappedFaceValue = -1;
-    cache = {};
+    error = 0;
     dirty = false;
+    cache = {};
 }
 
 void FaceGroup::UpdateCache() const
@@ -446,19 +448,16 @@ void FaceGroup::UpdateCache() const
         weightedSumNormal += (fptr->P(1) - fptr->P(0)) ^ (fptr->P(2) ^ fptr->P(0));
     }
 
-    // TODO this does not take cuts into account...
-    auto CCIDh = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(mesh, "ConnectedComponentID");
-    ensure_condition(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CCIDh));
-
     double borderUV = 0.0;
     for (auto fptr : fpVec) {
         for (int i = 0; i < 3; ++i) {
-            if (face::IsBorder(*fptr, i) || CCIDh[fptr] != CCIDh[fptr->FFp(i)]) {
+            if (IsBorderUV(fptr, i))
                 borderUV += EdgeLengthUV(*fptr, i);
-            }
         }
     }
 
+    auto CCIDh = tri::Allocator<Mesh>::FindPerFaceAttribute<RegionID>(mesh, "ConnectedComponentID");
+    ensure_condition(tri::Allocator<Mesh>::IsValidHandle<RegionID>(mesh, CCIDh));
     double border3D = 0.0;
     for (auto fptr : fpVec) {
         for (int i = 0; i < 3; ++i) {
@@ -592,6 +591,16 @@ void FaceGroup::UpdateBorder() const
 MeshGraph::MeshGraph(Mesh& m)
     : mesh{m}
 {
+}
+
+MeshGraph::~MeshGraph()
+{
+    textureObject = nullptr;
+    // Explicitly remove adjacency handles to remove dangling references
+    for (auto& entry: charts) {
+        entry.second->adj.clear();
+    }
+    charts.clear();
 }
 
 void MeshGraph::MapDistortion(DistortionMetric::Type type, ParameterizationGeometry geometry)

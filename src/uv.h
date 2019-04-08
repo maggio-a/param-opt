@@ -6,6 +6,7 @@
 #include "gl_utils.h"
 
 class Mesh;
+class MeshFace;
 
 /*
  * Note on the management of texture coordinates.
@@ -42,5 +43,7 @@ std::size_t ComputePerFaceConnectedComponentIdAttribute(Mesh &m);
 void MarkSeamsAsFaux(Mesh& m);
 
 bool CheckLocalInjectivity(Mesh& m);
+
+bool IsBorderUV(MeshFace *f, int e);
 
 #endif // UV_H

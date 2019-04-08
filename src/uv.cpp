@@ -133,3 +133,16 @@ bool CheckLocalInjectivity(Mesh& m)
     }
     return true;
 }
+
+bool IsBorderUV(MeshFace *fp, int e)
+{
+    if (face::IsBorder(*fp, e))
+        return true;
+
+    Mesh::ConstFacePointer ffp = fp->FFp(e);
+    int ee = fp->FFi(e);
+    if (fp->cV(e) == ffp->cV(fp->FFi(e))) // faces are not oriented coherently
+        return (fp->cWT(e) != ffp->cWT(ee)) || (fp->cWT(fp->Next(e)) != ffp->cWT(ffp->Next(ee)));
+    else
+        return (fp->cWT(e) != ffp->cWT(ffp->Next(ee))) || (fp->cWT(fp->Next(e)) != ffp->cWT(ee));
+}
