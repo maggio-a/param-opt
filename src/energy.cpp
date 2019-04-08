@@ -2,6 +2,7 @@
 #include "math_utils.h"
 #include "metric.h"
 #include "mesh_attribute.h"
+#include "logging.h"
 
 #include <Eigen/Core>
 
@@ -31,6 +32,8 @@ Energy::~Energy()
     // empty
 }
 
+#include <wrap/io_trimesh/export.h>
+
 void Energy::UpdateCache()
 {
     numMeshFaces = 0;
@@ -59,10 +62,16 @@ void Energy::UpdateCache()
 
     // This must be done after everything else has been updated, so it is 'safe'
     // to call E_IgnoreMarkedFaces() from the subclasses
-    if (numScaffoldFaces > 0)
+    if (numScaffoldFaces > 0) {
         scaffoldRegularizationTerm = (1.0 / 100.0) * (E_IgnoreMarkedFaces() / numScaffoldFaces);
-    else
+        if ((scaffoldRegularizationTerm > 0) == false) {
+            LOG_ERR << "Error computing scaffold regularization coefficient (computed value is " << scaffoldRegularizationTerm << ")";
+            LOG_ERR << "Energy is " << E_IgnoreMarkedFaces();
+            tri::io::Exporter<Mesh>::Save(m, "error.obj", tri::io::Mask::IOM_ALL);
+        }
+    } else {
         scaffoldRegularizationTerm = 0;
+    }
 }
 
 
@@ -180,6 +189,17 @@ double SymmetricDirichletEnergy::E(const Mesh::FaceType& f)
         };
         double e_d = 0.5 * (data[f][0] * o[0] + data[f][1] * o[1] + data[f][2] * o[2]);
         double energy = (1 + (area3D*area3D)/(areaUV*areaUV)) * (e_d);
+        if (!(energy > 0)) {
+            LOG_ERR << "Computed non-positive energy value at face index " << tri::Index(m, f);
+            LOG_ERR << "  -- (e_d = " << e_d << " , area3D = " << area3D << " , areaUV = " << areaUV << ", c = " << (area3D*area3D)/(areaUV*areaUV) << ")";
+            LOG_ERR << "  -- (data[0] = " << data[f][0] << " , data[1] = " << data[f][1] << " , data[2] = " << data[f][2] << ", data[3] = " << data[f][3] << ")";
+            LOG_ERR << "  -- (o[0] = " << o[0] << " , o[1] = " << o[1] << " , o[2] = " << o[2] << ")";
+            Mesh p;
+            tri::Allocator<Mesh>::AddFace(p, f.cP(0), f.cP(1), f.cP(2));
+            tri::io::Exporter<Mesh>::Save(p, "face.obj", tri::io::Mask::IOM_ALL);
+        }
+        if (energy <= 0)
+            energy = 1e8;
         return energy;
     }
 }
@@ -238,7 +258,9 @@ void SymmetricDirichletEnergy::UpdateCache()
         for (int i=0; i<3; i++) {
             Point3d a = P1(&f, i) - P0(&f, i);
             Point3d c = P2(&f, i) - P0(&f, i);
-            data[f][i] = VecCotg(a, c);
+            //data[f][i] = VecCotg(a, c);
+            double alpha = VecAngle(a, c);
+            data[f][i] = std::tan(M_PI_2 - alpha);
             ensure_condition(!std::isnan(data[f][i]));
             ensure_condition(std::isfinite(data[f][i]));
         }
