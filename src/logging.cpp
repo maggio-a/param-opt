@@ -116,13 +116,15 @@ void LogParameterizationStats(std::shared_ptr<MeshGraph> graph, const std::vecto
         lostFragments += stats.lostFragments;
     }
 
-    LOG_INFO << "Texture Area , Charts , Boundaries , Occupancy , Border, Lost Fragments";
+    LOG_INFO << "Texture Area , Charts , Boundaries , Occupancy , Border, Lost Fragments, Non-Injective fraction";
     LOG_INFO << rasterArea << " , "
              << graph->Count() << " , "
              << boundaries << " , "
              << usedFragments / double(rasterArea) << " , "
              << graph->BorderUV() << " , "
-             << lostFragments;
+             << lostFragments << " , "
+             << overwrittenFragments / (double) usedFragments;
+
 }
 
 void ExtractSingularValues(vcg::Point3d p10, vcg::Point3d p20, vcg::Point2d u10, vcg::Point2d u20, double *s_min, double *s_max)
@@ -282,8 +284,12 @@ void LogAggregateStats(const std::string& filename, std::shared_ptr<MeshGraph> g
     int nonmanif_vert = tri::Clean<Mesh>::CountNonManifoldVertexFF(m);
     int nonmanif_edge = tri::Clean<Mesh>::CountNonManifoldEdgeFF(m);
     int connected_components = tri::Clean<Mesh>::CountConnectedComponents(m);
-    int boundary_loops = tri::Clean<Mesh>::CountHoles(m);
-    int genus = tri::Clean<Mesh>::MeshGenus(m);
+    int boundary_loops = -1;
+    int genus = -1;
+    if (nonmanif_vert + nonmanif_edge == 0) {
+        boundary_loops = tri::Clean<Mesh>::CountHoles(m);
+        genus = tri::Clean<Mesh>::MeshGenus(m);
+    }
 
     double mapped_fraction = graph->MappedFraction();
 
@@ -298,6 +304,60 @@ void LogAggregateStats(const std::string& filename, std::shared_ptr<MeshGraph> g
 
     // angle distortion histogram
     ScaleTextureCoordinatesToImage(m, textureObject);
+
+    double sf_perc1;
+    double sf_perc99;
+    double sf_avg;
+    double sf_rms;
+    double sf_var;
+    double sf_stddev;
+    {
+        double total_surface_area = 0;
+        double total_uv_area = 0;
+        for (auto& f : m.face) {
+            double area3D = DistortionMetric::Area3D(f);
+            double areaUV = DistortionMetric::AreaUV(f);
+            if (std::isfinite(area3D) && std::isfinite(areaUV)) {
+                total_surface_area += area3D;
+                total_uv_area += areaUV;
+            }
+        }
+
+        for (auto& f : m.face) {
+            // quality is the texel allocation per face area
+            double area3D = DistortionMetric::Area3D(f);
+            double areaUV = std::abs(DistortionMetric::AreaUV(f));
+            if (std::isfinite(area3D) && std::isfinite(areaUV)) {
+                double area = area3D * (total_uv_area / total_surface_area);
+                double q = areaUV / area;
+                ensure_condition(q >= 0);
+                f.Q() = q;
+            } else {
+                f.Q() = 0;
+            }
+        }
+
+        vcg::Histogramd h;
+        tri::Stat<Mesh>::ComputePerFaceQualityHistogram(m, h);
+
+        sf_perc1 = h.Percentile(0.01);
+        sf_perc99 = h.Percentile(0.99);
+
+        h.Clear();
+        h.SetRange(sf_perc1, sf_perc99, 10000);
+
+
+        for (auto& f : m.face) {
+            if (f.Q() >= sf_perc1 && f.Q() <= sf_perc99)
+                h.Add(f.Q());
+        }
+        sf_avg = h.Avg();
+        sf_rms = h.RMS();
+        sf_var = h.Variance();
+        sf_stddev = h.StandardDeviation();
+    }
+
+
 
     vcg::Histogram<double> hist_angle;
     hist_angle.Clear();
@@ -370,8 +430,8 @@ void LogAggregateStats(const std::string& filename, std::shared_ptr<MeshGraph> g
     stats_file << "{" << std::endl;
 
     stats_file << JSONField("mesh"                , m.name)                        << "," << std::endl;
-    stats_file << JSONField("vn"                  , m.FN())                        << "," << std::endl;
-    stats_file << JSONField("fn"                  , m.VN())                        << "," << std::endl;
+    stats_file << JSONField("fn"                  , m.FN())                        << "," << std::endl;
+    stats_file << JSONField("vn"                  , m.VN())                        << "," << std::endl;
     stats_file << JSONField("connected_components", connected_components)          << "," << std::endl;
     stats_file << JSONField("boundary_loops"      , boundary_loops)                << "," << std::endl;
     stats_file << JSONField("genus"               , genus)                         << "," << std::endl;
@@ -381,6 +441,12 @@ void LogAggregateStats(const std::string& filename, std::shared_ptr<MeshGraph> g
     stats_file << JSONField("num_charts"          , num_charts)                    << "," << std::endl;
     stats_file << JSONField("num_null_charts"     , num_null_charts)               << "," << std::endl;
     stats_file << JSONField("occupancy"           , occupancy)                     << "," << std::endl;
+    stats_file << JSONField("sf_perc1"            , sf_perc1)                      << "," << std::endl;
+    stats_file << JSONField("sf_perc99"           , sf_perc99)                     << "," << std::endl;
+    stats_file << JSONField("sf_avg"              , sf_avg)                        << "," << std::endl;
+    stats_file << JSONField("sf_rms"              , sf_rms)                        << "," << std::endl;
+    stats_file << JSONField("sf_var"              , sf_var)                        << "," << std::endl;
+    stats_file << JSONField("sf_stddev"           , sf_stddev)                     << "," << std::endl;
     stats_file << JSONField("ntex"                , (int) statsAtMipLevels.size()) << "," << std::endl;
 
     for (std::size_t ntex = 0; ntex < statsAtMipLevels.size(); ntex++) {

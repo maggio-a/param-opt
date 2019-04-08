@@ -36,10 +36,11 @@
 #include <vcg/complex/algorithms/update/color.h>
 
 
+
 void RemoveDegeneracies(Mesh& m)
 {
     int dupVert = tri::Clean<Mesh>::RemoveDuplicateVertex(m);
-    //int zeroArea = tri::Clean<Mesh>::RemoveZeroAreaFace(m);
+    int zeroArea = tri::Clean<Mesh>::RemoveZeroAreaFace(m);
 
     tri::Allocator<Mesh>::CompactEveryVector(m);
 
@@ -48,8 +49,8 @@ void RemoveDegeneracies(Mesh& m)
     if (dupVert > 0)
         LOG_VERBOSE << "Removed " << dupVert << " duplicate vertices";
 
-    //if (zeroArea > 0)
-    //    LOG_VERBOSE << "Removed " << zeroArea << " zero area faces";
+    if (zeroArea > 0)
+        LOG_VERBOSE << "Removed " << zeroArea << " zero area faces";
 
     int numVertexSplit = 0;
     int nv;
@@ -68,9 +69,14 @@ void RemoveDegeneracies(Mesh& m)
 
     tri::Allocator<Mesh>::CompactEveryVector(m);
 
+    // NO REMOVE THIS, OLD
     // Handle zero area faces by selecting them, dilating the selation and remeshing
     // the selected areas. Zero area holes are handles in the same way by being filled
     // beforehand
+
+    // Having deleted all the zero area faces, we have potentially created degenerate
+    // holes in the mesh. This is fixed by closing all the holes, and remeshing
+    // around hole-filling faces that are zero area (or very small)
 
     LOG_INFO << "FIXME Remeshing does not guarantee that texture coordinates are preserved";
     tri::UpdateSelection<Mesh>::Clear(m);
@@ -145,8 +151,7 @@ static bool SegmentBoxIntersection(const Segment2<double>& seg, const Box2d& box
     if (SegmentSegmentIntersection(seg, Segment2<double>{c1, c2}, isec)) return true;
     if (SegmentSegmentIntersection(seg, Segment2<double>{c2, c3}, isec)) return true;
     if (SegmentSegmentIntersection(seg, Segment2<double>{c3, c4}, isec)) return true;
-    if (SegmentSegmentIntersection(seg, Segment2<double>{c4, c2}, isec)) return true;
-    if (SegmentSegmentIntersection(seg, Segment2<double>{c1, c2}, isec)) return true;
+    if (SegmentSegmentIntersection(seg, Segment2<double>{c4, c1}, isec)) return true;
 
     // if the segment does not intersect the sides, check if it is fully contained in the box
     return (box.min[0] <= std::min(seg.P0()[0], seg.P1()[0]) &&
@@ -462,7 +467,7 @@ void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
             continue;
         numNoParam++;
 
-        LOG_DEBUG << "Parameterizing region of " << chart->FN() << " zero UV area faces";
+        LOG_DEBUG << "Parameterizing region of " << chart->FN() << " zero UV area faces (ID = " << tri::Index(graph->mesh, chart->Fp());
 
         bool parameterized = false;
 
@@ -520,7 +525,7 @@ void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph)
     LOG_INFO << "Computed new parameterizations for " << numParameterized << " null charts";
 }
 
-int RemoveOutliers(GraphHandle& graph)
+int ClearUVOutliers(GraphHandle& graph)
 {
     double totalArea3D = graph->Area3D();
     int count = 0;
@@ -536,10 +541,9 @@ int RemoveOutliers(GraphHandle& graph)
                 }
             }
             count++;
+            c->UpdateCache();
         }
     }
-
-    graph = nullptr;
 
     return count;
 }
@@ -555,6 +559,8 @@ void RecomputeSegmentation(GraphManager &gm, std::size_t regionCount, double sma
     LOG_INFO << "Clustering: TargetRegionCount=" << regionCount << " , regionThreshold=" << smallRegionAreaThreshold;
 
     double minChartArea = smallRegionAreaThreshold * gm.Graph()->Area3D();
+
+    tri::UpdateTopology<Mesh>::VertexFace(gm.Graph()->mesh);
 
     do {
         mergeCount = gm.CloseMacroRegions(smallRegionAreaThreshold);
@@ -789,7 +795,9 @@ RasterizationBasedPacker::PackingStats Pack(GraphHandle graph, const PackingOpti
         // Save the outline of the parameterization for this portion of the mesh
         std::vector<Outline2f> uvOutlines;
         ChartOutlinesUV(graph->mesh, *chart, uvOutlines);
-        int i = tri::OutlineUtil<float>::LargestOutline2(uvOutlines);
+
+        int i = (uvOutlines.size() == 1) ? 0 : tri::OutlineUtil<float>::LargestOutline2(uvOutlines);
+
         if (tri::OutlineUtil<float>::Outline2Area(uvOutlines[i]) < 0)
             tri::OutlineUtil<float>::ReverseOutline2(uvOutlines[i]);
 

@@ -41,8 +41,8 @@
  * PER FACE
  *
  *   - FaceAttribute_TargetShape (GetTargetShapeAttribute)
- *       The shape of the triangle towards which distortion must be minimized
- *       when the shell is optimized.
+ *       The shape of the triangle that is used to define the energy function
+ *       when computing the uv coordinates of the shell
  *
  *   - FaceAttribute_FaceIndex (GetFaceIndexAttribute)
  *       The index of the input mesh face that corresponds to the shell face.
@@ -50,7 +50,7 @@
  *
  *   - FaceAttribute_Shell3DShape (GetShell3DShapeAttribute)
  *       This attribute is used to store the 3D coordinates of the shell after
- *       it has been build, in order to easily convert back and forth between
+ *       it has been built, in order to easily convert back and forth between
  *       its 3D and UV configuration when it is not 2-manfold
  * */
 

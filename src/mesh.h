@@ -82,6 +82,8 @@ class MyMesh : public tri::TriMesh< std::vector<MyVertex>, std::vector<MyEdge>, 
 //using DistortionWedge = tri::Distortion<Mesh,true>;
 using RegionID = std::size_t;
 
+using PosF = face::Pos<MeshFace>;
+
 constexpr RegionID INVALID_ID = 0xffffffff;
 
 
