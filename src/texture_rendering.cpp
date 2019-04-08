@@ -763,6 +763,19 @@ static RasterizedParameterizationStats GetRasterizationStats(Mesh& m, const std:
 
 std::vector<TextureSize> ComputeSizes(int ntex, TextureObjectHandle inputTexture)
 {
+    //ensure_condition(0 && "FIXME");
+
+    /* Il problema qua e' che la dimensione delle texture non la uso solo per
+     * creare la nuova texture ma anche per definire le dimensioni dell'area di packing.
+     * In questo secondo caso pero', dovrei tener conto delle dimensioni relative dei
+     * contenitori. Un modo per farlo potrebbe essere di prendere la dimensione massima
+     * lungo gli assi, ed esprimere tutte le altre dimensioni come frazioni di questa.
+     * Ad es. se ho due contenitori, uno 8k*8k e uno 8k*4k, la dim max e' 8, ed esprimo
+     * le dimensioni dei contenitori come 1*1 e 1*0.5. Poi con il packing scalo tutto
+     * per la risoluzione di packing, mentre per le texture scalo tutto per la massima
+     * dimensione di texture presente nell'input. */
+
+
     std::vector<TextureSize> textureSizes;
     int ntex_in = inputTexture->ArraySize();
     if (ntex <= ntex_in) {
@@ -782,8 +795,10 @@ std::vector<TextureSize> ComputeSizes(int ntex, TextureObjectHandle inputTexture
             return { {8192, 8192} };
         else if (textureArea <= 16384 * 16384)
             return { {16384, 16384} };
-        else
+        else {
             ensure_condition(0 && "Unable to find a texture large enough to store all the data");
+            return {{-1, -1}};
+        }
     }
 }
 
