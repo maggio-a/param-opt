@@ -10,6 +10,9 @@
 #include "logging.h"
 
 #include <wrap/io_trimesh/io_mask.h>
+#include <wrap/io_trimesh/export.h>
+
+#include <vcg/complex/algorithms/update/color.h>
 
 #include <string>
 #include <vector>
@@ -100,6 +103,77 @@ int main(int argc, char *argv[])
     std::cout << std::endl;
 
     LogAggregateStats("stats", graph, textureObject);
+
+    ScaleTextureCoordinatesToImage(m, textureObject);
+
+    double total_surface_area = 0;
+    double total_uv_area = 0;
+    for (auto& f : m.face) {
+        double area3D = DistortionMetric::Area3D(f);
+        double areaUV = std::abs(DistortionMetric::AreaUV(f));
+        if (std::isfinite(area3D) && std::isfinite(areaUV)) {
+            total_surface_area += area3D;
+            total_uv_area += areaUV;
+        }
+    }
+
+
+    for (auto& f : m.face) {
+        // quality is the texel allocation per face area
+        double area3D = DistortionMetric::Area3D(f);
+        double areaUV = std::abs(DistortionMetric::AreaUV(f));
+        if (std::isfinite(area3D) && std::isfinite(areaUV)) {
+            double area = area3D * (total_uv_area / total_surface_area);
+            double q = areaUV / area;
+            ensure_condition(q >= 0);
+            f.Q() = q;
+        } else {
+            f.Q() = 0;
+        }
+
+        if (tri::Index(m, f)%1000 == 0) {
+            std::cout << area3D << " " << areaUV << " " << f.Q() << std::endl;
+        }
+    }
+
+    std::cout << total_uv_area << " " << total_surface_area << std::endl;
+
+    /*
+    vcg::Histogramd h;
+    tri::Stat<Mesh>::ComputePerFaceQualityHistogram(m, h);
+    */
+
+    vcg::Distribution<double> h;
+    tri::Stat<Mesh>::ComputePerFaceQualityDistribution(m, h);
+
+    double perc1 = h.Percentile(0.01);
+    double perc99 = h.Percentile(0.99);
+
+    std::cout << "Texel allocation per unit surface area range: " << perc1 << " - " << perc99 << std::endl;
+
+    double rangeMin = 0;
+    double rangeMax = 10;
+
+    ensure_condition(perc1 >= rangeMin);
+    ensure_condition(perc99 <= rangeMax);
+
+    for (auto& f : m.face) {
+        double q = f.Q();
+        if (q < perc1)
+            q = perc1;
+        if (q > perc99)
+            q = perc99;
+        if (q < 1)
+            f.C().lerp(vcg::Color4b(0, 100, 255, 255), vcg::Color4b(255, 48, 48, 255), 1.0 - q);
+        else
+            f.C().lerp(vcg::Color4b(0, 100, 255, 255), vcg::Color4b(48, 255, 48, 255), (q - 1) / (rangeMax - 1));
+
+        //f.C().lerp(vcg::Color4b(0, 100, 255, 255), vcg::Color4b(255, 48, 48, 255), (q - perc1) / (perc99 - perc1));
+        //f.C().lerp(vcg::Color4b(0, 100, 255, 255), vcg::Color4b(255, 48, 48, 255), (q - perc1) / (rangeMax - rangeMin));
+    }
+
+    m.textures.clear();
+    tri::io::ExporterPLY<Mesh>::Save(m, "texel.ply", tri::io::Mask::IOM_FACEQUALITY | tri::io::Mask::IOM_FACECOLOR);
 
     GLTerminate();
 
