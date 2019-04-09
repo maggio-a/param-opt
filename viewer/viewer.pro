@@ -20,7 +20,10 @@ SOURCES += viewer.cpp \
     ../src/logging.cpp \
     ../src/iterative_solvers.cpp \
     ../src/parallel.cpp \
-    ../src/cones.cpp
+    ../src/cones.cpp \
+    ../src/atlas_clustering.cpp \
+    ../src/matching.cpp \
+    ../src/arap.cpp
 
 SOURCES += \
     ../imgui/imgui_demo.cpp \
@@ -60,7 +63,10 @@ HEADERS += \
     ../src/parallel.h \
     ../src/linear_solvers.h \
     ../src/iterative_solvers.h \
-    ../src/cones.h
+    ../src/cones.h \
+    ../src/atlas_clustering.h \
+    ../src/matching.h \
+    ../src/arap.h
 
 HEADERS += \
     ../imgui/imconfig.h \
