@@ -39,7 +39,7 @@ struct PackingOptions {
 
 void RemoveDegeneracies(Mesh& m);
 
-int RemoveOutliers(GraphHandle& graph);
+int ClearUVOutliers(GraphHandle& graph);
 
 void ParameterizeZeroAreaRegions(Mesh &m, std::shared_ptr<MeshGraph> graph);
 
