@@ -46,9 +46,7 @@ struct ParameterizationStrategy {
  * not updated). The shell has suitable attributes to retrieve information about
  * the shell-face to input mesh-face mappings, as well as the target shape
  * features of each face to guide the parameterization process. (See also the
- * comments in mesh_attribute.h).
- * The shell is initialized using Tutte's parameterization, and it is scaled so
- * that it matches the target area. */
+ * comments in mesh_attribute.h). */
 bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeometry, bool useExistingUV);
 
 /* This function synchronizes a shell with its UV coordinates, that is it

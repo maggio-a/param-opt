@@ -41,20 +41,37 @@ inline Polyline2 BuildPolyline2(const std::vector<std::size_t> &vfi, const std::
     return polyline;
 }
 
+/* ! FIXME useExistingUV is ignored, remove ! */
 bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeometry, bool useExistingUV)
 {
+    static double t0 = 0;
+    static double t1 = 0;
+    static double t2 = 0;
+    static double t3 = 0;
+    static double t4 = 0;
+    static double t5 = 0;
+    static double t6 = 0;
+
+    Timer t;
+
     Mesh& m = fg.mesh;
 
     CopyToMesh(fg, shell);
+
+    t0 += t.TimeElapsed();
 
     tri::Clean<Mesh>::RemoveDuplicateVertex(shell);
     tri::UpdateBounding<Mesh>::Box(shell);
     tri::UpdateTopology<Mesh>::FaceFace(shell);
 
+    t1 += t.TimeElapsed();
+
     int splitCount;
     while ((splitCount = tri::Clean<Mesh>::SplitNonManifoldVertex(shell, 0.15)) > 0)
         ;
     tri::Allocator<Mesh>::CompactEveryVector(shell);
+
+    t2 += t.TimeElapsed();
 
     // First attempt, topological cut
     if (!Parameterizable(shell)) {
@@ -70,6 +87,8 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
         tri::UpdateTopology<Mesh>::FaceFace(shell);
     }
 
+    t3 += t.TimeElapsed();
+
     // Second attempt, pick a face and cut along two edges
     if (!Parameterizable(shell)) {
         tri::UpdateFlags<Mesh>::FaceClearFaceEdgeS(shell);
@@ -83,11 +102,15 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
         ensure_condition(Parameterizable(shell));
     }
 
+    t4 += t.TimeElapsed();
+
     // Failed to produce a parameterizable shell
     if (!Parameterizable(shell))
         return false;
 
     CloseMeshHoles(shell);
+
+    t5 += t.TimeElapsed();
 
     // Compute the target shapes for the shell faces
     auto psi = GetParameterizationScaleInfoAttribute(m);
@@ -166,6 +189,8 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
                     ensure_condition(interpolationFactor <= 1);
                     ensure_condition(std::isfinite(interpolationFactor));
 
+                    interpolationFactor = 0;
+
                     Point2d v10 = (1.0 - interpolationFactor) * u10 + (interpolationFactor) * x10;
                     Point2d v20 = (1.0 - interpolationFactor) * u20 + (interpolationFactor) * x20;
 
@@ -193,6 +218,16 @@ bool BuildShell(Mesh& shell, FaceGroup& fg, ParameterizationGeometry targetGeome
         sa[sf].P[2] = sf.P(2);
     }
 
+    t6 += t.TimeElapsed();
+
+    LOG_DEBUG << "\t\t\t[TIMING BuildShell()] t0 = " << t0;
+    LOG_DEBUG << "\t\t\t[TIMING BuildShell()] t1 = " << t1;
+    LOG_DEBUG << "\t\t\t[TIMING BuildShell()] t2 = " << t2;
+    LOG_DEBUG << "\t\t\t[TIMING BuildShell()] t3 = " << t3;
+    LOG_DEBUG << "\t\t\t[TIMING BuildShell()] t4 = " << t4;
+    LOG_DEBUG << "\t\t\t[TIMING BuildShell()] t5 = " << t5;
+    LOG_DEBUG << "\t\t\t[TIMING BuildShell()] t6 = " << t6;
+
     return true;
 }
 
@@ -203,6 +238,7 @@ void SyncShellWithUV(Mesh& shell)
         v.P().Y() = v.T().V();
         v.P().Z() = 0.0;
     }
+    tri::UpdateBounding<Mesh>::Box(shell);
 }
 
 // TODO this method should CALL ClearHoleFillingFaces(shell, true, true) otherwise it's unsafe
@@ -214,6 +250,7 @@ void SyncShellWith3D(Mesh& shell)
         for (int i = 0; i < 3; ++i)
             sf.P(i) = sa[sf].P[i];
     }
+    tri::UpdateBounding<Mesh>::Box(shell);
 }
 
 void ClearHoleFillingFaces(Mesh& shell, bool holefill, bool scaffold)

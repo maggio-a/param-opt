@@ -32,6 +32,7 @@
 #include "timer.h"
 #include "logging.h"
 
+#include <wrap/io_trimesh/export.h>
 
 using Eigen::MatrixXd;
 using Eigen::Vector2d;
@@ -79,7 +80,6 @@ static double ComputeStepSizeNoFlip(const Vector2d& pi, const Vector2d& pj, cons
     else
         return std::numeric_limits<double>::max();
 }
-
 
 // Descent Method implementation
 // =============================
@@ -264,13 +264,6 @@ void DescentMethod::SetX(const MatrixXd& x)
         v.T().U() = uv(0);
         v.T().V() = uv(1);
     }
-    /*
-    for (auto& f : m.face) {
-        Point2d u10 = f.V(1)->T().P() - f.V(0)->T().P();
-        Point2d u20 = f.V(2)->T().P() - f.V(0)->T().P();
-        ensure_condition((u10 ^ u20) > 0);
-    }
-    */
 }
 
 
@@ -1104,10 +1097,27 @@ void CompMaj::ComputeHessian()
             areas(i) = sd_energy->GetScaffoldFaceArea() * sd_energy->GetScaffoldWeight();
     }
 
+    ensure_condition((areas.array() > 0).all());
+    for (int i = 0; i < areas.size(); ++i)
+        ensure_condition(areas[i] > 0);
+
     Eigen::VectorXd gradS0 = areas.cwiseProduct(s.col(0).unaryExpr(lambda1));
     Eigen::VectorXd gradS1 = areas.cwiseProduct(s.col(1).unaryExpr(lambda1));
     Eigen::VectorXd HS0 = areas.cwiseProduct(s.col(0).unaryExpr(lambda2));
     Eigen::VectorXd HS1 = areas.cwiseProduct(s.col(1).unaryExpr(lambda2));
+
+    ensure_condition(gradS0.hasNaN() == false);
+    ensure_condition(gradS1.hasNaN() == false);
+    ensure_condition(HS0.hasNaN() == false);
+    ensure_condition(HS1.hasNaN() == false);
+
+    for (int i = 0; i < gradS0.size(); ++i) {
+        ensure_condition(std::isfinite(gradS0[i]));
+        ensure_condition(std::isfinite(gradS1[i]));
+        ensure_condition(std::isfinite(HS0[i]));
+        ensure_condition(std::isfinite(HS1[i]));
+    }
+
 
     Eigen::VectorXd alpha0 = 0.5 * (a + d);
     Eigen::VectorXd alpha1 = 0.5 * (c - b);
@@ -1213,17 +1223,35 @@ bool CompMaj::ComputeDescentDirection(Eigen::MatrixXd& dir)
         A.setFromTriplets(triplets.begin(), triplets.end());
     }
 
+//#define ENABLE_EXTRA_CHECKS
 #ifdef ENABLE_EXTRA_CHECKS
 
     for (int k = 0; k < A.outerSize(); ++k) {
+        bool foundnonzero = false;
         for (Eigen::SparseMatrix<double>::InnerIterator it(A, k); it; ++it) {
             if (!std::isfinite(it.value())) {
                 LOG_ERR << "CompMaj: coefficient matrix contains non-finite value " << it.value()
                         << " at entry " << it.row() << " " << it.col();
                 ensure_condition(0 && "CompMaj matrix coefficients non-finite");
             }
+            if (it.value() != 0)
+                foundnonzero = true;
         }
+        ensure_condition(foundnonzero == true);
     }
+
+    Eigen::SparseMatrix<double, Eigen::RowMajor> B = A;
+    for (int k = 0; k < B.outerSize(); ++k) {
+        bool foundnonzero = false;
+        for (Eigen::SparseMatrix<double,Eigen::RowMajor>::InnerIterator it(B, k); it; ++it) {
+            if (it.value() != 0 && std::isfinite(it.value())) {
+                foundnonzero = true;
+                break;
+            }
+        }
+        ensure_condition(foundnonzero == true);
+    }
+
 
 #endif
 
@@ -1236,7 +1264,7 @@ bool CompMaj::ComputeDescentDirection(Eigen::MatrixXd& dir)
     solver.factorize(A);
 
     if (solver.info() != Eigen::Success) {
-        LOG_ERR << "CompMaj factorization failed";
+        LOG_ERR << "CompMaj factorization failed: " << solver.info();
         tri::io::Exporter<Mesh>::Save(m, "factorization_failed.obj", tri::io::Mask::IOM_ALL);
         return false;
     }

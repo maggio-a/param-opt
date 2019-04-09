@@ -69,5 +69,18 @@ void CleanupShell(Mesh& shell);
 /* Copies a shell object with all its attributes */
 void CopyShell(Mesh& shell, Mesh& out);
 
+
+
+
+
+
+typedef tri::Allocator<Mesh>::PointerUpdater<Mesh::VertexPointer> VPU;
+typedef tri::Allocator<Mesh>::PointerUpdater<Mesh::FacePointer> FPU;
+
+std::vector<PosF> ExtractFauxTrack(PosF pos);
+//void PadFauxTrack(Mesh& m, std::vector<PosF>& track);
+std::pair<VPU,FPU> PadFauxTrack(Mesh& m, std::vector<PosF>& track);
+void AugmentMeshWithSupportFacesAlongSeams(Mesh& m);
+
 #endif // MESH_UTILS_H
 
