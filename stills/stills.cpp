@@ -48,26 +48,35 @@ static const char *fs_text[] = {
     "                                                               \n"
     "uniform sampler2D tex0;                                        \n"
     "                                                               \n"
+    "uniform int zero_mask = 0;                                     \n"
+    "                                                               \n"
     "in vec2 uv;                                                    \n"
     "out vec4 color;                                                \n"
     "                                                               \n"
     "void main(void)                                                \n"
     "{                                                              \n"
-    "    color = texture2D(tex0, uv);                               \n"
+    "    if (zero_mask == 0) {                                      \n"
+    "        color = texture(tex0, uv);                             \n"
+    "    } else {                                                   \n"
+    "        if (uv == vec2(0.0, 0.0))                              \n"
+    "            color = vec4(1.0, 1.0, 1.0, 1.0);                  \n"
+    "        else                                                   \n"
+    "            color = vec4(0.0, 0.0, 0.0, 1.0);                  \n"
+    "    }                                                          \n"
     "}                                                              \n"
 };
 
 
 using namespace vcg;
 
-void RenderStills(Mesh &m, TextureObjectHandle textureObject)
+void RenderStills(Mesh &m, TextureObjectHandle textureObject, bool halfres, float lodbias, float max_aniso, bool mask)
 {
     tri::UpdateBounding<Mesh>::Box(m);
 
     bool scaled = false;
     double scaleFactor = 0;
 
-    if (m.bbox.Diag() > 1000) {
+    if (m.bbox.Diag() > 100) {
         scaled = true;
         scaleFactor = 1.0 / m.bbox.Diag();
         tri::UpdatePosition<Mesh>::Scale(m, scaleFactor);
@@ -76,6 +85,10 @@ void RenderStills(Mesh &m, TextureObjectHandle textureObject)
 
     int w = 2048;
     int h = 2048;
+    if (halfres) {
+        w /= 2;
+        h /= 2;
+    }
     float aspect = w / (float) h;
 
     int ntex = textureObject->ArraySize();
@@ -211,7 +224,8 @@ void RenderStills(Mesh &m, TextureObjectHandle textureObject)
     }
 
     mat4x4 proj;
-    mat4x4_perspective(proj, 40.0f * M_PI / 180.0f, aspect, 0.001f, 2000.0f);
+    mat4x4_perspective(proj, 45.0f * M_PI / 180.0f, aspect, 0.001f, 2000.0f);
+    //mat4x4_perspective(proj, 0.1f * M_PI / 180.0f, aspect, 0.001f, 2000.0f);
 
     // projection matrix is fixed
     GLint loc_projectionMatrix = glGetUniformLocation(program, "projectionMatrix");
@@ -249,7 +263,11 @@ void RenderStills(Mesh &m, TextureObjectHandle textureObject)
 
         // render in multiple passes
 
-        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        if (mask == false)
+            glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        else
+            glClearColor(1.0f, 1.0f, 1.0f, 1.0f);
+
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         int base = 0;
@@ -261,14 +279,21 @@ void RenderStills(Mesh &m, TextureObjectHandle textureObject)
             textureObject->Bind(i);
 
             // set filtering
-            glGenerateMipmap(GL_TEXTURE_2D);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
             glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
+            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_LOD_BIAS, lodbias);
+            glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, max_aniso);
+
+            CheckGLError();
+
             GLint loc_tex0 = glGetUniformLocation(program, "tex0");
             glUniform1i(loc_tex0, 0);
+
+            GLint loc_zero_mask = glGetUniformLocation(program, "zero_mask");
+            glUniform1i(loc_zero_mask, (mask ? 1 : 0));
 
             glDrawArrays(GL_TRIANGLES, base, vertexCount);
             CheckGLError();
@@ -286,8 +311,9 @@ void RenderStills(Mesh &m, TextureObjectHandle textureObject)
 
         Mirror(img);
 
-        std::string name = "img" + std::to_string(n++) + ".png";
-        img.save(name.c_str(), "png", 66);
+        char name[256] = {};
+        std::snprintf(name, 255, "img%3d.png", n++);
+        img.save(name, "png", 66);
         glfwPollEvents();
     }
 
@@ -323,9 +349,37 @@ int main(int argc, char *argv[])
     }
 
     ensure_condition(argc > 1 && "Mesh argument missing");
-    bool downsample = false;
-    if (argc > 2 && std::string(argv[2]) == "--downsample")
-        downsample = true;
+
+    bool downsample1 = false;
+    bool downsample2 = false;
+    bool halfres = false;
+    bool mask = false;
+
+    float lodbias = 0.0f;
+    float max_aniso = 1.0f;
+
+    for (int i = 2; i < argc; ++i) {
+        std::string arg(argv[i]);
+        if (arg == "--downsample1") {
+            downsample1 = true;
+        } else if (arg == "--downsample2") {
+            downsample2 = true;
+        } else if (arg == "--halfres") {
+            halfres = true;
+        } else if (arg == "--mask") {
+            mask = true;
+        } else if (arg == "--lodbias") {
+            i++;
+            ensure_condition(i < argc);
+            lodbias = std::stof(std::string(argv[i]));
+        } else if (arg == "--max_anisotropy") {
+            i++;
+            ensure_condition(i < argc);
+            max_aniso = std::stof(std::string(argv[i]));
+        } else {
+            LOG_WARN << "Unrecognized optional argument '" << arg << "'";
+        }
+    }
 
     Mesh m;
     TextureObjectHandle textureObject;
@@ -338,11 +392,24 @@ int main(int argc, char *argv[])
     tri::Clean<Mesh>::RemoveUnreferencedVertex(m);
     tri::Allocator<Mesh>::CompactEveryVector(m);
 
-    if (downsample) {
+    for (auto& f : m.face) {
+        if (DistortionMetric::AreaUV(f) == 0) {
+            f.WT(0).P() = vcg::Point2d(0, 0);
+            f.WT(1).P() = vcg::Point2d(0, 0);
+            f.WT(2).P() = vcg::Point2d(0, 0);
+        }
+    }
+
+    if (downsample1 || downsample2) {
         LOG_INFO << "Downsampling textures...";
         for (auto &qimg : textureObject->imgVec) {
-            int div = qimg->height() / 1024;
             std::shared_ptr<QImage> qimgdown = std::make_shared<QImage>();
+            int div = 0;
+            if (downsample1)
+                div = 2;
+            if (downsample2)
+                div = 4;
+            assert(div > 0);
             *qimgdown = qimg->scaledToHeight(qimg->height() / div, Qt::SmoothTransformation);
             *qimg = qimgdown->convertToFormat(QImage::Format_ARGB32); // required because scaled() can change the internal format of the QImage...
         }
@@ -353,7 +420,7 @@ int main(int argc, char *argv[])
     GLInit();
 
     LOG_INFO << "Rendering images...";
-    RenderStills(m, textureObject);
+    RenderStills(m, textureObject, halfres, lodbias, max_aniso, mask);
 
     GLTerminate();
 
