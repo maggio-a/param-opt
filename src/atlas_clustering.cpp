@@ -32,6 +32,8 @@
 #include "mesh_graph.h"
 #include "timer.h"
 #include "texture_optimization.h"
+#include "matching.h"
+#include "arap.h"
 
 #include <vcg/space/index/grid_util2d.h>
 #include <vcg/space/segment2.h>
@@ -42,11 +44,16 @@
 
 
 //#define FAST_CHAIN_UPDATE
-#define DEBUG_SAVES
+//#define DEBUG_SAVES
 //#define RASTERIZATION_BASED_OVERLAP_CHECK
 
 
 static constexpr double OFFSET_TOLERANCE = 5.0;
+
+static int feasibility_failed = 0;
+static int post_failed = 0;
+static int total_accepted = 0;
+static int total_rejected = 0;
 
 #ifdef DEBUG_SAVES
 
@@ -295,7 +302,19 @@ AtlasClustering::AtlasClustering(std::shared_ptr<MeshGraph> gptr)
     : g{gptr},
       queue{},
       moves{},
-      chains{}
+      chains{},
+      total_arap_t{0},
+      active_arap_t{0},
+      init_t{0},
+      check_t{0},
+      merge_t{0},
+      opt_t{0},
+      post_t{0},
+      shell_0_t{0},
+      shell_1_t{0},
+      shell_2_t{0},
+      shell_3_t{0}
+
 {
     ResetMoveState();
 
@@ -443,10 +462,13 @@ void AtlasClustering::ResetMoveState()
     offsetVec.clear();
     savedWtA.clear();
     savedWtB.clear();
+    move_arap_t = 0;
 }
 
 void AtlasClustering::InitMove(ClusteringMove move)
 {
+    Timer t;
+
     LOG_DEBUG << "    Running  step InitMove()";
     ensure_condition(state == Uninitialized);
     currentMove = move;
@@ -454,29 +476,66 @@ void AtlasClustering::InitMove(ClusteringMove move)
     merge_b = move.b;
     state = Initialized;
     LOG_DEBUG << "Initialized move " << merge_a->id << " <- " << merge_b->id;
+
+    init_t += t.TimeElapsed();
 }
 
 bool AtlasClustering::CheckFeasibility()
 {
+    Timer t;
+
     LOG_DEBUG << "    Running step CheckFeasibility()";
     ensure_condition(state == Initialized);
     std::vector<ChartHandle> merge = { merge_a, merge_b };
     auto check = MergeCheck(merge);
     if (check.first == MergeStatus::Allowed) {
-        state = TopologicallyFeasible;
-        return true;
+        state = Feasible;
     } else {
         LOG_DEBUG << "Unfeasible move";
-        state = TopologicallyUnfeasible;
-        return false;
+        state = Unfeasible;
     }
+
+    // Additionally, also check the alignment error
+    ensure_condition(chains.count(currentMove) > 0);
+    const BoundaryChain& chain = chains[currentMove];
+
+    std::vector<vcg::Point2d> bpa;
+    std::vector<vcg::Point2d> bpb;
+
+    ConvertChainToPoints(chain, bpa, bpb);
+
+    MatchingInfo mi = ComputeMatchingRigidMatrix(bpa, bpb);
+
+    double error = 0;
+    for (unsigned i = 0; i < bpa.size(); ++i) {
+        error += (bpa[i] - mi.Apply(bpb[i])).Norm();
+    }
+
+    error = error / (double) bpa.size();
+
+    const double ERROR_THRESHOLD = 20;
+
+    if (error > ERROR_THRESHOLD) {
+        LOG_DEBUG << "Forcing infeasibility because matching error is too high (" << error << ")";
+        state = Unfeasible;
+    }
+
+    bool passed = (state == Feasible);
+    if (!passed)
+        feasibility_failed++;
+
+    check_t += t.TimeElapsed();
+
+    return passed;
 }
 
 
 void AtlasClustering::Merge()
 {
+    Timer t;
+
     LOG_DEBUG << "    Running step Merge()";
-    ensure_condition(state == TopologicallyFeasible);
+    ensure_condition(state == Feasible);
     /* In order to be able to revert the changes, after merging the charts
      * I need to store the reference to the 'new' charts, the number of faces
      * that have been added because of the merge, and the texture coordinates of
@@ -517,6 +576,10 @@ void AtlasClustering::Merge()
 
     MatchingInfo mi = ComputeMatchingRigidMatrix(bpa, bpb);
 
+    LOG_DEBUG << "Matching info";
+    LOG_DEBUG << mi.t.X() << " " << mi.t.Y();
+    LOG_DEBUG << mi.matCoeff[0] << " " << mi.matCoeff[1] << " " << mi.matCoeff[2] << " " << mi.matCoeff[3];
+
     double error = 0;
     for (unsigned i = 0; i < bpa.size(); ++i) {
         error += (bpa[i] - mi.Apply(bpb[i])).Norm();
@@ -549,6 +612,15 @@ void AtlasClustering::Merge()
             }
         }
 
+        Mesh ma;
+        CopyToMesh(*merge_a, ma);
+        Mesh mb;
+        CopyToMesh(*merge_b, mb);
+
+        tri::io::Exporter<Mesh>::Save(ma, "ma.ply", tri::io::Mask::IOM_WEDGTEXCOORD | tri::io::Mask::IOM_VERTFLAGS);
+        tri::io::Exporter<Mesh>::Save(mb, "mb.ply", tri::io::Mask::IOM_WEDGTEXCOORD | tri::io::Mask::IOM_VERTFLAGS);
+
+
         vertmesh.Clear();
         for (auto p : bpa) {
             auto vi = tri::Allocator<Mesh>::AddVertex(vertmesh, vcg::Point3d(p.X(), p.Y(), 0));
@@ -573,11 +645,15 @@ void AtlasClustering::Merge()
 
     state = Merged;
 
+    merge_t += t.TimeElapsed();
+
     OptimizeAfterMerge();
 }
 
 void AtlasClustering::OptimizeAfterMerge()
 {
+    Timer t;
+
     LOG_DEBUG << "    Running step OptimizeAfterMerge()";
 
     ensure_condition(offsetVec.size() > 0);
@@ -592,6 +668,8 @@ void AtlasClustering::OptimizeAfterMerge()
     //shell.ClearAttributes();
     BuildShell(shell, *merge_a, ParameterizationGeometry::Texture, false);
     ClearHoleFillingFaces(shell, true, true);
+
+    shell_0_t += t.TimeElapsed();
 
     // Copy the texture coordinates per wedge from the clustered chart
     for (unsigned i = 0; i < merge_a->FN(); ++i) {
@@ -615,6 +693,8 @@ void AtlasClustering::OptimizeAfterMerge()
 
     int vn = shell.vn;
 
+    shell_1_t += t.TimeElapsed();
+
     tri::AttributeSeam::SplitVertex(shell, vExt, vCmp);
     if (shell.VN() != vn) {
         tri::Allocator<Mesh>::CompactEveryVector(shell);
@@ -622,11 +702,16 @@ void AtlasClustering::OptimizeAfterMerge()
         tri::UpdateTopology<Mesh>::VertexFace(shell);
     }
 
+    SyncShellWithUV(shell);
+
+    /*
     for (auto& sf : shell.face)
         for (int i = 0; i < 3; ++i)
             sf.V(i)->T() = sf.WT(i);
+            */
 
-    SyncShellWithUV(shell);
+
+    shell_2_t += t.TimeElapsed();
 
 #ifdef DEBUG_SAVES
     init.Clear();
@@ -670,6 +755,10 @@ void AtlasClustering::OptimizeAfterMerge()
         tri::UpdateTopology<Mesh>::VertexFace(shell);
     }
 
+    shell_3_t += t.TimeElapsed();
+
+    Timer arap_timer;
+
     LOG_DEBUG << "Building ARAP object...";
     ARAP arap(shell);
     arap.SetMaxIterations(50);
@@ -693,13 +782,10 @@ void AtlasClustering::OptimizeAfterMerge()
     LOG_DEBUG << "Solving...";
     arap.Solve();
 
-    SyncShellWithUV(shell);
+    move_arap_t = arap_timer.TimeElapsed();
+    total_arap_t += move_arap_t;
 
-#ifdef DEBUG_SAVES
-    accept.Clear();
-    accept.ClearAttributes();
-    tri::Append<Mesh, Mesh>::MeshCopy(accept, shell);
-#endif
+    SyncShellWithUV(shell);
 
     LOG_DEBUG << "Syncing chart...";
 
@@ -710,6 +796,35 @@ void AtlasClustering::OptimizeAfterMerge()
         for (int k = 0; k < 3; ++k)
             f.WT(k).P() = sf.V(k)->T().P();
     }
+
+#ifdef DEBUG_SAVES
+    accept.Clear();
+    accept.ClearAttributes();
+
+    BuildShell(accept, *merge_a, ParameterizationGeometry::Texture, false);
+    ClearHoleFillingFaces(accept, true, true);
+
+    int vn = shell.VN();
+    tri::AttributeSeam::SplitVertex(accept, vExt, vCmp);
+    if (accept.VN() != vn) {
+        tri::Allocator<Mesh>::CompactEveryVector(accept);
+        tri::UpdateTopology<Mesh>::FaceFace(accept);
+        tri::UpdateTopology<Mesh>::VertexFace(accept);
+    }
+
+    /*
+    for (auto& sf : shell.face)
+        for (int i = 0; i < 3; ++i)
+            sf.V(i)->T() = sf.WT(i);
+            */
+
+    SyncShellWithUV(accept);
+
+    //tri::Append<Mesh, Mesh>::MeshCopy(accept, shell);
+#endif
+
+
+    opt_t += t.TimeElapsed();
 }
 
 static bool SegmentBoxIntersection(const Segment2<double>& seg, const Box2d& box)
@@ -723,8 +838,7 @@ static bool SegmentBoxIntersection(const Segment2<double>& seg, const Box2d& box
     if (SegmentSegmentIntersection(seg, Segment2<double>{c1, c2}, isec)) return true;
     if (SegmentSegmentIntersection(seg, Segment2<double>{c2, c3}, isec)) return true;
     if (SegmentSegmentIntersection(seg, Segment2<double>{c3, c4}, isec)) return true;
-    if (SegmentSegmentIntersection(seg, Segment2<double>{c4, c2}, isec)) return true;
-    if (SegmentSegmentIntersection(seg, Segment2<double>{c1, c2}, isec)) return true;
+    if (SegmentSegmentIntersection(seg, Segment2<double>{c4, c1}, isec)) return true;
 
     // if the segment does not intersect the sides, check if it is fully contained in the box
     return (box.min[0] <= std::min(seg.P0()[0], seg.P1()[0]) &&
@@ -734,11 +848,11 @@ static bool SegmentBoxIntersection(const Segment2<double>& seg, const Box2d& box
 }
 
 #include "texture_rendering.h"
-static bool OverlapCheck(ChartHandle merge_a)
+static bool OverlapCheck(ChartHandle merge_a, double frac)
 {
     RasterizedParameterizationStats stats = GetRasterizationStats(merge_a, 1024, 1024);
     double fraction = stats.lostFragments / (double) stats.totalFragments;
-    if (fraction > 0.005) {
+    if (fraction > frac) {
         LOG_VERBOSE << "OverlapCheck() failed, overlap fraction = " << fraction << ")";
         return false;
     }
@@ -748,24 +862,35 @@ static bool OverlapCheck(ChartHandle merge_a)
 #ifdef RASTERIZATION_BASED_OVERLAP_CHECK
 bool AtlasClustering::PostCheck()
 {
+    Timer t;
     LOG_DEBUG << "    Running step PostCheck()";
     ensure_condition(state == Merged);
     state = Acceptable;
 
+    const double fail_threshold = 0.005;
+
     RasterizedParameterizationStats stats = GetRasterizationStats(merge_a, 1024, 1024);
     double fraction = stats.lostFragments / (double) stats.totalFragments;
-    if (fraction > 0.005) {
+    if (fraction > fail_threshold) {
         LOG_VERBOSE << "PostCheck() failed, overlap fraction = " << fraction << ")";
-        return false;
+        post_failed++;
     }
-    return true;
+
+    post_t += t.TimeElapsed();
+
+    return !(fraction > fail_threshold);
 }
 #else
 bool AtlasClustering::PostCheck()
 {
+    Timer t;
+
     LOG_DEBUG << "    Running step PostCheck()";
     ensure_condition(state == Merged);
     state = Acceptable;
+
+    MyMesh em1;
+    MyMesh em2;
 
     /* retrieve a collection of non-seam edges using the fact that the ids of the
      * faces of merge_a have not been updated yet. Then check using a hashgrid
@@ -786,9 +911,61 @@ bool AtlasClustering::PostCheck()
             if (IsBorderUV(fptr, i)) {
                 int k = (idf == merge_a->id) ? 0 : 1;
                 edges[k].push_back(EdgeUV(fptr->WT(i).P(), fptr->WT((i+1)%3).P()));
+                vcg::Point2d p1 = fptr->WT(i).P();
+                vcg::Point2d p2 = fptr->WT((i+1)%3).P();
+                if (k == 0)
+                    tri::Allocator<MyMesh>::AddEdge(em1, vcg::Point3d(p1.X(), p1.Y(), 0), vcg::Point3d(p2.X(), p2.Y(), 0));
+                else
+                    tri::Allocator<MyMesh>::AddEdge(em2, vcg::Point3d(p1.X(), p1.Y(), 0), vcg::Point3d(p2.X(), p2.Y(), 0));
             }
         }
     }
+
+    /*
+    bool check = false;
+    for (auto fptr : merge_a->fpVec) {
+        if (tri::Index(g->mesh, fptr) == 144098)
+            check = true;
+    }
+
+    if (check) {
+        static int i = 0;
+        std::string n1 = "em1_" + std::to_string(i) + ".ply";
+        std::string n2 = "em2_" + std::to_string(i) + ".ply";
+        tri::io::Exporter<MyMesh>::Save(em1, n1.c_str(), tri::io::Mask::IOM_VERTCOORD | tri::io::Mask::IOM_EDGEINDEX);
+        tri::io::Exporter<MyMesh>::Save(em2, n2.c_str(), tri::io::Mask::IOM_VERTCOORD | tri::io::Mask::IOM_EDGEINDEX);
+
+        auto vExt = [](const Mesh& msrc, const MeshFace& f, int k, const Mesh& mdst, MeshVertex& v) {
+            (void) msrc;
+            (void) mdst;
+            v.ImportData(*(f.cV(k)));
+            v.T() = f.cWT(k);
+        };
+        auto vCmp = [](const Mesh& mdst, const MeshVertex& v1, const MeshVertex& v2) {
+            (void) mdst;
+            return v1.T() == v2.T();
+        };
+
+        Mesh shell;
+        BuildShell(shell, *merge_a, ParameterizationGeometry::Texture, false);
+        ClearHoleFillingFaces(shell, true, true);
+
+        int vn = shell.VN();
+        tri::AttributeSeam::SplitVertex(shell, vExt, vCmp);
+        if (shell.VN() != vn) {
+            tri::Allocator<Mesh>::CompactEveryVector(shell);
+            tri::UpdateTopology<Mesh>::FaceFace(shell);
+            tri::UpdateTopology<Mesh>::VertexFace(shell);
+        }
+
+        SyncShellWithUV(shell);
+
+        std::string sn = "shell_" + std::to_string(i) + ".ply";
+        tri::io::Exporter<Mesh>::Save(shell, sn.c_str(), tri::io::Mask::IOM_VERTCOORD);
+
+        i++;
+    }
+    */
 
     using SegmentID = std::pair<int, int>;
 
@@ -835,8 +1012,8 @@ bool AtlasClustering::PostCheck()
                  * BEFORE the merge took place. Note however that this is only
                  * valid if the post-merge optimization leaves the boundary
                  * unchanged (which as of now is not guaranteed...) */
-                //if (i1.first == i2.first)
-                //    continue;
+                if (i1.first == i2.first)
+                    continue;
 
                 Segment2<double> s1 = edges[i1.first][i1.second];
                 Segment2<double> s2 = edges[i2.first][i2.second];
@@ -847,12 +1024,15 @@ bool AtlasClustering::PostCheck()
                     LOG_DEBUG << "( " <<  s1.P0()[0] << " , " << s1.P0()[1] << " ) (" << s1.P1()[0] << " , " << s1.P1()[1] << " )";
                     LOG_DEBUG << "( " <<  s2.P0()[0] << " , " << s2.P0()[1] << " ) (" << s2.P1()[0] << " , " << s2.P1()[1] << " )";
                     LOG_DEBUG << intersectionPoint[0] << " , " << intersectionPoint[1];
+                    post_failed++;
+                    post_t += t.TimeElapsed();
                     return false;
                 }
             }
         }
     }
 
+    post_t += t.TimeElapsed();
     return true;
 }
 #endif
@@ -1002,11 +1182,12 @@ void AtlasClustering::AcceptMove()
 
     g->charts.erase(merge_b->id);
 
-    static int i = 0;
-    LOG_DEBUG << "Accepted move " << merge_a->id << " <- " << merge_b->id << " (" << i++ << " total)";
+    total_accepted++;
+    active_arap_t += move_arap_t;
+    LOG_DEBUG << "Accepted move " << merge_a->id << " <- " << merge_b->id << " (" << total_accepted << " total)";
 
 #ifdef DEBUG_SAVES
-    DumpDebugMeshes(i);
+    DumpDebugMeshes(total_accepted);
 #endif
 
     moves.erase(currentMove);
@@ -1017,7 +1198,7 @@ void AtlasClustering::AcceptMove()
 void AtlasClustering::RejectMove()
 {
     LOG_DEBUG << "    Running step RejectMove()";
-    ensure_condition(state == Acceptable || state == Unacceptable || state == TopologicallyUnfeasible);
+    ensure_condition(state == Acceptable || state == Unacceptable || state == Unfeasible);
 
     /* To revert the move:
      *   Assuming n faces have been added from b to a:
@@ -1027,6 +1208,29 @@ void AtlasClustering::RejectMove()
      * queue.
      * Finally, update the state of the object */
     if (state == Acceptable || state == Unacceptable) {
+
+#ifdef DEBUG_SAVES
+        if (savedWtA.size() == 6) {
+            LOG_DEBUG << savedWtA[0] << " , " << savedWtA[1];
+            LOG_DEBUG << savedWtA[2] << " , " << savedWtA[3];
+            LOG_DEBUG << savedWtA[4] << " , " << savedWtA[5];
+
+        }
+
+        if (savedWtB.size() == 6) {
+            LOG_DEBUG << savedWtB[0] << " , " << savedWtB[1];
+            LOG_DEBUG << savedWtB[2] << " , " << savedWtB[3];
+            LOG_DEBUG << savedWtB[4] << " , " << savedWtB[5];
+
+        }
+
+        if (savedWtA.size() == 6 || savedWtB.size() == 6) {
+            DumpDebugMeshes(total_rejected);
+            assert(0);
+        }
+#endif
+
+
 
         merge_a->fpVec.erase(merge_a->fpVec.end() - merge_b->FN(), merge_a->fpVec.end());
         double *uvptra = savedWtA.data();
@@ -1070,6 +1274,7 @@ void AtlasClustering::RejectMove()
     }
 
     ResetMoveState();
+    total_rejected++;
 }
 
 
@@ -1085,6 +1290,7 @@ void AtlasClustering::Run(std::size_t targetAtlasSize, double smallRegionAreaThr
     double minChartArea = smallRegionAreaThreshold * g->Area3D();
 
 
+    /*
     LOG_DEBUG << "State dump";
     LOG_DEBUG << "Number of nodes: " << g->charts.size() << " (node list follows)";
     for (auto& entry : g->charts) {
@@ -1094,6 +1300,7 @@ void AtlasClustering::Run(std::size_t targetAtlasSize, double smallRegionAreaThr
     for (const auto& entry : moves) {
         LOG_DEBUG << entry.first.a->id << " " << entry.first.b->id << " | w = " << entry.second;
     }
+    */
 
     int mergeCount;
     int moveCount;
@@ -1145,6 +1352,26 @@ void AtlasClustering::Run(std::size_t targetAtlasSize, double smallRegionAreaThr
         LOG_DEBUG << entry.first.a->id << " " << entry.first.b->id << " | w = " << entry.second;
     }
 
+    LOG_DEBUG << " --- Execution stats ---";
+    LOG_DEBUG << "\tAttempted moves: " << total_accepted + total_rejected;
+    LOG_DEBUG << "\tAccepted moves: " << total_accepted;
+    LOG_DEBUG << "\tRejected moves: " << total_rejected;
+    LOG_DEBUG << "\tFailed feasibility checks: " << feasibility_failed;
+    LOG_DEBUG << "\tFailed post checks: " << post_failed;
+    LOG_DEBUG << "\tINIT time: " << init_t;
+    LOG_DEBUG << "\tCHECK time: " << check_t;
+    LOG_DEBUG << "\tMERGE time: " << merge_t;
+    LOG_DEBUG << "\tOPT time: " << opt_t;
+
+    LOG_DEBUG << "\t\tSHELL0 time: " << shell_0_t;
+    LOG_DEBUG << "\t\tSHELL1 time: " << shell_1_t;
+    LOG_DEBUG << "\t\tSHELL2 time: " << shell_2_t;
+    LOG_DEBUG << "\t\tSHELL3 time: " << shell_3_t;
+    LOG_DEBUG << "\t\tARAP time (total): " << total_arap_t;
+    LOG_DEBUG << "\t\tARAP time (active): " << active_arap_t;
+
+    LOG_DEBUG << "\tPOST time: " << post_t;
+
 }
 
 bool AtlasClustering::Valid(const WeightedClusteringMove& wm) const
@@ -1180,7 +1407,7 @@ bool AtlasClustering::InitializeNextMove()
 
 bool AtlasClustering::ExecuteInitializedMove()
 {
-    ensure_condition(state == MoveState::TopologicallyFeasible);
+    ensure_condition(state == MoveState::Feasible);
     Merge();
     if (PostCheck()) {
         AcceptMove();

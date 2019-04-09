@@ -92,7 +92,11 @@ class AtlasClustering {
     /* The boundary chains linked to the various moves */
     std::unordered_map<ClusteringMove, BoundaryChain, ClusteringMoveHasher> chains;
 
+    /* The cumulative time spent solving ARAP systems */
+    double total_arap_t;
 
+    /* The cumulative time spent solving ARAP systems for ACCEPTED moves */
+    double active_arap_t;
 
 
     //bool AddMove(ChartHandle c1, ChartHandle c2, bool replace);
@@ -126,8 +130,8 @@ class AtlasClustering {
     enum MoveState {
         Uninitialized,
         Initialized,
-        TopologicallyFeasible,
-        TopologicallyUnfeasible,
+        Feasible,
+        Unfeasible,
         Merged,
         Acceptable,
         Unacceptable
@@ -160,6 +164,17 @@ class AtlasClustering {
     std::vector<double> savedWtA;
     std::vector<double> savedWtB;
 
+    double move_arap_t;
+    double init_t;
+    double check_t;
+    double merge_t;
+    double opt_t;
+    double post_t;
+    double shell_0_t;
+    double shell_1_t;
+    double shell_2_t;
+    double shell_3_t;
+
     void ResetMoveState();
 
     /* Initializes the current move that the clustering algorithm is performing.
@@ -168,11 +183,11 @@ class AtlasClustering {
 
     /* Checks if the move is topologically feasible (whether or not the merge of
      * the two charts results in a topological disk
-     * StateChange: Initialized -> Topologically(Feasible | Unfeasible) */
+     * StateChange: Initialized -> Feasible | Unfeasible */
     bool CheckFeasibility();
 
     /* Merges the two charts into one.
-     * State change: TopologicallyFeasible -> Merged */
+     * State change: Feasible -> Merged */
     void Merge();
 
     /* Internal step, runs ARAP after merging and stitching */
@@ -191,8 +206,7 @@ class AtlasClustering {
 
     /* Rejects the move, reverting any side effect that may have occurred while
      * performing the previous steps.
-     * State change: Acceptable | Unacceptable | TopologicallyUnfeasible
-     *                                                       -> Uninitialized */
+     * State change: Acceptable | Unacceptable | Unfeasible -> Uninitialized */
     void RejectMove();
 
     /* Returns the current move */
