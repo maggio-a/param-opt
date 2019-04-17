@@ -47,13 +47,46 @@
 //#define DEBUG_SAVES
 //#define RASTERIZATION_BASED_OVERLAP_CHECK
 
-
+// tolerance on the expansion of 'hot' vertices
 static constexpr double OFFSET_TOLERANCE = 5.0;
+
+// alignment error threshold
+static constexpr double ERROR_THRESHOLD = 20;
+
 
 static int feasibility_failed = 0;
 static int post_failed = 0;
 static int total_accepted = 0;
 static int total_rejected = 0;
+
+/*
+ * Algoritmo per chiudere i T-Vertex UV
+ *
+ * Ripetere fino a quando non ho visitato tutti i seam: (Nota, ci sono situazioni dove _|=
+ *
+ *   Trovo un self-seam (cioe' un seam edge che incide su due facce della stessa
+ *   regione)
+ *   Espando la visita del seam in entrambe le direzioni
+ *     Conidizione di arresto della visita: il seam prosegue in due direzioni diverse (a), oppure termina (b)
+ *   SE (a) AND (a) Questo segmento non e' un self seam
+ *   SE (b) AND (b) Molto strano, e' un self seam chiuso che probabilmente non serve a niente
+ *   SE (a) AND (b)
+ *       Trovato un T-Vertex UV e relativo seam. Se l'errore dovuto alla fusione dei vertici e' basso, lo chiudo
+ *
+ * ------------------------------------------------------------------------------------------------------------
+ *
+ * Algoritmo per allineare e fare il merge:
+ * Abbiamo una soglia di errore T_err sopra la quale abbiamo deciso che il merge non va fatto pena
+ * l'introduzione di troppo errore. Ora quello che facciamo e' fare la fusione solo se l'errore
+ * medio sta sotto T_err.
+ * Alternativa: fondiamo solo la parte di catena che sta entro l'errore. Teniamo un sottosegmento di
+ * seam che e' la parte attiva, ed espandiamo fintanto che l'allineamento sta sotto la soglia.
+ * Inizialmente la parte attiva e' l'edge il cui allineamento induce errore minimo. Dopodiche' espandiamo
+ * mantenendo l'errore sotto la soglia fino a quando possiamo. Questo offre 3 garanzie:
+ *   1. L'errore finale e' basso
+ *   2. Il segmento di seam che andiamo ad attaccare e' continuo.
+ * L'unica noia riguarda situazioni in cui ci sono salti (di nuovo, sigh...)
+ * */
 
 #ifdef DEBUG_SAVES
 
@@ -117,6 +150,171 @@ int RegularizeChain(std::vector<PosF>& chain1, std::vector<PosF>& chain2)
     chain2 = newChain2;
 
     return szdiff;
+}
+
+/* This function greedily reduces the boundary chain to the largest subchain
+ * whose matching error stays within the given tolerance error e_align.
+ *
+ * Things to note:
+ *
+ *  - Much like the full chain, the subchain can contain jumps. The subchain is
+ *    simply a subsequence of the full chain.
+ *
+ *  - CRITICAL puo succedere che quando c'e' tanto disallineamento, la procedura
+ *    riduce via via fino a lasciare solo un edge. Questo e' un caso sconveniente
+ *    che andrebbe penalizzato (o meglio, evitato del tutto), visto che inserisce
+ *    in coda mosse a basso costo che pero' attaccano regioni molto larghe con pochi
+ *    edges
+ * */
+void reduce_chain(BoundaryChain& chain, double err_threshold)
+{
+    std::vector<PosF> pos_a = chain.pos_a;
+    std::vector<PosF> pos_b = chain.pos_b;
+
+    unsigned sz = pos_a.size();
+    ensure_condition(sz > 0);
+    ensure_condition(pos_a.size() == pos_b.size());
+
+    unsigned bottom_ind = 0xFFFFFFFF; // the lowest index of the matching
+    unsigned top_ind = 0xFFFFFFFF;    // top index of the matching
+
+    double err = std::numeric_limits<double>::max();
+
+    /* Initialization
+     *
+     * We need find the 'best' matched edge, which is simply the edge with the
+     * smallest disparity in the uv length of each half edge */
+
+    for (unsigned i = 0; i < sz; ++i) {
+        PosF pa = pos_a[i];
+        PosF pb = pos_b[i];
+        double err_i = EdgeLengthUV(*pa.F(), pa.E()) - EdgeLengthUV(*pb.F(), pb.E());
+        if (err_i < err) {
+            bottom_ind = i;
+            top_ind = i;
+        }
+    }
+
+    ensure_condition(bottom_ind < sz);
+
+    /* Expansion
+     *
+     * Starting from the initialized edge, we iteratively expand the extent of
+     * the subchain while keeping the overall average error of the matching
+     * below the given threshold */
+
+    std::vector<vcg::Point2d> seq_a;
+    std::vector<vcg::Point2d> seq_b;
+
+    double matching_error;
+
+    {
+        PosF pa = pos_a[bottom_ind];
+        PosF pb = pos_b[bottom_ind];
+
+        // first insert the 'flipped' position
+        pa.FlipV();
+        pb.FlipV();
+        seq_a.push_back(pa.F()->WT(pa.VInd()).P());
+        seq_b.push_back(pb.F()->WT(pb.VInd()).P());
+
+        // then insert the 'forward' position
+        pa.FlipV();
+        pb.FlipV();
+        seq_a.push_back(pa.F()->WT(pa.VInd()).P());
+        seq_b.push_back(pb.F()->WT(pb.VInd()).P());
+
+        MatchingInfo matching = ComputeMatchingRigidMatrix(seq_a, seq_b);
+        matching_error = MatchingError(matching, seq_a, seq_b);
+    }
+
+    while (true) {
+        double err_top = std::numeric_limits<double>::max();
+        unsigned top_iter = top_ind + 1;
+
+        vcg::Point2d top_point_a = vcg::Point2d::Zero();
+        vcg::Point2d top_point_b = vcg::Point2d::Zero();
+
+        if (top_iter < sz) {
+            top_point_a = pos_a[top_iter].F()->WT(pos_a[top_iter].VInd()).P();
+            top_point_b = pos_b[top_iter].F()->WT(pos_b[top_iter].VInd()).P();
+
+            // expand up and compute error
+
+            std::vector<vcg::Point2d> sa = seq_a;
+            std::vector<vcg::Point2d> sb = seq_b;
+            sa.push_back(top_point_a);
+            sb.push_back(top_point_b);
+            MatchingInfo matching = ComputeMatchingRigidMatrix(sa, sb);
+            err_top = MatchingError(matching, sa, sb);
+
+        }
+
+        double err_bottom = std::numeric_limits<double>::max();
+        unsigned bottom_iter = 0xFFFFFFFF;
+
+        vcg::Point2d bottom_point_a = vcg::Point2d::Zero();
+        vcg::Point2d bottom_point_b = vcg::Point2d::Zero();
+
+        if (bottom_ind > 0) {
+            bottom_iter = bottom_ind - 1;
+            PosF pa = pos_a[bottom_iter];
+            PosF pb = pos_b[bottom_iter];
+            pa.FlipV();
+            pb.FlipV();
+            bottom_point_a = pa.F()->WT(pa.VInd()).P();
+            bottom_point_b = pb.F()->WT(pb.VInd()).P();
+
+            // expand down and compute error
+
+            std::vector<vcg::Point2d> sa;
+            std::vector<vcg::Point2d> sb;
+            sa.push_back(bottom_point_a);
+            sa.insert(sa.end(), seq_a.begin(), seq_a.end());
+            sb.push_back(bottom_point_b);
+            sb.insert(sb.end(), seq_b.begin(), seq_b.end());
+            MatchingInfo matching = ComputeMatchingRigidMatrix(sa, sb);
+            err_bottom = MatchingError(matching, sa, sb);
+        }
+
+        // If the error is above the threshold, break
+        if (err_top > err_threshold && err_bottom > err_threshold)
+            break;
+
+        unsigned k = (err_top < err_bottom) ? top_iter : bottom_iter;
+        if (k < sz) {
+            if (k < bottom_ind) {
+                bottom_ind = k;
+                // add points to the chain
+                seq_a.insert(seq_a.begin(), bottom_point_a);
+                seq_b.insert(seq_b.begin(), bottom_point_b);
+                matching_error = err_bottom;
+            } else {
+                ensure_condition(k > top_ind);
+                top_ind = k;
+                // add points to the chain
+                seq_a.push_back(top_point_a);
+                seq_b.push_back(top_point_b);
+                matching_error = err_top;
+            }
+        } else {
+            break;
+        }
+    }
+
+    /* Restrict the chain to the subsequence [bottom_ind, top_ind].
+     * If the error is above the threshold then the while loop exited at the
+     * first iteration and we just clear the chain */
+
+    if (matching_error > err_threshold) {
+        chain.pos_a.clear();
+        chain.pos_b.clear();
+    } else {
+        chain.pos_a.erase(chain.pos_a.begin(), chain.pos_a.begin() + bottom_ind);
+        chain.pos_b.erase(chain.pos_b.begin(), chain.pos_b.begin() + bottom_ind);
+        chain.pos_a.erase(chain.pos_a.begin() + top_ind, chain.pos_a.end());
+        chain.pos_b.erase(chain.pos_b.begin() + top_ind, chain.pos_b.end());
+    }
 }
 
 void ConvertChainToPoints(const BoundaryChain& chain, std::vector<Point2d>& boundary_a, std::vector<Point2d>& boundary_b)
@@ -214,6 +412,76 @@ BoundaryChain ExtractBoundaryChain(Mesh& m, ChartHandle a, ChartHandle b)
     return chain;
 }
 
+static std::pair<vcg::Point2d, double> ComputeStitchedUvPosition(Mesh& m, const Mesh::VertexPointer vp, RegionID id_a, RegionID id_b, Mesh::PerFaceAttributeHandle<RegionID>& ccid)
+{
+
+    std::vector<Mesh::FacePointer> faces;
+    std::vector<int> indices;
+    face::VFStarVF(vp, faces, indices);
+    std::vector<Point2d> uvs;
+    for (unsigned k = 0; k < faces.size(); ++k) {
+        if (ccid[faces[k]] == id_a || ccid[faces[k]] == id_b) {
+            uvs.push_back(faces[k]->WT(indices[k]).P());
+        }
+    }
+
+    vcg::Point2d new_uv = std::accumulate(uvs.begin(), uvs.end(), vcg::Point2d::Zero()) / (double) uvs.size();
+
+    double maxOffset = 0;
+    for (unsigned k = 0; k < faces.size(); ++k) {
+        if (ccid[faces[k]] == id_a || ccid[faces[k]] == id_b) {
+            vcg::Point2d uv = faces[k]->WT(indices[k]).P();
+            maxOffset = std::max(maxOffset, (new_uv - uv).Norm());
+            faces[k]->WT(indices[k]).P() = new_uv;
+       }
+    }
+
+    // clear faux flag for edges that are not seams after stitching
+    for (unsigned k = 0; k < faces.size(); ++k) {
+        if (ccid[faces[k]] == id_a || ccid[faces[k]] == id_b) {
+            if (!IsBorderUV(faces[k], indices[k])) {
+                faces[k]->ClearF(indices[k]);
+            }
+            if (!IsBorderUV(faces[k], (indices[k]+2)%3)) {
+                faces[k]->ClearF((indices[k]+2)%3);
+            }
+       }
+    }
+
+    return std::make_pair(new_uv, OFFSET_TOLERANCE * maxOffset);
+}
+
+StitchOffsetVec StitchChain(Mesh& m, const BoundaryChain& chain)
+{
+    auto ccid = GetConnectedComponentIDAttribute(m);
+    StitchOffsetVec offsetVec;
+
+    // first pass, stitch 'forward'
+    for (unsigned i = 0; i < chain.pos_a.size(); ++i) {
+        PosF pa = chain.pos_a[i];
+        //PosF pb = chain.pos_b[i];
+        offsetVec.push_back(ComputeStitchedUvPosition(m, pa.V(), chain.a->id, chain.b->id, ccid));
+        //pa.F()->ClearF(pa.E());
+        //pb.F()->ClearF(pb.E());
+    }
+    // second pass, stitch backward if the forward pass skipped a vertex. This
+    // happens whenever the seam is disconnected and there are jumps in the chain
+    for (unsigned i = 0; i < chain.pos_a.size(); ++i) {
+        PosF ppa = chain.pos_a[i];
+        PosF ppb = chain.pos_b[i];
+        ppa.FlipV();
+        ppb.FlipV();
+        if (ppa.F()->WT(ppa.VInd()).P() != ppb.F()->WT(ppb.VInd()).P()) {
+            offsetVec.push_back(ComputeStitchedUvPosition(m, ppa.V(), chain.a->id, chain.b->id, ccid));
+            //ppa.F()->ClearF(ppa.E());
+            //ppb.F()->ClearF(ppb.E());
+        }
+    }
+
+    return offsetVec;
+}
+
+#if 0
 /* Stitch a BoundaryChain by merging the uv coordinates along edges. This
  * function iterates over each pair of PosF objects, computes a new uv point as
  * the average of the two uv points on each side of the chain, then iterates
@@ -260,12 +528,15 @@ StitchOffsetVec StitchChain(Mesh& m, const BoundaryChain& chain)
         ppb.FlipV();
         unsigned j = (i > 0) ? i-1 : chain.pos_a.size() - 1;
 
+        /*
         PosF pa = chain.pos_a[j];
         PosF pb = chain.pos_b[j];
         bool jmpa = ppa.F()->WT(ppa.VInd()).P() != pa.F()->WT(pa.VInd()).P();
         bool jmpb = ppb.F()->WT(ppb.VInd()).P() != pb.F()->WT(pb.VInd()).P();
+        */
 
-        if (jmpa && jmpb) {
+        //if (jmpa && jmpb) {
+        if (true) {
             vcg::Point2d uva = ppa.F()->WT(ppa.VInd()).P();
             vcg::Point2d uvb = ppb.F()->WT(ppb.VInd()).P();
             vcg::Point2d uv = 0.5 * (uva + uvb);
@@ -285,14 +556,20 @@ StitchOffsetVec StitchChain(Mesh& m, const BoundaryChain& chain)
         }
 
         // Remove the faux flag from the edge pair, since we are closing the seam
-        if (jmpa == jmpb) {
+        /*if (jmpa == jmpb) {
             pa.F()->ClearF(pa.E());
             pb.F()->ClearF(pb.E());
+        }*/
+        if (true) {
+            ppa.F()->ClearF(ppa.E());
+            ppb.F()->ClearF(ppb.E());
         }
+
     }
 
     return offsetVec;
 }
+#endif
 
 
 /* Atlas clustering implementation
@@ -506,14 +783,7 @@ bool AtlasClustering::CheckFeasibility()
 
     MatchingInfo mi = ComputeMatchingRigidMatrix(bpa, bpb);
 
-    double error = 0;
-    for (unsigned i = 0; i < bpa.size(); ++i) {
-        error += (bpa[i] - mi.Apply(bpb[i])).Norm();
-    }
-
-    error = error / (double) bpa.size();
-
-    const double ERROR_THRESHOLD = 20;
+    double error = MatchingError(mi, bpa, bpb);
 
     if (error > ERROR_THRESHOLD) {
         LOG_DEBUG << "Forcing infeasibility because matching error is too high (" << error << ")";
@@ -576,16 +846,7 @@ void AtlasClustering::Merge()
 
     MatchingInfo mi = ComputeMatchingRigidMatrix(bpa, bpb);
 
-    LOG_DEBUG << "Matching info";
-    LOG_DEBUG << mi.t.X() << " " << mi.t.Y();
-    LOG_DEBUG << mi.matCoeff[0] << " " << mi.matCoeff[1] << " " << mi.matCoeff[2] << " " << mi.matCoeff[3];
-
-    double error = 0;
-    for (unsigned i = 0; i < bpa.size(); ++i) {
-        error += (bpa[i] - mi.Apply(bpb[i])).Norm();
-    }
-
-    LOG_DEBUG << "Alignment error is " << error;
+    double error = MatchingError(mi, bpa, bpb);
     merge_a->error += error;
 
     // Align merge_b to merge_a, and change the texture id to match
@@ -666,8 +927,8 @@ void AtlasClustering::OptimizeAfterMerge()
     Mesh shell;
     //shell.Clear();
     //shell.ClearAttributes();
-    BuildShell(shell, *merge_a, ParameterizationGeometry::Texture, false);
-    ClearHoleFillingFaces(shell, true, true);
+    BuildShell(shell, *merge_a, ParameterizationGeometry::Texture, false, false);
+    //ClearHoleFillingFaces(shell, true, true);
 
     shell_0_t += t.TimeElapsed();
 
@@ -801,8 +1062,8 @@ void AtlasClustering::OptimizeAfterMerge()
     accept.Clear();
     accept.ClearAttributes();
 
-    BuildShell(accept, *merge_a, ParameterizationGeometry::Texture, false);
-    ClearHoleFillingFaces(accept, true, true);
+    BuildShell(accept, *merge_a, ParameterizationGeometry::Texture, false, false);
+    //ClearHoleFillingFaces(accept, true, true);
 
     int vn = shell.VN();
     tri::AttributeSeam::SplitVertex(accept, vExt, vCmp);
@@ -947,8 +1208,8 @@ bool AtlasClustering::PostCheck()
         };
 
         Mesh shell;
-        BuildShell(shell, *merge_a, ParameterizationGeometry::Texture, false);
-        ClearHoleFillingFaces(shell, true, true);
+        BuildShell(shell, *merge_a, ParameterizationGeometry::Texture, false, false);
+        //ClearHoleFillingFaces(shell, true, true);
 
         int vn = shell.VN();
         tri::AttributeSeam::SplitVertex(shell, vExt, vCmp);
@@ -1161,8 +1422,7 @@ void AtlasClustering::AcceptMove()
 
         DeleteMove(ClusteringMove(merge_b, ch));
     }
-
-#endif
+#else
 
     for (auto ch : merge_a->adj) {
         ClusteringMove mv(merge_a, ch);
@@ -1177,6 +1437,7 @@ void AtlasClustering::AcceptMove()
         DeleteMove(ClusteringMove(merge_b, ch));
     }
 
+#endif
 
     merge_a->numMerges += merge_b->numMerges + 1;
 
@@ -1283,6 +1544,8 @@ void AtlasClustering::Run(std::size_t targetAtlasSize, double smallRegionAreaThr
 {
     Timer timer;
 
+    tri::UpdateTopology<Mesh>::VertexFace(g->mesh);
+
     ensure_condition(targetAtlasSize > 0);
 
     LOG_INFO << "Atlas clustering: target size is " << targetAtlasSize << ", small area threshold is " << smallRegionAreaThreshold;
@@ -1312,6 +1575,7 @@ void AtlasClustering::Run(std::size_t targetAtlasSize, double smallRegionAreaThr
         moveCount = 0;
 
         while (InitializeNextMove()) {
+            LOG_DEBUG << "Initialized attempt " << total_accepted + total_rejected + 1;
 
             ClusteringMove move = CurrentMove();
             double minNextArea = std::min(move.a->Area3D(), move.b->Area3D());
@@ -1329,6 +1593,7 @@ void AtlasClustering::Run(std::size_t targetAtlasSize, double smallRegionAreaThr
                 if (mergeCount % 50 == 0)
                     LOG_VERBOSE << "Merged " << mergeCount << " regions...";
             }
+
         }
 
         ResetMoveState();
@@ -1337,6 +1602,7 @@ void AtlasClustering::Run(std::size_t targetAtlasSize, double smallRegionAreaThr
                  << " seconds. Attempts: " << moveCount << " Merges: " << mergeCount;
 
         numIter++;
+
 
     } while (mergeCount > 0);
 
